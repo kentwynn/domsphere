@@ -1,77 +1,162 @@
-# Domsphere
+# DomSphere
 
-<a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
+Monorepo powered by Nx.
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is almost ready ✨.
+## Projects (Nx)
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/getting-started/intro#learn-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+apps/
+web/ # Next.js app (site & dashboard)
+api/ # FastAPI + LangServe backend (Python)
 
-## Finish your CI setup
+packages/
+api-client/ # TypeScript types generated from /openapi.json
+sdk/ # Embeddable widget (ESM/CJS + UMD)
+shared/ # Shared TS utilities & types
+ui/ # Shared React UI components
 
-[Click here to finish setting up your workspace!](https://cloud.nx.app/connect/xZk5f7avhA)
+# (generated)
 
-## Run tasks
+dist/ # build outputs
 
-To run tasks with Nx use:
+# (seen in workspace)
 
-```sh
-npx nx <target> <project-name>
-```
+@domsphere/source # internal workspace target (ignore if unused)
 
-For example:
+⸻
 
-```sh
-npx nx build myproject
-```
+## Prerequisites
 
-These targets are either [inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
+• Node 18+ (LTS recommended)
+• npm
+• Python 3.11–3.13
+• (Optional) nx globally: npm i -g nx (you can always use npx nx)
 
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+⸻
 
-## Add new projects
+## Quick Start
 
-While you could add new projects to your workspace manually, you might want to leverage [Nx plugins](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) and their [code generation](https://nx.dev/features/generate-code?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) feature.
+# 1) Install JS deps
 
-To install a new plugin you can use the `nx add` command. Here's an example of adding the React plugin:
+npm install
 
-```sh
-npx nx add @nx/react
-```
+# 2) Create & activate Python venv for the API
 
-Use the plugin's generator to create new projects. For example, to create a new React app or library:
+cd apps/api
+python -m venv .venv
+. .venv/bin/activate
 
-```sh
-# Generate an app
-npx nx g @nx/react:app demo
+# 3) Install API deps (pin as you like)
 
-# Generate a library
-npx nx g @nx/react:lib some-lib
-```
+pip install fastapi uvicorn[standard] langserve sse-starlette langchain pydantic python-multipart
 
-You can use `npx nx list` to get a list of installed plugins. Then, run `npx nx list <plugin-name>` to learn about more specific capabilities of a particular plugin. Alternatively, [install Nx Console](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) to browse plugins and generators in your IDE.
+Tip: When working in the repo root, you can always run Nx targets. The API command below uses the venv interpreter path explicitly so Nx can launch it.
 
-[Learn more about Nx plugins &raquo;](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) | [Browse the plugin registry &raquo;](https://nx.dev/plugin-registry?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+⸻
 
-[Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+## Development Commands
 
-## Install Nx Console
+Start the backend (FastAPI)
 
-Nx Console is an editor extension that enriches your developer experience. It lets you run tasks, generate code, and improves code autocompletion in your IDE. It is available for VSCode and IntelliJ.
+nx serve api
 
-[Install Nx Console &raquo;](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+    •	Exposes: http://localhost:4000
+    •	Health: GET /health
+    •	LangServe playground: /agent/playground/
 
-## Useful links
+Start the web app (Next.js)
 
-Learn more:
+nx serve web
 
-- [Learn more about this workspace setup](https://nx.dev/getting-started/intro#learn-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+    •	Exposes: http://localhost:3000
 
-And join the Nx community:
+Generate API types (OpenAPI → TypeScript)
 
-- [Discord](https://go.nx.dev/community)
-- [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
-- [Our Youtube channel](https://www.youtube.com/@nxdevtools)
-- [Our blog](https://nx.dev/blog?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+nx run api-client:codegen
+
+    •	Requires the API to be running (reads http://localhost:4000/openapi.json).
+
+Build the SDK (ESM+CJS) and UMD bundle
+
+# ESM + CJS (Nx Rollup executor)
+
+nx build sdk
+
+# UMD bundle (separate rollup config)
+
+nx run sdk:bundle-umd
+
+# Everything (ESM+CJS + UMD)
+
+nx run sdk:build-all
+
+    •	Outputs land in: dist/packages/sdk/
+    •	index.esm.js, index.cjs.js, umd/sdk.umd.js
+
+Demo the SDK (UMD)
+
+# Serve the UMD folder
+
+npx http-server dist/packages/sdk/umd -p 8080 -c-1
+
+# Open http://localhost:8080
+
+    •	Demo page: dist/packages/sdk/umd/index.html
+    •	Ensure the API is running (nx serve api).
+
+⸻
+
+## Environment & CORS (dev)
+
+The SDK demo runs on http://localhost:8080. Allow it in FastAPI CORS:
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+CORSMiddleware,
+allow_origins=[
+"http://localhost:3000",
+"http://127.0.0.1:3000",
+"http://localhost:8080",
+"http://127.0.0.1:8080",
+],
+allow_credentials=True,
+allow_methods=["*"],
+allow_headers=["*"],
+)
+
+You may also set window.DOMSPHERE_API_URL in the demo HTML to point the SDK at a specific API URL.
+
+⸻
+
+## Common Flows
+
+• Fresh types for web build: nx run api-client:codegen && nx build web
+• Run web + API separately: nx serve api (term A), nx serve web (term B)
+• Rebuild SDK then test: nx run sdk:build-all && npx http-server dist/packages/sdk/umd -p 8080 -c-1
+
+⸻
+
+## Troubleshooting
+
+• window.DomSphereSDK is not a constructor
+• Ensure packages/sdk/src/index.ts exports default and assigns the UMD global:
+
+export default DomSphereSDK;
+(globalThis as any).DomSphereSDK = DomSphereSDK;
+
+    •	Rebuild UMD: nx run sdk:bundle-umd and hard-reload the page.
+
+    •	CORS errors in the browser
+    •	Update CORSMiddleware origins to include your demo origin (8080).
+    •	Disable caching in the static server: http-server -c-1.
+    •	openapi-typescript fails (500)
+    •	Make sure /openapi.json returns 200 by visiting http://localhost:4000/openapi.json.
+    •	Keep LangServe routes out of schema if needed; provide clean typed endpoints under /v1/*.
+
+⸻
+
+## Nx Tips
+
+• List all projects: nx show projects
+• Show a project’s targets: nx show project <name>
+• Visualize graph: npx nx graph
