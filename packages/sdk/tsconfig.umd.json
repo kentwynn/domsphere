@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.lib.json",
+  "compilerOptions": {
+    "outDir": "../../dist/packages/sdk/umd",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": true
+  }
+}

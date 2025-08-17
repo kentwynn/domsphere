@@ -1,0 +1,37 @@
+{
+  "name": "sdk",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/sdk/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "@nx/rollup:rollup",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/packages/sdk",
+        "project": "packages/sdk/package.json",
+        "main": "packages/sdk/src/index.ts",
+        "tsConfig": "packages/sdk/tsconfig.lib.json",
+        "format": ["esm", "cjs"],
+        "useLegacyTypescriptPlugin": false,
+        "assets": [
+          { "input": "packages/sdk", "glob": "README.md", "output": "." },
+          { "input": "packages/sdk", "glob": "package.json", "output": "." }
+        ]
+      }
+    },
+    "bundle-umd": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "rollup -c packages/sdk/rollup.umd.config.mjs"
+      }
+    },
+    "build-all": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": ["nx build sdk", "nx run sdk:bundle-umd"],
+        "parallel": false
+      }
+    }
+  }
+}

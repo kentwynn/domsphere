@@ -7,12 +7,11 @@ app = FastAPI(title="DomSphere API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000","http://localhost:4200"],
-    allow_credentials=True,
+    allow_origins=["*"],          # dev-only: allow all
+    allow_credentials=False,      # must be False when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # 1) Mount LangServe for playground/dev
 add_routes(app, echo_chain, path="/agent")
 
