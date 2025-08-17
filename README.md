@@ -2,161 +2,216 @@
 
 Monorepo powered by Nx.
 
-## Projects (Nx)
+---
 
-apps/
-web/ # Next.js app (site & dashboard)
-api/ # FastAPI + LangServe backend (Python)
+### Project Structure
 
-packages/
-api-client/ # TypeScript types generated from /openapi.json
-sdk/ # Embeddable widget (ESM/CJS + UMD)
-shared/ # Shared TS utilities & types
-ui/ # Shared React UI components
+**apps/**
 
-# (generated)
+- `web/` — Next.js app (site & dashboard)
+- `api/` — FastAPI + LangServe backend (Python)
 
-dist/ # build outputs
+**packages/**
 
-# (seen in workspace)
+- `api-client/` — TypeScript types generated from `/openapi.json`
+- `sdk/` — Embeddable widget (ESM/CJS + UMD)
+- `shared/` — Shared TS utilities & types
+- `ui/` — Shared React UI components
 
-@domsphere/source # internal workspace target (ignore if unused)
+**(generated)**
 
-⸻
+- `dist/` — build outputs
 
-## Prerequisites
+**(seen in workspace)**
 
-• Node 18+ (LTS recommended)
-• npm
-• Python 3.11–3.13
-• (Optional) nx globally: npm i -g nx (you can always use npx nx)
+- `@domsphere/source` — internal workspace target (ignore if unused)
 
-⸻
+---
 
-## Quick Start
+### Prerequisites
 
-# 1) Install JS deps
+- Node.js 18+ (LTS recommended)
+- npm
+- Python 3.11–3.13
+- _(Optional)_ Nx CLI globally:
+  ```sh
+  npm i -g nx
+  ```
+  You can always use `npx nx` if you prefer not to install globally.
 
-npm install
+---
 
-# 2) Create & activate Python venv for the API
+### Quick Start
 
-cd apps/api
-python -m venv .venv
-. .venv/bin/activate
+#### 1. Install JavaScript dependencies
 
-# 3) Install API deps (pin as you like)
+- In the repo root:
+  ```sh
+  npm install
+  ```
 
-pip install fastapi uvicorn[standard] langserve sse-starlette langchain pydantic python-multipart
+#### 2. Create & activate a Python virtual environment for the API
 
-Tip: When working in the repo root, you can always run Nx targets. The API command below uses the venv interpreter path explicitly so Nx can launch it.
+- In the API directory:
+  ```sh
+  cd apps/api
+  python -m venv .venv
+  . .venv/bin/activate
+  ```
 
-⸻
+#### 3. Install API dependencies
 
-## Development Commands
+- With the venv activated:
+  ```sh
+  pip install fastapi uvicorn[standard] langserve sse-starlette langchain pydantic python-multipart
+  ```
+  _(Pin versions as you like.)_
 
-Start the backend (FastAPI)
+> **Tip:** From the repo root, you can run Nx targets. When running API commands, the venv interpreter path is used so Nx can launch it.
 
-nx serve api
+---
 
-    •	Exposes: http://localhost:4000
-    •	Health: GET /health
-    •	LangServe playground: /agent/playground/
+### Development Commands
 
-Start the web app (Next.js)
+#### Start the backend (FastAPI)
 
-nx serve web
+- Run:
+  ```sh
+  nx serve api
+  ```
+  - Exposes: http://localhost:4000
+  - Health check: `GET /health`
+  - LangServe playground: `/agent/playground/`
 
-    •	Exposes: http://localhost:3000
+#### Start the web app (Next.js)
 
-Generate API types (OpenAPI → TypeScript)
+- Run:
+  ```sh
+  nx serve web
+  ```
+  - Exposes: http://localhost:3000
 
-nx run api-client:codegen
+#### Generate API types (OpenAPI → TypeScript)
 
-    •	Requires the API to be running (reads http://localhost:4000/openapi.json).
+- Run:
+  ```sh
+  nx run api-client:codegen
+  ```
+  - Requires the API to be running (reads from `http://localhost:4000/openapi.json`).
 
-Build the SDK (ESM+CJS) and UMD bundle
+#### Build the SDK (ESM + CJS and UMD)
 
-# ESM + CJS (Nx Rollup executor)
+- ESM + CJS (Nx Rollup executor):
+  ```sh
+  nx build sdk
+  ```
+- UMD bundle (separate Rollup config):
+  ```sh
+  nx run sdk:bundle-umd
+  ```
+- Everything (ESM + CJS + UMD):
+  ```sh
+  nx run sdk:build-all
+  ```
+  - Outputs are in: `dist/packages/sdk/`
+  - Includes: `index.esm.js`, `index.cjs.js`, `umd/sdk.umd.js`
 
-nx build sdk
+#### Demo the SDK (UMD)
 
-# UMD bundle (separate rollup config)
+- Serve the UMD folder:
+  ```sh
+  npx http-server dist/packages/sdk/umd -p 8080 -c-1
+  ```
+- Open [http://localhost:8080](http://localhost:8080)
+  - Demo page: `dist/packages/sdk/umd/index.html`
+  - Ensure the API is running (`nx serve api`)
 
-nx run sdk:bundle-umd
+---
 
-# Everything (ESM+CJS + UMD)
+### Environment & CORS (development)
 
-nx run sdk:build-all
+The SDK demo runs at `http://localhost:8080`. To allow it in FastAPI CORS, add:
 
-    •	Outputs land in: dist/packages/sdk/
-    •	index.esm.js, index.cjs.js, umd/sdk.umd.js
-
-Demo the SDK (UMD)
-
-# Serve the UMD folder
-
-npx http-server dist/packages/sdk/umd -p 8080 -c-1
-
-# Open http://localhost:8080
-
-    •	Demo page: dist/packages/sdk/umd/index.html
-    •	Ensure the API is running (nx serve api).
-
-⸻
-
-## Environment & CORS (dev)
-
-The SDK demo runs on http://localhost:8080. Allow it in FastAPI CORS:
-
+```python
 from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
-CORSMiddleware,
-allow_origins=[
-"http://localhost:3000",
-"http://127.0.0.1:3000",
-"http://localhost:8080",
-"http://127.0.0.1:8080",
-],
-allow_credentials=True,
-allow_methods=["*"],
-allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+```
 
-You may also set window.DOMSPHERE_API_URL in the demo HTML to point the SDK at a specific API URL.
+You may also set `window.DOMSPHERE_API_URL` in the demo HTML to point the SDK at a specific API URL.
 
-⸻
+---
 
-## Common Flows
+### Common Flows
 
-• Fresh types for web build: nx run api-client:codegen && nx build web
-• Run web + API separately: nx serve api (term A), nx serve web (term B)
-• Rebuild SDK then test: nx run sdk:build-all && npx http-server dist/packages/sdk/umd -p 8080 -c-1
+- Fresh types for web build:
+  ```sh
+  nx run api-client:codegen && nx build web
+  ```
+- Run web and API separately in two terminals:
+  ```sh
+  nx serve api
+  # (in another terminal)
+  nx serve web
+  ```
+- Rebuild SDK then test demo:
+  ```sh
+  nx run sdk:build-all && npx http-server dist/packages/sdk/umd -p 8080 -c-1
+  ```
 
-⸻
+---
 
-## Troubleshooting
+### Troubleshooting
 
-• window.DomSphereSDK is not a constructor
-• Ensure packages/sdk/src/index.ts exports default and assigns the UMD global:
+- **`window.DomSphereSDK` is not a constructor**
 
-export default DomSphereSDK;
-(globalThis as any).DomSphereSDK = DomSphereSDK;
+  - Ensure `packages/sdk/src/index.ts` exports default and assigns the UMD global:
+    ```ts
+    export default DomSphereSDK;
+    (globalThis as any).DomSphereSDK = DomSphereSDK;
+    ```
+  - Rebuild UMD:
+    ```sh
+    nx run sdk:bundle-umd
+    ```
+    Then hard-reload the page.
 
-    •	Rebuild UMD: nx run sdk:bundle-umd and hard-reload the page.
+- **CORS errors in the browser**
 
-    •	CORS errors in the browser
-    •	Update CORSMiddleware origins to include your demo origin (8080).
-    •	Disable caching in the static server: http-server -c-1.
-    •	openapi-typescript fails (500)
-    •	Make sure /openapi.json returns 200 by visiting http://localhost:4000/openapi.json.
-    •	Keep LangServe routes out of schema if needed; provide clean typed endpoints under /v1/*.
+  - Update `CORSMiddleware` origins to include your demo origin (`8080`).
+  - Disable caching in the static server:
+    ```sh
+    http-server -c-1
+    ```
 
-⸻
+- **`openapi-typescript` fails (500)**
+  - Ensure `/openapi.json` returns 200 by visiting [http://localhost:4000/openapi.json](http://localhost:4000/openapi.json).
+  - Keep LangServe routes out of schema if needed; provide clean typed endpoints under `/v1/*`.
 
-## Nx Tips
+---
 
-• List all projects: nx show projects
-• Show a project’s targets: nx show project <name>
-• Visualize graph: npx nx graph
+### Nx Tips
+
+- List all projects:
+  ```sh
+  nx show projects
+  ```
+- Show a project’s targets:
+  ```sh
+  nx show project <name>
+  ```
+- Visualize dependency graph:
+  ```sh
+  npx nx graph
+  ```
