@@ -1,6 +1,6 @@
 # DomSphere
 
-Monorepo powered by Nx.
+DomSphere is a full-stack platform for building, deploying, and sharing intelligent web agents—combining a modern Next.js frontend, a FastAPI backend powered by LangServe, and a robust SDK for seamless integration. The project uses a monorepo (managed by Nx) to unify all core apps and packages, enabling tight integration, shared code, and streamlined development across the web UI, backend API, SDK, and reusable UI components.
 
 ---
 
