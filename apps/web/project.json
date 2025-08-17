@@ -14,9 +14,18 @@
         "buildLibsFromSource": true,
         "nextConfig": "apps/web/next.config.js"
       },
+      "dependsOn": ["api-client:codegen"],
       "configurations": {
         "production": {}
       }
+    },
+    "export": {
+      "executor": "@nx/next:export",
+      "options": {
+        "buildTarget": "web:build",
+        "outdir": "dist/apps/web/exported"
+      },
+      "dependsOn": ["api-client:codegen"]
     },
     "serve": {
       "executor": "@nx/next:server",
@@ -33,18 +42,9 @@
         }
       }
     },
-    "export": {
-      "executor": "@nx/next:export",
-      "options": {
-        "buildTarget": "web:build",
-        "outdir": "dist/apps/web/exported"
-      }
-    },
     "lint": {
       "executor": "@nx/eslint:lint",
-      "options": {
-        "lintFilePatterns": ["apps/web/**/*.{ts,tsx,js,jsx}"]
-      }
+      "options": { "lintFilePatterns": ["apps/web/**/*.{ts,tsx,js,jsx}"] }
     },
     "test": {
       "executor": "@nx/jest:jest",
@@ -54,6 +54,5 @@
         "passWithNoTests": true
       }
     }
-  },
-  "implicitDependencies": []
+  }
 }
