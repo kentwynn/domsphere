@@ -1,0 +1,720 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "domsphere.contracts",
+  "type": "object",
+  "properties": {
+    "ElementAtlas": {
+      "$ref": "#/definitions/ElementAtlas"
+    },
+    "PlanRequest": {
+      "$ref": "#/definitions/PlanRequest"
+    },
+    "PlanResponse": {
+      "$ref": "#/definitions/PlanResponse"
+    },
+    "DomActionPlan": {
+      "$ref": "#/definitions/DomActionPlan"
+    },
+    "Selector": {
+      "$ref": "#/definitions/Selector"
+    },
+    "ActionStep": {
+      "$ref": "#/definitions/ActionStep"
+    },
+    "Assertion": {
+      "$ref": "#/definitions/Assertion"
+    },
+    "Fallback": {
+      "$ref": "#/definitions/Fallback"
+    }
+  },
+  "definitions": {
+    "ElementAtlas": {
+      "type": "object",
+      "properties": {
+        "atlasVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "title": {
+          "type": "string"
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "snapshotSha256": {
+          "type": "string",
+          "minLength": 16
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tag": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string"
+              },
+              "testid": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ariaLabel": {
+                "type": "string"
+              },
+              "textSnippet": {
+                "type": "string",
+                "maxLength": 160
+              },
+              "cssFingerprint": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "pathFingerprint": {
+                "type": "string",
+                "minLength": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "hrefOriginSafe": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "id",
+              "tag",
+              "pathFingerprint",
+              "visible"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "atlasVersion",
+        "url",
+        "capturedAt",
+        "snapshotSha256",
+        "nodes"
+      ],
+      "additionalProperties": false
+    },
+    "PlanRequest": {
+      "type": "object",
+      "properties": {
+        "siteId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "intent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "atlasVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domSnapshot": {
+          "type": "object",
+          "properties": {
+            "atlasVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "title": {
+              "type": "string"
+            },
+            "capturedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "snapshotSha256": {
+              "type": "string",
+              "minLength": 16
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tag": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "testid": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "ariaLabel": {
+                    "type": "string"
+                  },
+                  "textSnippet": {
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "cssFingerprint": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "pathFingerprint": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "visible": {
+                    "type": "boolean"
+                  },
+                  "hrefOriginSafe": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tag",
+                  "pathFingerprint",
+                  "visible"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "atlasVersion",
+            "url",
+            "capturedAt",
+            "snapshotSha256",
+            "nodes"
+          ],
+          "additionalProperties": false
+        },
+        "doNotStore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "url",
+        "intent",
+        "atlasVersion",
+        "domSnapshot"
+      ],
+      "additionalProperties": false
+    },
+    "PlanResponse": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "agentVersion": {
+          "type": "string"
+        },
+        "planId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "cache": {
+          "type": "string",
+          "enum": [
+            "HIT",
+            "MISS"
+          ]
+        },
+        "plan": {
+          "type": "object",
+          "properties": {
+            "agentVersion": {
+              "type": "string"
+            },
+            "planId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "CLICK",
+                      "INPUT",
+                      "SELECT",
+                      "WAIT",
+                      "SCROLL",
+                      "NAVIGATE"
+                    ]
+                  },
+                  "selector": {
+                    "type": "object",
+                    "properties": {
+                      "strategy": {
+                        "type": "string",
+                        "enum": [
+                          "CSS",
+                          "ARIA",
+                          "XPATH"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "strategy",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "inputValue": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "assert": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "selector": {
+                          "$ref": "#/definitions/PlanResponse/properties/plan/properties/steps/items/properties/selector"
+                        },
+                        "condition": {
+                          "type": "string",
+                          "enum": [
+                            "EXISTS",
+                            "VISIBLE",
+                            "TEXT_CONTAINS"
+                          ]
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "timeoutMs": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        }
+                      },
+                      "required": [
+                        "selector",
+                        "condition"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "action"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1
+            },
+            "fallbacks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "when": {
+                    "type": "string",
+                    "enum": [
+                      "selector_not_found",
+                      "assert_failed"
+                    ]
+                  },
+                  "try": {
+                    "$ref": "#/definitions/PlanResponse/properties/plan/properties/steps/items/properties/selector"
+                  }
+                },
+                "required": [
+                  "when",
+                  "try"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "cacheKey": {
+              "type": "string"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "agentVersion",
+            "planId",
+            "steps"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "sessionId",
+        "agentVersion",
+        "planId",
+        "cache",
+        "plan"
+      ],
+      "additionalProperties": false
+    },
+    "DomActionPlan": {
+      "type": "object",
+      "properties": {
+        "agentVersion": {
+          "type": "string"
+        },
+        "planId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "CLICK",
+                  "INPUT",
+                  "SELECT",
+                  "WAIT",
+                  "SCROLL",
+                  "NAVIGATE"
+                ]
+              },
+              "selector": {
+                "type": "object",
+                "properties": {
+                  "strategy": {
+                    "type": "string",
+                    "enum": [
+                      "CSS",
+                      "ARIA",
+                      "XPATH"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "strategy",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "inputValue": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "assert": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "selector": {
+                      "$ref": "#/definitions/DomActionPlan/properties/steps/items/properties/selector"
+                    },
+                    "condition": {
+                      "type": "string",
+                      "enum": [
+                        "EXISTS",
+                        "VISIBLE",
+                        "TEXT_CONTAINS"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "selector",
+                    "condition"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "fallbacks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "when": {
+                "type": "string",
+                "enum": [
+                  "selector_not_found",
+                  "assert_failed"
+                ]
+              },
+              "try": {
+                "$ref": "#/definitions/DomActionPlan/properties/steps/items/properties/selector"
+              }
+            },
+            "required": [
+              "when",
+              "try"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "cacheKey": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "agentVersion",
+        "planId",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "Selector": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "CSS",
+            "ARIA",
+            "XPATH"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "strategy",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "ActionStep": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "CLICK",
+            "INPUT",
+            "SELECT",
+            "WAIT",
+            "SCROLL",
+            "NAVIGATE"
+          ]
+        },
+        "selector": {
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": [
+                "CSS",
+                "ARIA",
+                "XPATH"
+              ]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "strategy",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "inputValue": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "assert": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "selector": {
+                "$ref": "#/definitions/ActionStep/properties/selector"
+              },
+              "condition": {
+                "type": "string",
+                "enum": [
+                  "EXISTS",
+                  "VISIBLE",
+                  "TEXT_CONTAINS"
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "selector",
+              "condition"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "Assertion": {
+      "type": "object",
+      "properties": {
+        "selector": {
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": [
+                "CSS",
+                "ARIA",
+                "XPATH"
+              ]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "strategy",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "condition": {
+          "type": "string",
+          "enum": [
+            "EXISTS",
+            "VISIBLE",
+            "TEXT_CONTAINS"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "selector",
+        "condition"
+      ],
+      "additionalProperties": false
+    },
+    "Fallback": {
+      "type": "object",
+      "properties": {
+        "when": {
+          "type": "string",
+          "enum": [
+            "selector_not_found",
+            "assert_failed"
+          ]
+        },
+        "try": {
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": [
+                "CSS",
+                "ARIA",
+                "XPATH"
+              ]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "strategy",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "when",
+        "try"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
