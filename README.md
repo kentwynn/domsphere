@@ -24,7 +24,7 @@ DomSphere is a full-stack platform for building, deploying, and sharing intellig
 
 **(seen in workspace)**
 
-- `@domsphere/source` — internal workspace target (ignore if unused)
+- `domsphere` — internal workspace target (ignore if unused)
 
 ---
 
