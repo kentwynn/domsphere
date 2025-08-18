@@ -31,14 +31,12 @@
       "executor": "@nx/next:server",
       "options": {
         "buildTarget": "web:build",
-        "dev": true,
-        "port": 3000
+        "dev": true
       },
       "configurations": {
         "production": {
           "dev": false,
-          "buildTarget": "web:build:production",
-          "port": 3000
+          "buildTarget": "web:build:production"
         }
       }
     },
