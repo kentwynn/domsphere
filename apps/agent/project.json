@@ -1,0 +1,14 @@
+{
+  "name": "agent",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/agent",
+  "projectType": "application",
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cd apps/agent && .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload"
+      }
+    }
+  }
+}

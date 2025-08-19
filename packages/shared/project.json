@@ -21,7 +21,7 @@
     "contracts:py": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "mkdir -p apps/api/models && datamodel-codegen --input contracts/contracts.schema.json --input-file-type jsonschema --output apps/api/models/contracts.py --target-python-version 3.10 --output-model-type pydantic_v2.BaseModel --field-constraints --reuse-model"
+        "command": "mkdir -p apps/agent/models && datamodel-codegen --input contracts/contracts.schema.json --input-file-type jsonschema --output apps/agent/models/contracts.py --target-python-version 3.10 --output-model-type pydantic_v2.BaseModel --field-constraints --reuse-model"
       }
     },
     "contracts": {
