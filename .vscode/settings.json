@@ -1,3 +1,4 @@
 {
-  "python.defaultInterpreterPath": "apps/api/.venv/bin/python"
+  "python.defaultInterpreterPath": ".venv/bin/python",
+  "nxConsole.generateAiAgentRules": true
 }
