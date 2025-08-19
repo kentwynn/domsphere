@@ -1,4 +1,4 @@
-/** ElementAtlas: compact DOM snapshot sent to the planner */
+/** ElementAtlas: compact DOM snapshot sent to the agent */
 export interface AtlasNode {
   id: string; // local unique id
   tag: string; // e.g., 'button', 'input'

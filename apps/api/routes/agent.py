@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Header, HTTPException
 import httpx
 from models.contracts import PlanRequest, PlanResponse
-from clients.planner import call_planner_plan
+from clients.agent import call_agent_plan
 from config import SITE_KEY
 
 router = APIRouter()
@@ -16,9 +16,9 @@ def _validate_site_key(x_site_key: str | None):
 def plan_endpoint(body: PlanRequest, x_site_key: str | None = Header(default=None, alias="X-Site-Key")):
     _validate_site_key(x_site_key)
     try:
-        planner_res = call_planner_plan(body.model_dump())
-        return PlanResponse.model_validate(planner_res)
+        agent_res = call_agent_plan(body.model_dump())
+        return PlanResponse.model_validate(agent_res)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except (httpx.ConnectError, httpx.ReadTimeout):
-        raise HTTPException(status_code=502, detail="Planner unavailable")
+        raise HTTPException(status_code=502, detail="Agent unavailable")
