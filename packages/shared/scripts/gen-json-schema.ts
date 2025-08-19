@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-// Zod schemas
+// Zod schemas (ensure these reflect the NO-ROUTES plan)
 import { ElementAtlasSchema } from '../src/schemas/atlas.schema';
 import {
   ActionStepSchema,
@@ -14,50 +14,64 @@ import {
   SelectorSchema,
 } from '../src/schemas/plan.schema';
 
-// Convert Zod -> JSON Schema
+type JsonSchemaAny = Record<string, unknown>;
+type JSchema = {
+  definitions?: Record<string, JsonSchemaAny>;
+  $defs?: Record<string, JsonSchemaAny>;
+};
+
 const AtlasJS = zodToJsonSchema(ElementAtlasSchema, 'ElementAtlas');
 const PlanReqJS = zodToJsonSchema(PlanRequestSchema, 'PlanRequest');
 const PlanResJS = zodToJsonSchema(PlanResponseSchema, 'PlanResponse');
 const DomPlanJS = zodToJsonSchema(DomActionPlanSchema, 'DomActionPlan');
 const SelectorJS = zodToJsonSchema(SelectorSchema, 'Selector');
-const ActionStepJS = zodToJsonSchema(ActionStepSchema, 'ActionStep');
-const AssertionJS = zodToJsonSchema(AssertionSchema, 'Assertion');
+const ActionJS = zodToJsonSchema(ActionStepSchema, 'ActionStep');
+const AssertJS = zodToJsonSchema(AssertionSchema, 'Assertion');
 const FallbackJS = zodToJsonSchema(FallbackSchema, 'Fallback');
+// const ArrivalJS  = zodToJsonSchema(ArrivalCheckSchema,   'ArrivalCheck');
 
-type JSchema = {
-  definitions?: Record<string, unknown>;
-  $defs?: Record<string, unknown>;
-};
+function extractDefs(schema: unknown): Record<string, JsonSchemaAny> {
+  const js = schema as JSchema;
+  return { ...(js.definitions ?? {}), ...(js.$defs ?? {}) };
+}
 
-// Merge both `definitions` (draft-07) and `$defs` (2020-12) into a single map
-function mergeDefs(...schemas: unknown[]) {
-  const defs: Record<string, unknown> = {};
+// Merge with collision detection + ensure titles stay stable
+function mergeDefsWithChecks(...schemas: unknown[]) {
+  const defs: Record<string, JsonSchemaAny> = {};
   for (const s of schemas) {
-    const js = s as JSchema;
-    const bucket = js.definitions ?? js.$defs;
-    if (bucket) {
-      for (const [k, v] of Object.entries(bucket)) defs[k] = v;
+    const bucket = extractDefs(s);
+    for (const [k, v] of Object.entries(bucket)) {
+      if (defs[k]) {
+        throw new Error(
+          `JSON Schema definition name collision: "${k}". ` +
+            `Rename your Zod schema or pass a unique second arg to zodToJsonSchema().`
+        );
+      }
+      // Add a stable title if missing (helps some generators)
+      if (typeof v === 'object' && v && !('title' in v)) {
+        (v as JsonSchemaAny).title = k;
+      }
+      defs[k] = v;
     }
   }
   return defs;
 }
 
-const definitions = mergeDefs(
+const definitions = mergeDefsWithChecks(
   AtlasJS,
   PlanReqJS,
   PlanResJS,
   DomPlanJS,
   SelectorJS,
-  ActionStepJS,
-  AssertionJS,
+  ActionJS,
+  AssertJS,
   FallbackJS
+  // , ArrivalJS
 );
 
-// Decide which ref bucket we’ll use in the bundled root
+// Decide which ref bucket we’ll use in the bundled root (draft-07)
 const REF_BUCKET = 'definitions' as const;
 
-// Build a root that references the models we want generated.
-// datamodel-codegen will traverse these $refs and emit classes (plus deps).
 const bundled = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   $id: 'domsphere.contracts',
@@ -71,8 +85,20 @@ const bundled = {
     ActionStep: { $ref: `#/${REF_BUCKET}/ActionStep` },
     Assertion: { $ref: `#/${REF_BUCKET}/Assertion` },
     Fallback: { $ref: `#/${REF_BUCKET}/Fallback` },
+    // ArrivalCheck:  { $ref: `#/${REF_BUCKET}/ArrivalCheck` },
   },
-  // Always output draft-07 'definitions' so datamodel-codegen is happy
+  // Optional: force traversal of all top-level models
+  required: [
+    'ElementAtlas',
+    'PlanRequest',
+    'PlanResponse',
+    'DomActionPlan',
+    'Selector',
+    'ActionStep',
+    'Assertion',
+    'Fallback',
+    // ,'ArrivalCheck'
+  ],
   definitions,
 };
 
