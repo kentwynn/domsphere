@@ -17,7 +17,8 @@
     "paths": {
       "@domsphere/sdk": ["packages/sdk/src/index.ts"],
       "@domsphere/ui": ["packages/ui/src/index.ts"]
-    }
+    },
+    "composite": true
   },
   "exclude": ["node_modules", "tmp"]
 }

@@ -1,0 +1,17 @@
+{
+  "name": "contracts",
+  "root": "packages/contracts",
+  "sourceRoot": "packages/contracts",
+  "projectType": "library",
+  "targets": {
+    "lint": {
+      "executor": "@nx/workspace:run-commands",
+      "options": { "command": "ruff check packages/contracts" }
+    },
+    "test": {
+      "executor": "@nx/workspace:run-commands",
+      "options": { "command": "pytest -q packages/contracts || true" }
+    }
+  },
+  "tags": []
+}

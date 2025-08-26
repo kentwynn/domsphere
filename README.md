@@ -13,9 +13,8 @@ DomSphere is a full-stack platform for building, deploying, and sharing intellig
 
 **packages/**
 
-- `api-client/` — TypeScript types generated from `/openapi.json`
+- `contracts/` — Shared Python models (Pydantic) used by both `api` and `agent`
 - `sdk/` — Embeddable widget (ESM/CJS + UMD)
-- `shared/` — Shared TS utilities & types
 - `ui/` — Shared React UI components
 
 **(generated)**
