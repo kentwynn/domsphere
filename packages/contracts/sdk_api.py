@@ -1,12 +1,7 @@
 from __future__ import annotations
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel
-from .common import (
-    Event,
-    DomAtlasSnapshot,
-    NoActionReason,
-    HealthResponse,
-)
+from pydantic import BaseModel, Field, model_validator
+from .common import Event, DomAtlasSnapshot, NoActionReason, HealthResponse
 
 # ==============================================================================
 # /rule/check  (called on EVERY user event; API resolves context internally)
@@ -18,46 +13,99 @@ class RuleCheckRequest(BaseModel):
     event: Event
 
 class RuleCheckResponse(BaseModel):
-    eventType: str                      # e.g., "add_to_cart" | "variant_change" | "unknown"
-    matchedRules: List[str]             # []
+    eventType: str
+    matchedRules: List[str]
     shouldProceed: bool
-    reason: Optional[str] = None        # "no_rule" | "debounced" | "budget" | "plan_missing" | ...
+    reason: Optional[str] = None
 
 # ==============================================================================
-# /suggest/get  (only when shouldProceed==true)
+# /suggest/get  (agent-driven ask/final loop)
 # ==============================================================================
 
-class SuggestionAction(BaseModel):
-    type: str
+TurnStatus = Literal["ask", "final"]
+
+class Action(BaseModel):
+    id: str
     label: str
+    value: Optional[Any] = None
+
+FieldType = Literal["text","number","select","radio","checkbox","textarea","range","toggle"]
+
+class InputOption(BaseModel):
+    value: Any
+    label: str
+
+class FieldSpec(BaseModel):
+    key: str
+    type: FieldType
+    label: str
+    required: bool = False
+    options: Optional[List[InputOption]] = None
+    validation: Optional[Dict[str, Any]] = None
+
+class FormSpec(BaseModel):
+    title: Optional[str] = None
+    fields: List[FieldSpec] = Field(default_factory=list)
+    submitLabel: Optional[str] = "Continue"
+
+class CtaSpec(BaseModel):
+    label: str
+    kind: str = "link"
+    url: Optional[str] = None
+    sku: Optional[str] = None
     payload: Optional[Dict[str, Any]] = None
 
 class Suggestion(BaseModel):
+    type: str
     id: Optional[str] = None
-    type: str                           # "size_fit" | "cross_sell" | "upsell" | "promo" | ...
-    message: str
-    actions: Optional[List[SuggestionAction]] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    image: Optional[str] = None
+    price: Optional[float] = None
+    currency: Optional[str] = None
+    primaryCta: Optional[CtaSpec] = None
+    actions: Optional[List[CtaSpec]] = None
     meta: Optional[Dict[str, Any]] = None
 
-class SuggestGetContext(BaseModel):
-    matchedRules: List[str]
-    eventType: str
+class UIHint(BaseModel):
+    render: Optional[str] = None
+
+class Turn(BaseModel):
+    intentId: str
+    turnId: str
+    status: TurnStatus
+    message: Optional[str] = None
+    actions: Optional[List[Action]] = None
+    form: Optional[FormSpec] = None
+    suggestions: Optional[List[Suggestion]] = None
+    ui: Optional[UIHint] = None
+    ttlSec: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _check_valid(self):
+        if self.status == "ask":
+            if not self.actions and not self.form:
+                raise ValueError("ask turn requires actions or form")
+            if self.suggestions:
+                raise ValueError("ask turn cannot include suggestions")
+        elif self.status == "final":
+            if not self.suggestions:
+                raise ValueError("final turn requires suggestions")
+        return self
 
 class SuggestGetRequest(BaseModel):
     siteId: str
     sessionId: str
-    context: SuggestGetContext
-    userInput: Optional[Dict[str, Any]] = None       # shopper-provided inputs (e.g., heightCm)
+    intentId: Optional[str] = None
+    prevTurnId: Optional[str] = None
+    answers: Optional[Dict[str, Any]] = None
+    context: Dict[str, Any]
 
 class SuggestGetResponse(BaseModel):
-    suggestions: List[Suggestion]
-    trace: Optional[List[str]] = None
-    ttlSec: Optional[int] = None
-    planVersion: Optional[str] = None
-    noActionReason: NoActionReason = None
+    turn: Turn
 
 # ==============================================================================
-# /url/drag  (RAG: crawl URL(s), extract/stash metadata in DB)
+# /url/drag
 # ==============================================================================
 
 class UrlDragOptions(BaseModel):
@@ -70,7 +118,7 @@ class UrlDragRequest(BaseModel):
     siteId: str
     urls: Optional[List[str]] = None
     domain: Optional[str] = None
-    mode: Literal["info", "all"] = "all"   # URL RAG collects info/body/meta
+    mode: Literal["info", "all"] = "all"
     options: Optional[UrlDragOptions] = None
 
 class UrlDragResponse(BaseModel):
@@ -78,7 +126,7 @@ class UrlDragResponse(BaseModel):
     queued: bool = True
 
 # ==============================================================================
-# /page/drag  (DOM Atlas snapshot for selector learning)
+# /page/drag
 # ==============================================================================
 
 class PageDragRequest(BaseModel):
@@ -89,7 +137,7 @@ class PageDragRequest(BaseModel):
 
 class PageDragResponse(BaseModel):
     atlas: Optional[DomAtlasSnapshot] = None
-    normalized: Optional[Dict[str, Any]] = None      # optional normalized page data
+    normalized: Optional[Dict[str, Any]] = None
     queuedPlanRebuild: Optional[bool] = None
 
 # ==============================================================================
