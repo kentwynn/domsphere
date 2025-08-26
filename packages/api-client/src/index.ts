@@ -1,2 +1,1 @@
-export * from './client';
-export type { paths } from './gen/schema';
+export type { components, paths } from './gen';

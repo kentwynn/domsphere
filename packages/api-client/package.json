@@ -2,9 +2,10 @@
   "name": "api-client",
   "version": "0.0.0",
   "exports": {
-    ".": "./index.js",
+    ".": "./src/index.ts",
     "./package.json": "./package.json"
   },
+  "types": "./src/index.ts",
   "scripts": {
     "test": "node index.js"
   }

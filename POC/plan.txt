@@ -1,0 +1,11 @@
+	•	Step 1: User interacts with cart (adds product twice).
+	•	Step 2: SDK sends an event → /rule/check on API.
+	•	Step 3: Mock rule engine returns shouldProceed=true if cart length ≥ 2.
+	•	Step 4: SDK then calls /suggest/get.
+	•	Step 5: API relays to agent /agent/suggest/next.
+	•	Step 6: Agent mock responds with Turn(status="ask") → a prompt like:
+“Want me to find better products for you?” with Yes/No actions.
+	•	Step 7: User clicks “Yes” in SDK.
+	•	Step 8: SDK sends answers back via /suggest/get.
+	•	Step 9: Agent mock responds with Turn(status="final") → suggestion card(s).
+	•	Step 10: SDK displays final suggestion and stops.

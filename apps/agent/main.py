@@ -4,12 +4,15 @@ from routes.health import router as health_router
 from routes.rule import router as rule_router
 from routes.step import router as step_router
 from routes.suggestion import router as suggestion_router
+from routes.mock_routes import router as mock_route
 
 app = FastAPI()
 wire_common(app)
 
-# Mount routers
-app.include_router(health_router)
-app.include_router(rule_router)
-app.include_router(step_router)
-app.include_router(suggestion_router)
+# # Mount routers
+# app.include_router(health_router)
+# app.include_router(rule_router)
+# app.include_router(step_router)
+# app.include_router(suggestion_router)
+
+app.include_router(mock_route)

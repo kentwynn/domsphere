@@ -3,8 +3,13 @@
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
     "declaration": true,
-    "types": ["node"]
+    "declarationMap": true,
+    "types": ["node"],
+    "composite": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts"]
+  "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts"],
+  "references": [
+    { "path": "../api-client/tsconfig.lib.json" }  // 👈 exact file, not just the folder
+  ]
 }
