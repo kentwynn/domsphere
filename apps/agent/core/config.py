@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from contracts.version import CONTRACT_VERSION
 
 def _env_suffix() -> str:
-    # Pick one that’s present; default to local
     return (
         os.getenv("BUILD_ENV")
         or os.getenv("ENV")
@@ -15,11 +14,8 @@ def _env_suffix() -> str:
     )
 
 def _load_env() -> None:
-    suffix = _env_suffix()
-    # repo root relative to this file
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
-    env_path = os.path.join(repo_root, f".env.build.{suffix}")
-    load_dotenv(env_path)
+    load_dotenv(os.path.join(repo_root, f".env.build.{_env_suffix()}"))
 
 _load_env()
 
@@ -27,10 +23,10 @@ def _list(key: str) -> list[str]:
     val = os.getenv(key, "")
     return [v.strip() for v in val.split(",") if v.strip()]
 
-API_ALLOWED_ORIGINS = _list("API_ALLOWED_ORIGINS")
+AGENT_ALLOWED_ORIGINS = _list("AGENT_ALLOWED_ORIGINS")
 
 def wire_common(app: FastAPI) -> None:
-    app.title = "DomSphere API"
+    app.title = "DomSphere Agent"
     app.version = CONTRACT_VERSION
     app.docs_url = "/docs"
     app.redoc_url = "/redoc"
@@ -38,7 +34,7 @@ def wire_common(app: FastAPI) -> None:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=API_ALLOWED_ORIGINS,
+        allow_origins=AGENT_ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

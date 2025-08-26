@@ -7,7 +7,14 @@
     "serve": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd apps/agent && ../../.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload"
+        "cwd": "apps/agent",
+        "command": "PYTHONPATH=../../packages:$PYTHONPATH ../../.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 5001 --reload --loop asyncio"
+      },
+      "configurations": {
+        "local": { "env": { "BUILD_ENV": "local" } },
+        "dev": { "env": { "BUILD_ENV": "dev" } },
+        "qa": { "env": { "BUILD_ENV": "qa" } },
+        "prod": { "env": { "BUILD_ENV": "prod" } }
       }
     }
   }
