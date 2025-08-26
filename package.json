@@ -46,6 +46,7 @@
     "jest-util": "^30.0.2",
     "jsonc-eslint-parser": "^2.1.0",
     "nx": "^21.4.0",
+    "openapi-fetch": "^0.14.0",
     "openapi-typescript": "^7.9.1",
     "postcss": "8.4.38",
     "prettier": "^2.6.2",

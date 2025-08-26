@@ -16,7 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "@domsphere/sdk": ["packages/sdk/src/index.ts"],
-      "@domsphere/ui": ["packages/ui/src/index.ts"]
+      "@domsphere/ui": ["packages/ui/src/index.ts"],
+      "@domsphere/api-client": ["packages/api-client/src/index.ts"]
     },
     "composite": true
   },

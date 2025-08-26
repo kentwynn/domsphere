@@ -9,15 +9,17 @@ DomSphere is a full-stack platform for building, deploying, and sharing intellig
 **apps/**
 
 - `web/` — Next.js app (site & dashboard)
-- `api/` — FastAPI + LangServe backend (Python)
+- `api/` — FastAPI backend (Python, public API)
+- `agent/` — FastAPI backend (Python, AI agent service)
 
 **packages/**
 
-- `contracts/` — Shared Python models (Pydantic) used by both `api` and `agent`
-- `sdk/` — Embeddable widget (ESM/CJS + UMD)
+- `contracts/` — Shared Pydantic/TypeScript models & schemas (API ↔ Agent ↔ SDK)
+- `api-client/` — TypeScript client generated from API OpenAPI schema
+- `sdk/` — Embeddable widget (ESM/CJS + UMD) for integration
 - `ui/` — Shared React UI components
 
-**(generated)**
+  **(generated)**
 
 - `dist/` — build outputs
 
