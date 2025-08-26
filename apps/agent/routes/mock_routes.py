@@ -1,6 +1,9 @@
+# apps/agent/routes/mock_routes.py
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Header, Body
+
+from fastapi import APIRouter, Header
+
 from contracts.agent_api import (
     AgentRuleRequest,
     AgentRuleResponse,
@@ -13,6 +16,8 @@ from contracts.agent_api import (
     AgentSuggestNextResponse,
     AgentHealthResponse,
 )
+# IMPORTANT: Turn/Action/Suggestion/UIHint must come from contracts.suggestion
+# because AgentSuggestNextResponse.turn expects that exact model.
 from contracts.suggestion import Turn, Action, Suggestion, CtaSpec, UIHint
 
 router = APIRouter(prefix="/agent", tags=["agent-mock"])
@@ -23,14 +28,14 @@ router = APIRouter(prefix="/agent", tags=["agent-mock"])
 @router.post("/rule", response_model=AgentRuleResponse)
 def compile_rule(
     payload: AgentRuleRequest,
-    x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> AgentRuleResponse:
     return AgentRuleResponse(
         rulesJson={
             "compiledFrom": payload.nlRules,
             "dslVersion": "v1",
-            "steps": [],
+            "steps": [],  # stub
         },
         rulesVersion="v0.1-stub",
     )
@@ -66,8 +71,8 @@ def _eval(cond: StepCondition, ctx: Dict[str, Any]) -> bool:
 @router.post("/step/check", response_model=AgentStepCheckResponse)
 def step_check(
     payload: AgentStepCheckRequest,
-    x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> AgentStepCheckResponse:
     states: List[StepState] = []
     next_id: Optional[str] = None
@@ -90,11 +95,11 @@ def step_check(
 @router.post("/suggest/next", response_model=AgentSuggestNextResponse)
 def suggest_next(
     payload: AgentSuggestNextRequest,
-    x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> AgentSuggestNextResponse:
     answers = payload.answers or {}
-    choice = str(answers.get("choice", "")).lower().strip()
+    choice = str(answers.get("choice", "")).strip().lower()
 
     # Start a fresh micro-convo with an ASK turn if no previous turn
     if not payload.prevTurnId:
@@ -128,7 +133,11 @@ def suggest_next(
                     subtitle="P1 + P2",
                     price=44.8,
                     currency="USD",
-                    primaryCta=CtaSpec(label="Add bundle", kind="add_to_cart", payload={"skus": ["p1", "p2"]}),
+                    primaryCta=CtaSpec(
+                        label="Add bundle",
+                        kind="add_to_cart",
+                        payload={"skus": ["p1", "p2"]},
+                    ),
                     meta={"original": 49.8, "tags": ["bundle", "similar"]},
                 ),
                 Suggestion(
@@ -137,7 +146,11 @@ def suggest_next(
                     title="Add P3 for free ship",
                     price=19.9,
                     currency="USD",
-                    primaryCta=CtaSpec(label="Add P3", kind="add_to_cart", payload={"skus": ["p3"]}),
+                    primaryCta=CtaSpec(
+                        label="Add P3",
+                        kind="add_to_cart",
+                        payload={"skus": ["p3"]},
+                    ),
                 ),
             ],
             ui=UIHint(render="grid", columns=2),
@@ -157,7 +170,11 @@ def suggest_next(
                 title="Top pick: P1",
                 price=19.9,
                 currency="USD",
-                primaryCta=CtaSpec(label="Add P1", kind="add_to_cart", payload={"skus": ["p1"]}),
+                primaryCta=CtaSpec(
+                    label="Add P1",
+                    kind="add_to_cart",
+                    payload={"skus": ["p1"]},
+                ),
             )
         ],
         ui=UIHint(render="list"),
