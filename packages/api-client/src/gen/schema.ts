@@ -4,23 +4,6 @@
  */
 
 export type paths = {
-    "/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Health */
-        get: operations["health_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/rule/check": {
         parameters: {
             query?: never;
@@ -30,7 +13,12 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Rule Check */
+        /**
+         * Rule Check
+         * @description MOCK logic:
+         *       - shouldProceed True when event.eventType is 'add_to_cart' and count >= 2 (if present)
+         *       - matchedRules returns a stable demo rule
+         */
         post: operations["rule_check_rule_check_post"];
         delete?: never;
         options?: never;
@@ -47,7 +35,13 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Suggest Get */
+        /**
+         * Suggest Get
+         * @description MOCK policy:
+         *       - If prevTurnId is missing -> return ASK (with actions yes/no)
+         *       - Else, if answers.choice in {'yes','y'} -> FINAL with suggestions
+         *       - Else -> FINAL with a single generic suggestion (contract requires >=1)
+         */
         post: operations["suggest_get_suggest_get_post"];
         delete?: never;
         options?: never;
@@ -81,8 +75,30 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Page Drag */
+        /**
+         * Page Drag
+         * @description MOCK:
+         *       - If mode == 'atlas': return a minimal atlas-like structure in `normalized`
+         *       - Otherwise, indicate a queued rebuild
+         */
         post: operations["page_drag_page_drag_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health */
+        get: operations["health_health_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -93,6 +109,33 @@ export type paths = {
 export type webhooks = Record<string, never>;
 export type components = {
     schemas: {
+        /** Action */
+        Action: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value?: unknown | null;
+        };
+        /** CtaSpec */
+        CtaSpec: {
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @default link
+             */
+            kind: string;
+            /** Url */
+            url?: string | null;
+            /** Sku */
+            sku?: string | null;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /**
          * DomAtlasElement
          * @description A compact node for selector learning.
@@ -152,6 +195,41 @@ export type components = {
             ts: number;
             telemetry: components["schemas"]["Telemetry"];
         };
+        /** FieldSpec */
+        FieldSpec: {
+            /** Key */
+            key: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "number" | "select" | "radio" | "checkbox" | "textarea" | "range" | "toggle";
+            /** Label */
+            label: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /** Options */
+            options?: components["schemas"]["InputOption"][] | null;
+            /** Validation */
+            validation?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** FormSpec */
+        FormSpec: {
+            /** Title */
+            title?: string | null;
+            /** Fields */
+            fields?: components["schemas"]["FieldSpec"][];
+            /**
+             * Submitlabel
+             * @default Continue
+             */
+            submitLabel: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -164,6 +242,13 @@ export type components = {
              * @default ok
              */
             status: string;
+        };
+        /** InputOption */
+        InputOption: {
+            /** Value */
+            value: unknown;
+            /** Label */
+            label: string;
         };
         /** PageDragRequest */
         PageDragRequest: {
@@ -212,64 +297,50 @@ export type components = {
             /** Reason */
             reason?: string | null;
         };
-        /** SuggestGetContext */
-        SuggestGetContext: {
-            /** Matchedrules */
-            matchedRules: string[];
-            /** Eventtype */
-            eventType: string;
-        };
         /** SuggestGetRequest */
         SuggestGetRequest: {
             /** Siteid */
             siteId: string;
             /** Sessionid */
             sessionId: string;
-            context: components["schemas"]["SuggestGetContext"];
-            /** Userinput */
-            userInput?: {
+            /** Intentid */
+            intentId?: string | null;
+            /** Prevturnid */
+            prevTurnId?: string | null;
+            /** Answers */
+            answers?: {
                 [key: string]: unknown;
             } | null;
+            /** Context */
+            context: {
+                [key: string]: unknown;
+            };
         };
         /** SuggestGetResponse */
         SuggestGetResponse: {
-            /** Suggestions */
-            suggestions: components["schemas"]["Suggestion"][];
-            /** Trace */
-            trace?: string[] | null;
-            /** Ttlsec */
-            ttlSec?: number | null;
-            /** Planversion */
-            planVersion?: string | null;
-            /**
-             * Noactionreason
-             * @enum {unknown}
-             */
-            noActionReason?: "no_trigger" | "debounced" | "budget_exceeded" | "plan_missing" | "unknown_selector" | null;
+            turn: components["schemas"]["Turn"];
         };
         /** Suggestion */
         Suggestion: {
+            /** Type */
+            type: string;
             /** Id */
             id?: string | null;
-            /** Type */
-            type: string;
-            /** Message */
-            message: string;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Image */
+            image?: string | null;
+            /** Price */
+            price?: number | null;
+            /** Currency */
+            currency?: string | null;
+            primaryCta?: components["schemas"]["CtaSpec"] | null;
             /** Actions */
-            actions?: components["schemas"]["SuggestionAction"][] | null;
+            actions?: components["schemas"]["CtaSpec"][] | null;
             /** Meta */
             meta?: {
-                [key: string]: unknown;
-            } | null;
-        };
-        /** SuggestionAction */
-        SuggestionAction: {
-            /** Type */
-            type: string;
-            /** Label */
-            label: string;
-            /** Payload */
-            payload?: {
                 [key: string]: unknown;
             } | null;
         };
@@ -296,6 +367,33 @@ export type components = {
             ancestors?: {
                 [key: string]: string | null;
             }[] | null;
+        };
+        /** Turn */
+        Turn: {
+            /** Intentid */
+            intentId: string;
+            /** Turnid */
+            turnId: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ask" | "final";
+            /** Message */
+            message?: string | null;
+            /** Actions */
+            actions?: components["schemas"]["Action"][] | null;
+            form?: components["schemas"]["FormSpec"] | null;
+            /** Suggestions */
+            suggestions?: components["schemas"]["Suggestion"][] | null;
+            ui?: components["schemas"]["UIHint"] | null;
+            /** Ttlsec */
+            ttlSec?: number | null;
+        };
+        /** UIHint */
+        UIHint: {
+            /** Render */
+            render?: string | null;
         };
         /** UrlDragOptions */
         UrlDragOptions: {
@@ -361,31 +459,10 @@ export type components = {
 };
 export type $defs = Record<string, never>;
 export interface operations {
-    health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
     rule_check_rule_check_post: {
         parameters: {
             query?: never;
             header?: {
-                "X-Site-Key"?: string | null;
                 "X-Contract-Version"?: string | null;
                 "X-Request-Id"?: string | null;
             };
@@ -422,7 +499,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "X-Site-Key"?: string | null;
                 "X-Contract-Version"?: string | null;
                 "X-Request-Id"?: string | null;
             };
@@ -459,7 +535,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "X-Site-Key"?: string | null;
                 "X-Contract-Version"?: string | null;
                 "X-Request-Id"?: string | null;
             };
@@ -496,7 +571,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "X-Site-Key"?: string | null;
                 "X-Contract-Version"?: string | null;
                 "X-Request-Id"?: string | null;
             };
@@ -525,6 +599,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };

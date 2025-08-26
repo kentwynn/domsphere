@@ -10,6 +10,6 @@
   "include": ["src/**/*.ts"],
   "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts"],
   "references": [
-    { "path": "../api-client/tsconfig.lib.json" }  // 👈 exact file, not just the folder
+    { "path": "../api-client/tsconfig.lib.json" }
   ]
 }

@@ -1,11 +1,18 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "./tsconfig.json",
   "compilerOptions": {
+    "rootDir": "src",
     "outDir": "../../dist/out-tsc",
+
     "declaration": true,
     "declarationMap": true,
+    "declarationDir": "../../dist/out-tsc/packages/api-client",
+
     "composite": true
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/index.ts",
+    "src/gen/schema.ts"   // <-- must match the codegen output filename
+  ],
   "exclude": ["**/*.spec.ts", "**/*.test.ts"]
 }

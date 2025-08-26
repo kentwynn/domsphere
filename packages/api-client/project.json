@@ -15,8 +15,9 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "packages/api-client",
-        "command": "tsc -p tsconfig.json"
-      }
+        "command": "tsc -p tsconfig.lib.json"
+      },
+      "dependsOn": ["codegen"]
     }
   }
 }

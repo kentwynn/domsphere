@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "strict": true,
+    "composite": true,
+    "declaration": true,
+
+    /* keep builds calm across node/@types/minimatch versions */
+    "skipLibCheck": true,
+
+    /* modern enough to satisfy private fields + libs */
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM"]
+  },
+  "references": [{ "path": "./tsconfig.lib.json" }]
+}

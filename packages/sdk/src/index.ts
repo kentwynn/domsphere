@@ -1,48 +1,47 @@
 /**
  * Auto Assistant SDK (POC)
  * - Self-detects cart changes (clicks + MutationObserver)
- * - Calls /rule/check then /suggest/get when rule passes
- * - Optional minimal UI render to a panel
+ * - Calls /rule/check then /suggest/get (returns { turn })
+ * - Supports ask -> final micro-conversation via answerAsk()
+ * - Minimal render helpers for ask + final turns
  *
- * Build: Nx Rollup (esm/cjs) + your UMD step
+ * Build-ready for Nx + Rollup. Only type-imports from api-client.
  */
 
-// CHANGE THIS IMPORT if your api-client package name differs:
-import type { components } from '@domsphere/api-client';
+import type { components } from '@domsphere/api-client'; // <-- change if your alias differs
 
 /* =========================
- * Types from OpenAPI
+ * OpenAPI Type Aliases
  * ========================= */
+export type EventSchema = components['schemas']['Event'];
 export type RuleCheckRequest = components['schemas']['RuleCheckRequest'];
 export type RuleCheckResponse = components['schemas']['RuleCheckResponse'];
+
 export type SuggestGetRequest = components['schemas']['SuggestGetRequest'];
 export type SuggestGetResponse = components['schemas']['SuggestGetResponse'];
+
+export type Turn = components['schemas']['Turn'];
 export type Suggestion = components['schemas']['Suggestion'];
-export type EventSchema = components['schemas']['Event'];
-export type SuggestGetContext = components['schemas']['SuggestGetContext'];
+export type Action = components['schemas']['Action'];
+export type FormSpec = components['schemas']['FormSpec'];
+export type UIHint = components['schemas']['UIHint'];
 
 /* =========================
- * Small helpers
+ * Small utils
  * ========================= */
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const clamp = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, n));
+type HeadersLoose = Record<string, string | undefined>;
 
-type HeadersInitLoose = Record<string, string | undefined | null>;
 async function postJson<TReq, TRes>(
   baseUrl: string,
   path: string,
   body: TReq,
-  headers: HeadersInitLoose = {}
+  headers: HeadersLoose = {}
 ): Promise<TRes> {
   const res = await fetch(new URL(path, baseUrl).toString(), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...Object.fromEntries(
-        Object.entries(headers).filter(([, v]) => v != null)
-      ),
-    },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -53,54 +52,49 @@ async function postJson<TReq, TRes>(
 }
 
 /* =========================
- * API client
+ * API client (headers per schema)
  * ========================= */
 export type ClientOptions = {
   baseUrl: string;
-  siteKey?: string | null; // -> X-Site-Key
   contractVersion?: string | null; // -> X-Contract-Version
   requestIdFactory?: () => string; // -> X-Request-Id
   fetchHeaders?: Record<string, string>;
 };
 
-function createApi(opts: ClientOptions) {
+export function createApi(opts: ClientOptions) {
   const {
     baseUrl,
-    siteKey = null,
     contractVersion = null,
     requestIdFactory,
     fetchHeaders = {},
   } = opts;
 
-  const headers = (): HeadersInitLoose => ({
-    'X-Site-Key': siteKey ?? undefined,
+  const headers = (): HeadersLoose => ({
     'X-Contract-Version': contractVersion ?? undefined,
     'X-Request-Id': requestIdFactory?.(),
     ...fetchHeaders,
   });
 
   return {
-    ruleCheck(body: RuleCheckRequest) {
-      return postJson<RuleCheckRequest, RuleCheckResponse>(
+    ruleCheck: (body: RuleCheckRequest) =>
+      postJson<RuleCheckRequest, RuleCheckResponse>(
         baseUrl,
         '/rule/check',
         body,
         headers()
-      );
-    },
-    suggestGet(body: SuggestGetRequest) {
-      return postJson<SuggestGetRequest, SuggestGetResponse>(
+      ),
+    suggestGet: (body: SuggestGetRequest) =>
+      postJson<SuggestGetRequest, SuggestGetResponse>(
         baseUrl,
         '/suggest/get',
         body,
         headers()
-      );
-    },
+      ),
   };
 }
 
 /* =========================
- * Event bus (tiny)
+ * Tiny event bus
  * ========================= */
 type Listener = (...args: any[]) => void;
 class Emitter {
@@ -131,27 +125,24 @@ export type AutoAssistantOptions = ClientOptions & {
   siteId: string;
   sessionId: string;
 
-  /** DOM hooks (override as needed for your demo page) */
   selectors?: {
-    addButton?: string; // clicks on these imply +1
-    removeButton?: string; // clicks on these imply -1
-    cartCounter?: string; // read the textContent as number
-    cartItem?: string; // count elements as number
-    panelSelector?: string; // optional: where to render suggestions
+    addButton?: string; // clicks imply +1
+    removeButton?: string; // clicks imply -1
+    cartCounter?: string; // read textContent as number
+    cartItem?: string; // count elements when no counter
+    panelSelector?: string; // optional container to render into
   };
 
-  /** Rule trigger: required count to proceed (default 2) */
-  minCountToProceed?: number;
+  minCountToProceed?: number; // default 2
+  debounceMs?: number; // default 250
 
-  /** Debounce for cart change detection */
-  debounceMs?: number;
-
-  /** Additional context to include in /suggest/get */
-  baseContext?: Partial<SuggestGetContext> & Record<string, any>;
+  /** Stuff you want to attach to /suggest/get context */
+  baseContext?: Record<string, unknown>;
 };
 
 export class AutoAssistant {
   private api: ReturnType<typeof createApi>;
+  private bus = new Emitter();
   private opts: Required<
     Pick<
       AutoAssistantOptions,
@@ -160,12 +151,12 @@ export class AutoAssistant {
   > &
     AutoAssistantOptions;
 
-  private bus = new Emitter();
   private detachFns: Array<() => void> = [];
   private mo?: MutationObserver;
   private inflight = 0;
   private lastCount = 0;
-  private debTimer?: any;
+  private debTimer?: number;
+  private lastTurn?: Turn; // remember last turn (ask/final)
 
   constructor(options: AutoAssistantOptions) {
     this.opts = {
@@ -188,25 +179,26 @@ export class AutoAssistant {
     evt:
       | 'cart:changed'
       | 'rule:checked'
-      | 'suggest:ready'
+      | 'turn:ask'
+      | 'turn:final'
       | 'turn:cleared'
+      | 'suggest:ready'
       | 'error',
     fn: Listener
   ) {
     return this.bus.on(evt, fn);
   }
 
-  /** Start auto-detection of cart changes */
+  /** Start auto-detection */
   start() {
     const { addButton, removeButton, cartCounter, cartItem } =
       this.opts.selectors!;
-    // Click listeners
+
     if (addButton) this.attach('click', addButton, () => this.bumpCount(+1));
     if (removeButton)
       this.attach('click', removeButton, () => this.bumpCount(-1));
 
-    // Mutation observer for counter or cart items
-    this.mo = new MutationObserver(() => this.scheduleReadAndProcess());
+    this.mo = new MutationObserver(() => this.scheduleProcess());
     const observeTargets: Element[] = [];
     if (cartCounter) {
       const el = document.querySelector(cartCounter);
@@ -219,17 +211,15 @@ export class AutoAssistant {
     }
     observeTargets.forEach((el) =>
       this.mo!.observe(el, {
-        characterData: true,
         childList: true,
+        characterData: true,
         subtree: true,
       })
     );
 
-    // Initial read & process
-    this.scheduleReadAndProcess();
+    this.scheduleProcess(true);
   }
 
-  /** Stop all observers/listeners */
   stop() {
     this.detachFns.forEach((f) => {
       try {
@@ -240,30 +230,63 @@ export class AutoAssistant {
     });
     this.detachFns = [];
     this.mo?.disconnect();
-    clearTimeout(this.debTimer);
+    if (this.debTimer) window.clearTimeout(this.debTimer);
   }
 
-  /* ---------- internals ---------- */
+  /** Continue the ask flow: send the chosen action back to /suggest/get */
+  async answerAsk(
+    turn: Turn,
+    action: Action | { id: string; label?: string; value?: unknown }
+  ) {
+    const { siteId, sessionId, baseContext } = this.opts;
+
+    const req: SuggestGetRequest = {
+      siteId,
+      sessionId,
+      prevTurnId: turn.turnId,
+      answers: { choice: action.id, value: (action as any).value },
+      context: { ...(this.opts.baseContext ?? {}) },
+    };
+
+    try {
+      const { turn: next } = await this.api.suggestGet(req);
+      this.lastTurn = next;
+      if (next.status === 'ask') {
+        this.bus.emit('turn:ask', next);
+        const panel = this.panelEl();
+        if (panel) renderAskTurn(panel, next, (a) => this.answerAsk(next, a));
+      } else {
+        const suggestions = next.suggestions ?? [];
+        this.bus.emit('suggest:ready', suggestions, next);
+        this.bus.emit('turn:final', next);
+        const panel = this.panelEl();
+        if (panel)
+          renderFinalSuggestions(
+            panel,
+            suggestions,
+            (cta) => this.bus.emit('sdk:action', cta),
+            next
+          );
+      }
+    } catch (e) {
+      this.bus.emit('error', e);
+    }
+  }
+
+  /* ---------------- internals ---------------- */
 
   private attach(evt: string, selector: string, handler: EventListener) {
     const fn = (e: Event) => {
       const t = e.target as Element | null;
       if (!t) return;
-      if ((t as Element).closest(selector)) handler(e);
+      if (t.closest(selector)) handler(e);
     };
     document.addEventListener(evt, fn, true);
     this.detachFns.push(() => document.removeEventListener(evt, fn, true));
   }
 
-  private bumpCount(delta: number) {
-    // When we don't have a counter, still emit synthetic changes
-    this.lastCount = clamp(this.lastCount + delta, 0, 9999);
-    this.scheduleReadAndProcess(true);
-  }
-
   private readCount(): number {
     const { cartCounter, cartItem } = this.opts.selectors!;
-    // Prefer explicit counter element
     if (cartCounter) {
       const el = document.querySelector(cartCounter);
       if (el) {
@@ -271,24 +294,27 @@ export class AutoAssistant {
         if (!Number.isNaN(n)) return n;
       }
     }
-    // Fallback: count cart-item elements
     if (cartItem) {
       const n = document.querySelectorAll(cartItem).length;
       if (n >= 0) return n;
     }
-    // Fallback to last known
     return this.lastCount;
   }
 
-  private scheduleReadAndProcess(force = false) {
-    clearTimeout(this.debTimer);
-    this.debTimer = setTimeout(
-      () => this.readAndProcess(force),
+  private bumpCount(delta: number) {
+    this.lastCount = clamp(this.lastCount + delta, 0, 9999);
+    this.scheduleProcess(true);
+  }
+
+  private scheduleProcess(force = false) {
+    if (this.debTimer) window.clearTimeout(this.debTimer);
+    this.debTimer = window.setTimeout(
+      () => this.process(force),
       this.opts.debounceMs
     );
   }
 
-  private async readAndProcess(force = false) {
+  private async process(force = false) {
     const count = this.readCount();
     const changed = force || count !== this.lastCount;
     this.lastCount = count;
@@ -298,15 +324,16 @@ export class AutoAssistant {
 
     if (count < this.opts.minCountToProceed) {
       this.bus.emit('turn:cleared');
+      const panel = this.panelEl();
+      if (panel) panel.innerHTML = '';
       return;
     }
 
-    // Prevent overlapping runs
     if (this.inflight > 0) return;
     this.inflight++;
 
     try {
-      await this.process(count);
+      await this.runFlow(count);
     } catch (e) {
       this.bus.emit('error', e);
     } finally {
@@ -314,11 +341,11 @@ export class AutoAssistant {
     }
   }
 
-  private async process(count: number) {
-    const { siteId, sessionId, baseContext } = this.opts;
+  private async runFlow(count: number) {
+    const { siteId, sessionId } = this.opts;
 
     // 1) /rule/check
-    const ruleReq: RuleCheckRequest = {
+    const rcReq: RuleCheckRequest = {
       siteId,
       sessionId,
       event: {
@@ -329,48 +356,207 @@ export class AutoAssistant {
         } as EventSchema['telemetry'],
       } as EventSchema,
     };
-    const ruleRes = await this.api.ruleCheck(ruleReq);
-    this.bus.emit('rule:checked', ruleRes);
+    const rcRes = await this.api.ruleCheck(rcReq);
+    this.bus.emit('rule:checked', rcRes);
 
-    if (!ruleRes.shouldProceed) {
+    if (!rcRes.shouldProceed) {
       this.bus.emit('turn:cleared');
+      const panel = this.panelEl();
+      if (panel) panel.innerHTML = '';
       return;
     }
 
-    // 2) /suggest/get
-    const suggestReq: SuggestGetRequest = {
+    // 2) /suggest/get (first turn)
+    const sgReq: SuggestGetRequest = {
       siteId,
       sessionId,
       context: {
-        matchedRules: ruleRes.matchedRules,
-        eventType: ruleRes.eventType,
-        ...(baseContext ?? {}),
-      } as SuggestGetContext,
+        matchedRules: rcRes.matchedRules,
+        eventType: rcRes.eventType,
+        ...(this.opts.baseContext ?? {}),
+      },
     };
-    const suggestRes = await this.api.suggestGet(suggestReq);
 
-    this.bus.emit('suggest:ready', suggestRes.suggestions);
+    const { turn } = await this.api.suggestGet(sgReq);
+    this.lastTurn = turn;
 
-    // Optional render
-    const panelSel = this.opts.selectors?.panelSelector;
-    if (panelSel) {
-      const el = document.querySelector(panelSel) as HTMLElement | null;
-      if (el)
-        renderSuggestions(el, suggestRes.suggestions, (cta) =>
-          this.bus.emit('sdk:action', cta)
+    if (turn.status === 'ask') {
+      this.bus.emit('turn:ask', turn);
+      const panel = this.panelEl();
+      if (panel) renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a));
+    } else {
+      const suggestions = turn.suggestions ?? [];
+      this.bus.emit('suggest:ready', suggestions, turn);
+      this.bus.emit('turn:final', turn);
+      const panel = this.panelEl();
+      if (panel)
+        renderFinalSuggestions(
+          panel,
+          suggestions,
+          (cta) => this.bus.emit('sdk:action', cta),
+          turn
         );
     }
+  }
+
+  private panelEl(): HTMLElement | null {
+    const sel = this.opts.selectors?.panelSelector;
+    return sel ? (document.querySelector(sel) as HTMLElement | null) : null;
   }
 }
 
 /* =========================
- * Minimal renderer (optional)
+ * Render helpers (optional)
  * ========================= */
-// uses components["schemas"]["Suggestion"] from your api-client
-export function renderSuggestions(
+
+export function renderAskTurn(
+  container: HTMLElement,
+  turn: Turn,
+  onAction: (action: Action) => void,
+  onSubmitForm?: (form: FormData) => void
+) {
+  container.innerHTML = '';
+  const panel = document.createElement('div');
+  panel.style.border = '1px solid #e5e7eb';
+  panel.style.borderRadius = '12px';
+  panel.style.padding = '12px';
+  panel.style.margin = '8px 0';
+
+  if (turn.message) {
+    const msg = document.createElement('div');
+    msg.textContent = turn.message;
+    msg.style.fontWeight = '600';
+    panel.appendChild(msg);
+  }
+
+  if (turn.actions?.length) {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.flexWrap = 'wrap';
+    row.style.gap = '8px';
+    row.style.marginTop = '10px';
+    turn.actions.forEach((a) => {
+      const btn = document.createElement('button');
+      btn.textContent = a.label;
+      btn.setAttribute('data-action-id', a.id);
+      btn.onclick = () => onAction(a);
+      btn.style.padding = '6px 10px';
+      btn.style.borderRadius = '8px';
+      btn.style.border = '1px solid #d1d5db';
+      row.appendChild(btn);
+    });
+    panel.appendChild(row);
+  }
+
+  if (turn.form?.fields?.length) {
+    const form = document.createElement('form');
+    form.style.marginTop = '12px';
+
+    if (turn.form.title) {
+      const title = document.createElement('div');
+      title.textContent = turn.form.title;
+      title.style.fontWeight = '600';
+      form.appendChild(title);
+    }
+
+    turn.form.fields.forEach((f) => {
+      const wrap = document.createElement('div');
+      wrap.style.marginTop = '8px';
+      const label = document.createElement('label');
+      label.textContent = f.label + (f.required ? ' *' : '');
+      label.style.display = 'block';
+      label.style.marginBottom = '4px';
+      wrap.appendChild(label);
+
+      let input: HTMLElement;
+      switch (f.type) {
+        case 'textarea': {
+          const el = document.createElement('textarea');
+          el.name = f.key;
+          el.rows = 3;
+          input = el;
+          break;
+        }
+        case 'select': {
+          const el = document.createElement('select');
+          el.name = f.key;
+          (f.options ?? []).forEach((opt) => {
+            const o = document.createElement('option');
+            o.value = String(opt.value);
+            o.textContent = opt.label;
+            el.appendChild(o);
+          });
+          input = el;
+          break;
+        }
+        case 'checkbox': {
+          const el = document.createElement('input');
+          el.type = 'checkbox';
+          (el as HTMLInputElement).name = f.key;
+          input = el;
+          break;
+        }
+        case 'radio': {
+          const group = document.createElement('div');
+          (f.options ?? []).forEach((opt, i) => {
+            const lbl = document.createElement('label');
+            lbl.style.marginRight = '10px';
+            const r = document.createElement('input');
+            r.type = 'radio';
+            (r as HTMLInputElement).name = f.key;
+            (r as HTMLInputElement).value = String(opt.value);
+            lbl.appendChild(r);
+            lbl.append(' ' + opt.label);
+            group.appendChild(lbl);
+          });
+          input = group;
+          break;
+        }
+        case 'number':
+        case 'range':
+        case 'toggle':
+        case 'text':
+        default: {
+          const el = document.createElement('input');
+          el.type = f.type === 'number' ? 'number' : 'text';
+          (el as HTMLInputElement).name = f.key;
+          input = el;
+        }
+      }
+      wrap.appendChild(input);
+      form.appendChild(wrap);
+    });
+
+    const submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.textContent = turn.form.submitLabel ?? 'Continue';
+    submit.style.marginTop = '10px';
+    submit.style.padding = '6px 10px';
+    submit.style.borderRadius = '8px';
+    submit.style.border = '1px solid #d1d5db';
+    form.appendChild(submit);
+
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      onSubmitForm?.(fd);
+    };
+
+    panel.appendChild(form);
+  }
+
+  container.appendChild(panel);
+}
+
+export function renderFinalSuggestions(
   container: HTMLElement,
   suggestions: Suggestion[],
-  onAction: (action: NonNullable<Suggestion['actions']>[number]) => void
+  onCta: (
+    cta:
+      | NonNullable<Suggestion['actions']>[number]
+      | NonNullable<Suggestion['primaryCta']>
+  ) => void,
+  turn?: Turn
 ) {
   container.innerHTML = '';
   if (!suggestions?.length) {
@@ -388,53 +574,51 @@ export function renderSuggestions(
     card.style.padding = '12px';
     card.style.margin = '8px 0';
 
-    // Header: type (fallback) + optional id tag
-    const header = document.createElement('div');
-    header.style.display = 'flex';
-    header.style.justifyContent = 'space-between';
-    header.style.alignItems = 'center';
+    const title = document.createElement('div');
+    title.textContent = s.title ?? s.type;
+    title.style.fontWeight = '600';
+    card.appendChild(title);
 
-    const kind = document.createElement('div');
-    kind.textContent = s.type;
-    kind.style.fontWeight = '600';
-    header.appendChild(kind);
-
-    if (s.id) {
-      const tag = document.createElement('span');
-      tag.textContent = s.id;
-      tag.style.fontSize = '0.75rem';
-      tag.style.opacity = '0.7';
-      header.appendChild(tag);
+    if (s.description) {
+      const desc = document.createElement('div');
+      desc.textContent = s.description;
+      desc.style.opacity = '0.9';
+      desc.style.marginTop = '4px';
+      card.appendChild(desc);
     }
-    card.appendChild(header);
 
-    // Message (required by your schema)
-    const msg = document.createElement('div');
-    msg.textContent = s.message;
-    msg.style.marginTop = '6px';
-    msg.style.opacity = '0.9';
-    card.appendChild(msg);
+    if (typeof s.price === 'number') {
+      const price = document.createElement('div');
+      price.textContent = s.currency
+        ? `${s.price} ${s.currency}`
+        : `${s.price}`;
+      price.style.marginTop = '6px';
+      card.appendChild(price);
+    }
 
-    // Actions (array of {type,label,payload?})
-    const actions = s.actions ?? [];
+    const actions = [
+      ...(s.actions ?? []),
+      ...(s.primaryCta ? [s.primaryCta] : []),
+    ].filter(Boolean) as Array<
+      NonNullable<typeof s.actions>[number] | NonNullable<typeof s.primaryCta>
+    >;
+
     if (actions.length) {
       const row = document.createElement('div');
       row.style.display = 'flex';
+      row.style.flexWrap = 'wrap';
       row.style.gap = '8px';
       row.style.marginTop = '10px';
-
-      actions.forEach((a, idx) => {
+      actions.forEach((cta, idx) => {
         const btn = document.createElement('button');
-        btn.textContent = a.label;
-        btn.setAttribute('data-action-type', a.type);
-        btn.setAttribute('data-action-idx', String(idx));
-        btn.onclick = () => onAction(a);
+        btn.textContent = cta.label;
+        btn.setAttribute('data-cta-idx', String(idx));
+        btn.onclick = () => onCta(cta);
         btn.style.padding = '6px 10px';
         btn.style.borderRadius = '8px';
         btn.style.border = '1px solid #d1d5db';
         row.appendChild(btn);
       });
-
       card.appendChild(row);
     }
 
@@ -445,14 +629,18 @@ export function renderSuggestions(
 }
 
 /* =========================
- * UMD global (optional)
+ * UMD convenience (optional)
  * ========================= */
-// When bundled as UMD, consumers can use window.AgentSDK.AutoAssistant, etc.
 declare global {
   interface Window {
     AgentSDK?: any;
   }
 }
 if (typeof window !== 'undefined') {
-  (window as any).AgentSDK = { AutoAssistant, renderSuggestions };
+  (window as any).AgentSDK = {
+    AutoAssistant,
+    renderAskTurn,
+    renderFinalSuggestions,
+    createApi,
+  };
 }
