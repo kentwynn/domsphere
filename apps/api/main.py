@@ -1,8 +1,17 @@
+from __future__ import annotations
 from fastapi import FastAPI
+
+from core.config import wire_common
 from routes.health import router as health_router
+from routes.rule import router as rule_router
+from routes.suggest import router as suggest_router
+from routes.drag import router as drag_router
 
+app = FastAPI()
+wire_common(app)
 
-app = FastAPI(title="DomSphere API", version="0.1.0")
-
+# Mount routers
 app.include_router(health_router)
-
+app.include_router(rule_router)
+app.include_router(suggest_router)
+app.include_router(drag_router)

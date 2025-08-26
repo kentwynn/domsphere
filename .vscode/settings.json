@@ -1,4 +1,7 @@
 {
   "python.defaultInterpreterPath": ".venv/bin/python",
-  "nxConsole.generateAiAgentRules": true
+  "nxConsole.generateAiAgentRules": true,
+  "python.analysis.extraPaths": [
+    "./packages"
+  ]
 }

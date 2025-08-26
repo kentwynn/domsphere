@@ -1,7 +1,9 @@
+from __future__ import annotations
 from fastapi import APIRouter
+from contracts.sdk_api import APIHealthResponse
 
-router = APIRouter()
+router = APIRouter(tags=["health"])
 
-@router.get("/health")
-def health_check():
-    return {"status": "ok"}
+@router.get("/health", response_model=APIHealthResponse)
+def health() -> APIHealthResponse:
+    return APIHealthResponse(status="ok")
