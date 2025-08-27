@@ -47,6 +47,31 @@ async function postJson<TReq, TRes>(
   return (await res.json()) as TRes;
 }
 
+// Helper for GET requests returning JSON
+async function getJson<TRes>(
+  baseUrl: string,
+  path: string,
+  headers: HeadersLoose = {}
+): Promise<TRes> {
+  const res = await fetch(new URL(path, baseUrl).toString(), {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', ...headers },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} ${res.statusText} @ ${path}: ${text}`);
+  }
+  return (await res.json()) as TRes;
+}
+// Minimal type for the rule-track profile
+export type RuleTrackProfile = {
+  siteId: string;
+  status: 'on' | 'off';
+  version?: string | null;
+  updatedAt?: string | null;
+  events?: Record<string, string[]> | null;
+};
+
 /* ========== API client (headers) ========== */
 export type ClientOptions = {
   baseUrl?: string; // default http://localhost:4000
@@ -84,6 +109,8 @@ export function createApi(opts: ClientOptions) {
         body,
         headers()
       ),
+    ruleTrackGet: () =>
+      getJson<RuleTrackProfile>(baseUrl, '/rule/track', headers()),
   };
 }
 
@@ -286,6 +313,11 @@ export class AutoAssistant {
   private activeTurn?: Turn;
   private cooldownUntil = 0;
 
+  private trackProfile?: RuleTrackProfile;
+  private trackOn = false;
+  private selClick: string[] = [];
+  private selMutation: string[] = [];
+
   constructor(options: AutoAssistantOptions) {
     this.opts = {
       debounceMs: options.debounceMs ?? 150,
@@ -308,17 +340,52 @@ export class AutoAssistant {
     return this.bus.on(evt, fn);
   }
 
-  start() {
-    // Page load
-    this.schedule(() =>
-      this.handleEvent('page_load', document.body || undefined)
-    );
+  private matchesAny(
+    target: Element | undefined,
+    selectors: string[]
+  ): boolean {
+    if (!target) return false;
+    for (const sel of selectors) {
+      try {
+        if (target.closest(sel)) return true;
+      } catch {
+        /* invalid selector */
+      }
+    }
+    return false;
+  }
+
+  async start() {
+    // 0) Fetch track profile first; if fetch fails, default to rich mode (off)
+    try {
+      const prof = await this.api.ruleTrackGet();
+      this.trackProfile = prof;
+      this.trackOn = prof?.status === 'on';
+      const ev = prof?.events || {};
+      this.selClick = Array.isArray((ev as any)['dom_click'])
+        ? (ev as any)['dom_click']
+        : [];
+      this.selMutation = Array.isArray((ev as any)['mutation'])
+        ? (ev as any)['mutation']
+        : [];
+    } catch {
+      this.trackOn = false; // rich mode fallback
+      this.selClick = [];
+      this.selMutation = [];
+    }
+
+    // 1) Only send page_load when rich mode (track off)
+    if (!this.trackOn) {
+      this.schedule(() =>
+        this.handleEvent('page_load', document.body || undefined)
+      );
+    }
 
     // Clicks
     const onClick = (e: Event) => {
-      this.schedule(() =>
-        this.handleEvent('dom_click', e.target as Element | undefined)
-      );
+      const tgt = e.target as Element | undefined;
+      if (this.trackOn && !this.matchesAny(tgt, this.selClick)) return;
+      this.schedule(() => this.handleEvent('dom_click', tgt));
     };
     document.addEventListener('click', onClick, true);
     this.detachFns.push(() =>
@@ -327,6 +394,7 @@ export class AutoAssistant {
 
     // Input / change
     const onChange = (e: Event) => {
+      if (this.trackOn) return;
       this.schedule(() =>
         this.handleEvent('input_change', e.target as Element | undefined)
       );
@@ -342,6 +410,7 @@ export class AutoAssistant {
 
     // Submit
     const onSubmit = (e: Event) => {
+      if (this.trackOn) return;
       this.schedule(() =>
         this.handleEvent('submit', e.target as Element | undefined)
       );
@@ -364,8 +433,10 @@ export class AutoAssistant {
       window.dispatchEvent(new Event('agent-route-change'));
       return r;
     };
-    const onPop = () =>
+    const onPop = () => {
+      if (this.trackOn) return;
       this.schedule(() => this.handleEvent('route_change', undefined));
+    };
     window.addEventListener('popstate', onPop);
     window.addEventListener('agent-route-change', onPop as any);
     this.detachFns.push(() => {
@@ -387,7 +458,8 @@ export class AutoAssistant {
       const mutObserver = new MutationObserver((muts) => {
         const raw = muts[0]?.target as Node | undefined;
         const tgt = pickTarget(raw);
-        // Server only accepts canonical types; treat mutations as a generic interaction
+        // Only send when mutation target matches configured selectors in focus mode
+        if (this.trackOn && !this.matchesAny(tgt, this.selMutation)) return;
         this.schedule(() => this.handleEvent('dom_click', tgt));
       });
       mutObserver.observe(document.body, {

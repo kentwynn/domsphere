@@ -63,12 +63,27 @@
             return (yield res.json());
         });
     }
+    // Helper for GET requests returning JSON
+    function getJson(baseUrl_1, path_1) {
+        return __awaiter(this, arguments, void 0, function* (baseUrl, path, headers = {}) {
+            const res = yield fetch(new URL(path, baseUrl).toString(), {
+                method: 'GET',
+                headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+            });
+            if (!res.ok) {
+                const text = yield res.text().catch(() => '');
+                throw new Error(`HTTP ${res.status} ${res.statusText} @ ${path}: ${text}`);
+            }
+            return (yield res.json());
+        });
+    }
     function createApi(opts) {
         const { baseUrl = 'http://localhost:4000', contractVersion = null, requestIdFactory, fetchHeaders = {}, } = opts;
         const headers = () => (Object.assign({ 'X-Contract-Version': contractVersion !== null && contractVersion !== void 0 ? contractVersion : undefined, 'X-Request-Id': requestIdFactory === null || requestIdFactory === void 0 ? void 0 : requestIdFactory() }, fetchHeaders));
         return {
             ruleCheck: (body) => postJson(baseUrl, '/rule/check', body, headers()),
             suggestGet: (body) => postJson(baseUrl, '/suggest/get', body, headers()),
+            ruleTrackGet: () => getJson(baseUrl, '/rule/track', headers()),
         };
     }
     class Emitter {
@@ -248,86 +263,138 @@
                 eventType: 'page_load',
             };
             this.cooldownUntil = 0;
+            this.trackOn = false;
+            this.selClick = [];
+            this.selMutation = [];
             this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
         }
         on(evt, fn) {
             return this.bus.on(evt, fn);
         }
+        matchesAny(target, selectors) {
+            if (!target)
+                return false;
+            for (const sel of selectors) {
+                try {
+                    if (target.closest(sel))
+                        return true;
+                }
+                catch (_a) {
+                    /* invalid selector */
+                }
+            }
+            return false;
+        }
         start() {
-            // Page load
-            this.schedule(() => this.handleEvent('page_load', document.body || undefined));
-            // Clicks
-            const onClick = (e) => {
-                this.schedule(() => this.handleEvent('dom_click', e.target));
-            };
-            document.addEventListener('click', onClick, true);
-            this.detachFns.push(() => document.removeEventListener('click', onClick, true));
-            // Input / change
-            const onChange = (e) => {
-                this.schedule(() => this.handleEvent('input_change', e.target));
-            };
-            document.addEventListener('input', onChange, true);
-            document.addEventListener('change', onChange, true);
-            this.detachFns.push(() => document.removeEventListener('input', onChange, true));
-            this.detachFns.push(() => document.removeEventListener('change', onChange, true));
-            // Submit
-            const onSubmit = (e) => {
-                this.schedule(() => this.handleEvent('submit', e.target));
-            };
-            document.addEventListener('submit', onSubmit, true);
-            this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
-            // Basic route changes (SPA)
-            const _push = history.pushState;
-            const _replace = history.replaceState;
-            history.pushState = function (...args) {
-                const r = _push.apply(this, args);
-                window.dispatchEvent(new Event('agent-route-change'));
-                return r;
-            };
-            history.replaceState = function (...args) {
-                const r = _replace.apply(this, args);
-                window.dispatchEvent(new Event('agent-route-change'));
-                return r;
-            };
-            const onPop = () => this.schedule(() => this.handleEvent('route_change', undefined));
-            window.addEventListener('popstate', onPop);
-            window.addEventListener('agent-route-change', onPop);
-            this.detachFns.push(() => {
-                window.removeEventListener('popstate', onPop);
-                window.removeEventListener('agent-route-change', onPop);
-                history.pushState = _push;
-                history.replaceState = _replace;
-            });
-            // Generic DOM mutation detection (MutationObserver)
-            try {
-                const pickTarget = (n) => {
-                    if (!n)
-                        return undefined;
-                    if (n.nodeType === Node.ELEMENT_NODE)
-                        return n;
-                    if (n.nodeType === Node.TEXT_NODE)
-                        return (n.parentElement || undefined);
-                    return undefined;
-                };
-                const mutObserver = new MutationObserver((muts) => {
-                    var _a;
-                    const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
-                    const tgt = pickTarget(raw);
-                    // Server only accepts canonical types; treat mutations as a generic interaction
+            return __awaiter(this, void 0, void 0, function* () {
+                // 0) Fetch track profile first; if fetch fails, default to rich mode (off)
+                try {
+                    const prof = yield this.api.ruleTrackGet();
+                    this.trackProfile = prof;
+                    this.trackOn = (prof === null || prof === void 0 ? void 0 : prof.status) === 'on';
+                    const ev = (prof === null || prof === void 0 ? void 0 : prof.events) || {};
+                    this.selClick = Array.isArray(ev['dom_click'])
+                        ? ev['dom_click']
+                        : [];
+                    this.selMutation = Array.isArray(ev['mutation'])
+                        ? ev['mutation']
+                        : [];
+                }
+                catch (_a) {
+                    this.trackOn = false; // rich mode fallback
+                    this.selClick = [];
+                    this.selMutation = [];
+                }
+                // 1) Only send page_load when rich mode (track off)
+                if (!this.trackOn) {
+                    this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+                }
+                // Clicks
+                const onClick = (e) => {
+                    const tgt = e.target;
+                    if (this.trackOn && !this.matchesAny(tgt, this.selClick))
+                        return;
                     this.schedule(() => this.handleEvent('dom_click', tgt));
+                };
+                document.addEventListener('click', onClick, true);
+                this.detachFns.push(() => document.removeEventListener('click', onClick, true));
+                // Input / change
+                const onChange = (e) => {
+                    if (this.trackOn)
+                        return;
+                    this.schedule(() => this.handleEvent('input_change', e.target));
+                };
+                document.addEventListener('input', onChange, true);
+                document.addEventListener('change', onChange, true);
+                this.detachFns.push(() => document.removeEventListener('input', onChange, true));
+                this.detachFns.push(() => document.removeEventListener('change', onChange, true));
+                // Submit
+                const onSubmit = (e) => {
+                    if (this.trackOn)
+                        return;
+                    this.schedule(() => this.handleEvent('submit', e.target));
+                };
+                document.addEventListener('submit', onSubmit, true);
+                this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
+                // Basic route changes (SPA)
+                const _push = history.pushState;
+                const _replace = history.replaceState;
+                history.pushState = function (...args) {
+                    const r = _push.apply(this, args);
+                    window.dispatchEvent(new Event('agent-route-change'));
+                    return r;
+                };
+                history.replaceState = function (...args) {
+                    const r = _replace.apply(this, args);
+                    window.dispatchEvent(new Event('agent-route-change'));
+                    return r;
+                };
+                const onPop = () => {
+                    if (this.trackOn)
+                        return;
+                    this.schedule(() => this.handleEvent('route_change', undefined));
+                };
+                window.addEventListener('popstate', onPop);
+                window.addEventListener('agent-route-change', onPop);
+                this.detachFns.push(() => {
+                    window.removeEventListener('popstate', onPop);
+                    window.removeEventListener('agent-route-change', onPop);
+                    history.pushState = _push;
+                    history.replaceState = _replace;
                 });
-                mutObserver.observe(document.body, {
-                    childList: true,
-                    subtree: true,
-                    characterData: true,
-                    attributes: true,
-                });
-                this.detachFns.push(() => mutObserver.disconnect());
-            }
-            catch (_a) {
-                // ignore if observer cannot start
-            }
+                // Generic DOM mutation detection (MutationObserver)
+                try {
+                    const pickTarget = (n) => {
+                        if (!n)
+                            return undefined;
+                        if (n.nodeType === Node.ELEMENT_NODE)
+                            return n;
+                        if (n.nodeType === Node.TEXT_NODE)
+                            return (n.parentElement || undefined);
+                        return undefined;
+                    };
+                    const mutObserver = new MutationObserver((muts) => {
+                        var _a;
+                        const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
+                        const tgt = pickTarget(raw);
+                        // Only send when mutation target matches configured selectors in focus mode
+                        if (this.trackOn && !this.matchesAny(tgt, this.selMutation))
+                            return;
+                        this.schedule(() => this.handleEvent('dom_click', tgt));
+                    });
+                    mutObserver.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                        characterData: true,
+                        attributes: true,
+                    });
+                    this.detachFns.push(() => mutObserver.disconnect());
+                }
+                catch (_b) {
+                    // ignore if observer cannot start
+                }
+            });
         }
         stop() {
             this.detachFns.forEach((f) => {
