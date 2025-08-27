@@ -610,45 +610,75 @@ export class AutoAssistant {
     } catch {
       /* empty */
     }
-    // Heuristic: surface obvious numeric counters from the DOM into attributes
+    // Surface numeric values from likely counter elements into attributes (generic)
     try {
       const candidates: Element[] = [];
-      // a) direct id match (common in demos)
-      const byId = document.getElementById('cart-count');
-      if (byId) candidates.push(byId);
-      // b) common data-testid
-      const byTestId = document.querySelector('[data-testid="cart-count"]');
-      if (byTestId) candidates.push(byTestId);
-      // c) any element whose id/class hints at a counter
-      const hinted = Array.from(
-        document.querySelectorAll(
-          '[id*="count" i], [class*="count" i], [id*="qty" i], [class*="qty" i], [id*="quantity" i], [class*="quantity" i], [id*="badge" i], [class*="badge" i]'
-        )
-      );
-      hinted.forEach((el2) => candidates.push(el2));
 
-      // Deduplicate element list
-      const uniq = Array.from(new Set(candidates));
+      // (a) Always consider the event target and a few ancestors
+      if (el) {
+        candidates.push(el);
+        let p: Element | null = el.parentElement;
+        let hops = 0;
+        while (p && hops < 4) {
+          candidates.push(p);
+          p = p.parentElement;
+          hops++;
+        }
+      }
+
+      // (b) If a server-provided tracking profile is ON, include configured mutation selectors
+      try {
+        const want = (this as any).selMutation as string[] | undefined;
+        const isOn = !!(this as any).trackOn;
+        if (isOn && Array.isArray(want) && want.length) {
+          for (const sel of want) {
+            try {
+              document.querySelectorAll(sel).forEach((node) => {
+                if (node instanceof Element) candidates.push(node);
+              });
+            } catch {
+              /* invalid selector from server; ignore */
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+
+      // Deduplicate
+      const uniq: Element[] = Array.from(new Set(candidates));
+
+      // Helper: choose a stable attribute key for a numeric element
+      const pickKey = (cand: Element): string | null => {
+        const id = (cand as HTMLElement).id || '';
+        if (id) return id;
+        // prefer semantic data-* keys
+        const dataNames: string[] = [];
+        for (const a of Array.from(cand.attributes)) {
+          if (a.name.startsWith('data-'))
+            dataNames.push(a.name.replace(/^data-/, ''));
+        }
+        const pref = dataNames.find((n) =>
+          /^(name|counter|count|qty|quantity|total|badge|value)$/i.test(n)
+        );
+        if (pref) return pref;
+        if (dataNames.length) return dataNames[0];
+        const cls = (cand.getAttribute('class') || '').trim();
+        if (cls) return cls.split(/\s+/)[0];
+        return cand.tagName ? cand.tagName.toLowerCase() : null;
+      };
 
       for (const cand of uniq) {
         const txt = (cand.textContent || '').trim();
         const n = firstInt(txt);
-        if (n == null) continue;
-        const id = (cand as HTMLElement).id || '';
-        const cls = (cand.getAttribute('class') || '')
-          .split(/\s+/)
-          .filter(Boolean);
-        // choose a stable name: prefer id, else a class containing a hint
-        let key = '';
-        if (id) key = id;
-        else {
-          const hint = cls.find((c) => /(count|qty|quantity|badge)/i.test(c));
-          if (hint) key = hint;
-        }
+        if (n == null) continue; // not a simple numeric text
+        const key = pickKey(cand);
         if (!key) continue;
-        // camelCase: cart-count -> cartCount, total_qty -> totalQty
+        // camelCase the key: cart-count -> cartCount, total_qty -> totalQty
         const camel = key
-          .replace(/[-_]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
+          .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) =>
+            c ? String(c).toUpperCase() : ''
+          )
           .replace(/^(.)/, (m) => m.toLowerCase());
         (attributes as any)[camel] = String(n);
       }
