@@ -13,12 +13,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /**
-         * Rule Check
-         * @description MOCK logic:
-         *       - shouldProceed True when event.eventType is 'add_to_cart' and count >= 2 (if present)
-         *       - matchedRules returns a stable demo rule
-         */
+        /** Rule Check */
         post: operations["rule_check_rule_check_post"];
         delete?: never;
         options?: never;
@@ -35,13 +30,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /**
-         * Suggest Get
-         * @description MOCK policy:
-         *       - If prevTurnId is missing -> return ASK (with actions yes/no)
-         *       - Else, if answers.choice in {'yes','y'} -> FINAL with suggestions
-         *       - Else -> FINAL with a single generic suggestion (contract requires >=1)
-         */
+        /** Suggest Get */
         post: operations["suggest_get_suggest_get_post"];
         delete?: never;
         options?: never;
@@ -49,39 +38,54 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/url/drag": {
+    "/site/map": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Site Map */
+        get: operations["get_site_map_site_map_get"];
         put?: never;
-        /** Url Drag */
-        post: operations["url_drag_url_drag_post"];
+        /** Build Site Map */
+        post: operations["build_site_map_site_map_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/page/drag": {
+    "/site/info": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Site Info */
+        get: operations["get_site_info_site_info_get"];
         put?: never;
-        /**
-         * Page Drag
-         * @description MOCK:
-         *       - If mode == 'atlas': return a minimal atlas-like structure in `normalized`
-         *       - Otherwise, indicate a queued rebuild
-         */
-        post: operations["page_drag_page_drag_post"];
+        /** Drag Site Info */
+        post: operations["drag_site_info_site_info_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site/atlas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Site Atlas */
+        get: operations["get_site_atlas_site_atlas_get"];
+        put?: never;
+        /** Drag Site Atlas */
+        post: operations["drag_site_atlas_site_atlas_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -250,34 +254,6 @@ export type components = {
             /** Label */
             label: string;
         };
-        /** PageDragRequest */
-        PageDragRequest: {
-            /** Siteid */
-            siteId: string;
-            /** Url */
-            url: string;
-            /**
-             * Mode
-             * @default atlas
-             * @enum {string}
-             */
-            mode: "atlas" | "all";
-            /**
-             * Force
-             * @default false
-             */
-            force: boolean;
-        };
-        /** PageDragResponse */
-        PageDragResponse: {
-            atlas?: components["schemas"]["DomAtlasSnapshot"] | null;
-            /** Normalized */
-            normalized?: {
-                [key: string]: unknown;
-            } | null;
-            /** Queuedplanrebuild */
-            queuedPlanRebuild?: boolean | null;
-        };
         /** RuleCheckRequest */
         RuleCheckRequest: {
             /** Siteid */
@@ -296,6 +272,90 @@ export type components = {
             shouldProceed: boolean;
             /** Reason */
             reason?: string | null;
+        };
+        /** SiteAtlasRequest */
+        SiteAtlasRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+        };
+        /** SiteAtlasResponse */
+        SiteAtlasResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            atlas?: components["schemas"]["DomAtlasSnapshot"] | null;
+            /** Queuedplanrebuild */
+            queuedPlanRebuild?: boolean | null;
+        };
+        /** SiteInfoRequest */
+        SiteInfoRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Path */
+            path?: string | null;
+            /** Url */
+            url?: string | null;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+        };
+        /** SiteInfoResponse */
+        SiteInfoResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+            /** Normalized */
+            normalized?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SiteMapPage */
+        SiteMapPage: {
+            /** Url */
+            url: string;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SiteMapRequest */
+        SiteMapRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url?: string | null;
+            /**
+             * Depth
+             * @default 1
+             */
+            depth: number | null;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+        };
+        /** SiteMapResponse */
+        SiteMapResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Pages */
+            pages: components["schemas"]["SiteMapPage"][];
         };
         /** SuggestGetRequest */
         SuggestGetRequest: {
@@ -332,10 +392,10 @@ export type components = {
             description?: string | null;
             /** Image */
             image?: string | null;
-            /** Price */
-            price?: number | null;
-            /** Currency */
-            currency?: string | null;
+            /** Attributes */
+            attributes?: {
+                [key: string]: unknown;
+            } | null;
             primaryCta?: components["schemas"]["CtaSpec"] | null;
             /** Actions */
             actions?: components["schemas"]["CtaSpec"][] | null;
@@ -394,52 +454,6 @@ export type components = {
         UIHint: {
             /** Render */
             render?: string | null;
-        };
-        /** UrlDragOptions */
-        UrlDragOptions: {
-            /** Depth */
-            depth?: number | null;
-            /**
-             * Followrobotstxt
-             * @default true
-             */
-            followRobotsTxt: boolean;
-            /**
-             * Maxbytes
-             * @default 2000000
-             */
-            maxBytes: number | null;
-            /**
-             * Timeoutsec
-             * @default 20
-             */
-            timeoutSec: number | null;
-        };
-        /** UrlDragRequest */
-        UrlDragRequest: {
-            /** Siteid */
-            siteId: string;
-            /** Urls */
-            urls?: string[] | null;
-            /** Domain */
-            domain?: string | null;
-            /**
-             * Mode
-             * @default all
-             * @enum {string}
-             */
-            mode: "info" | "all";
-            options?: components["schemas"]["UrlDragOptions"] | null;
-        };
-        /** UrlDragResponse */
-        UrlDragResponse: {
-            /** Jobid */
-            jobId: string;
-            /**
-             * Queued
-             * @default true
-             */
-            queued: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -531,21 +545,16 @@ export interface operations {
             };
         };
     };
-    url_drag_url_drag_post: {
+    get_site_map_site_map_get: {
         parameters: {
-            query?: never;
-            header?: {
-                "X-Contract-Version"?: string | null;
-                "X-Request-Id"?: string | null;
+            query: {
+                siteId: string;
             };
+            header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UrlDragRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -553,7 +562,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UrlDragResponse"];
+                    "application/json": components["schemas"]["SiteMapResponse"];
                 };
             };
             /** @description Validation Error */
@@ -567,19 +576,16 @@ export interface operations {
             };
         };
     };
-    page_drag_page_drag_post: {
+    build_site_map_site_map_post: {
         parameters: {
             query?: never;
-            header?: {
-                "X-Contract-Version"?: string | null;
-                "X-Request-Id"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PageDragRequest"];
+                "application/json": components["schemas"]["SiteMapRequest"];
             };
         };
         responses: {
@@ -589,7 +595,137 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageDragResponse"];
+                    "application/json": components["schemas"]["SiteMapResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_site_info_site_info_get: {
+        parameters: {
+            query: {
+                siteId: string;
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteInfoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    drag_site_info_site_info_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteInfoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteInfoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_site_atlas_site_atlas_get: {
+        parameters: {
+            query: {
+                siteId: string;
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAtlasResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    drag_site_atlas_site_atlas_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteAtlasRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAtlasResponse"];
                 };
             };
             /** @description Validation Error */
