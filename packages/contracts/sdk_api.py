@@ -61,8 +61,7 @@ class Suggestion(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     image: Optional[str] = None
-    price: Optional[float] = None
-    currency: Optional[str] = None
+    attributes: Optional[Dict[str, Any]] = None
     primaryCta: Optional[CtaSpec] = None
     actions: Optional[List[CtaSpec]] = None
     meta: Optional[Dict[str, Any]] = None
@@ -105,39 +104,72 @@ class SuggestGetResponse(BaseModel):
     turn: Turn
 
 # ==============================================================================
-# /url/drag
+# /site/register
 # ==============================================================================
 
-class UrlDragOptions(BaseModel):
-    depth: Optional[int] = None
-    followRobotsTxt: bool = True
-    maxBytes: Optional[int] = 2_000_000
-    timeoutSec: Optional[int] = 20
+class SiteRegisterRequest(BaseModel):
+    siteId: Optional[str] = None   # if not provided, backend generates
+    parentUrl: str                 # root URL to crawl from
+    meta: Optional[Dict[str, Any]] = None
 
-class UrlDragRequest(BaseModel):
+
+class SiteRegisterResponse(BaseModel):
     siteId: str
-    urls: Optional[List[str]] = None
-    domain: Optional[str] = None
-    mode: Literal["info", "all"] = "all"
-    options: Optional[UrlDragOptions] = None
+    parentUrl: str
+    meta: Optional[Dict[str, Any]] = None
 
-class UrlDragResponse(BaseModel):
-    jobId: str
-    queued: bool = True
 
 # ==============================================================================
-# /page/drag
+# /site/map
 # ==============================================================================
 
-class PageDragRequest(BaseModel):
-    siteId: str
+class SiteMapPage(BaseModel):
     url: str
-    mode: Literal["atlas", "all"] = "atlas"
+    meta: Optional[Dict[str, Any]] = None
+
+class SiteMapRequest(BaseModel):
+    siteId: str
+    url: Optional[str] = None
+    depth: Optional[int] = 1
     force: bool = False
 
-class PageDragResponse(BaseModel):
-    atlas: Optional[DomAtlasSnapshot] = None
+class SiteMapResponse(BaseModel):
+    siteId: str
+    pages: List[SiteMapPage]
+
+
+# ==============================================================================
+# /site/info
+# ==============================================================================
+
+class SiteInfoRequest(BaseModel):
+    siteId: str
+    path: Optional[str] = None
+    url: Optional[str] = None
+    force: bool = False
+
+
+class SiteInfoResponse(BaseModel):
+    siteId: str
+    url: str
+    meta: Optional[Dict[str, Any]] = None
     normalized: Optional[Dict[str, Any]] = None
+
+
+# ==============================================================================
+# /site/atlas
+# ==============================================================================
+
+class SiteAtlasRequest(BaseModel):
+    siteId: str
+    url: str
+    force: bool = False
+
+
+class SiteAtlasResponse(BaseModel):
+    siteId: str
+    url: str
+    atlas: Optional[DomAtlasSnapshot] = None
     queuedPlanRebuild: Optional[bool] = None
 
 # ==============================================================================
