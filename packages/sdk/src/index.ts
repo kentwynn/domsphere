@@ -1,36 +1,32 @@
 /**
- * Auto Assistant SDK (POC)
- * - Self-detects cart changes (clicks + MutationObserver)
- * - Calls /rule/check then /suggest/get (returns { turn })
- * - Supports ask -> final micro-conversation via answerAsk()
- * - Minimal render helpers for ask + final turns
+ * Auto Assistant SDK (Generic, cart-agnostic)
+ * ---------------------------------------------------------
+ * - Observes DOM events (click, input/change, submit, route changes)
+ * - POSTs /rule/check (Event enum + string-only telemetry)
+ * - If shouldProceed: POSTs /suggest/get, handles ask → final
+ * - Optional rendering into a panel container
  *
- * Build-ready for Nx + Rollup. Only type-imports from api-client.
+ * Defaults:
+ *   baseUrl: http://localhost:4000  (FastAPI; /suggest/get proxies to agent)
+ *
+ * OpenAPI types are imported only for compile-time safety.
  */
 
-import type { components } from '@domsphere/api-client'; // <-- change if your alias differs
+import type { components } from '@domsphere/api-client';
 
-/* =========================
- * OpenAPI Type Aliases
- * ========================= */
+/* ========== OpenAPI Type Aliases ========== */
 export type EventSchema = components['schemas']['Event'];
 export type RuleCheckRequest = components['schemas']['RuleCheckRequest'];
 export type RuleCheckResponse = components['schemas']['RuleCheckResponse'];
-
 export type SuggestGetRequest = components['schemas']['SuggestGetRequest'];
 export type SuggestGetResponse = components['schemas']['SuggestGetResponse'];
-
 export type Turn = components['schemas']['Turn'];
 export type Suggestion = components['schemas']['Suggestion'];
 export type Action = components['schemas']['Action'];
 export type FormSpec = components['schemas']['FormSpec'];
 export type UIHint = components['schemas']['UIHint'];
 
-/* =========================
- * Small utils
- * ========================= */
-const clamp = (n: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, n));
+/* ========== Small utils ========== */
 type HeadersLoose = Record<string, string | undefined>;
 
 async function postJson<TReq, TRes>(
@@ -51,11 +47,9 @@ async function postJson<TReq, TRes>(
   return (await res.json()) as TRes;
 }
 
-/* =========================
- * API client (headers per schema)
- * ========================= */
+/* ========== API client (headers) ========== */
 export type ClientOptions = {
-  baseUrl: string;
+  baseUrl?: string; // default http://localhost:4000
   contractVersion?: string | null; // -> X-Contract-Version
   requestIdFactory?: () => string; // -> X-Request-Id
   fetchHeaders?: Record<string, string>;
@@ -63,7 +57,7 @@ export type ClientOptions = {
 
 export function createApi(opts: ClientOptions) {
   const {
-    baseUrl,
+    baseUrl = 'http://localhost:4000',
     contractVersion = null,
     requestIdFactory,
     fetchHeaders = {},
@@ -93,9 +87,7 @@ export function createApi(opts: ClientOptions) {
   };
 }
 
-/* =========================
- * Tiny event bus
- * ========================= */
+/* ========== Tiny event bus ========== */
 type Listener = (...args: any[]) => void;
 class Emitter {
   private m = new Map<string, Set<Listener>>();
@@ -118,27 +110,160 @@ class Emitter {
   }
 }
 
-/* =========================
- * Auto Assistant
- * ========================= */
+/* ========== Telemetry builders (string-only) ========== */
+function safeStr(v: unknown): string | null {
+  if (v == null) return null;
+  try {
+    const t = typeof v;
+    if (t === 'string') return v as string;
+    if (t === 'number' || t === 'boolean') return String(v);
+    // compress long HTML/text
+    const s = JSON.stringify(v);
+    return s.length > 5000 ? s.slice(0, 5000) : s;
+  } catch {
+    return null;
+  }
+}
+
+function cssPath(el: Element): string | null {
+  try {
+    const parts: string[] = [];
+    let node: Element | null = el;
+    while (node && node.nodeType === 1) {
+      const name = node.nodeName.toLowerCase();
+      let selector = name;
+      if (node.id) {
+        selector += `#${node.id}`;
+        parts.unshift(selector);
+        break;
+      } else {
+        let sib: Element | null = node;
+        let nth = 1;
+        while ((sib = sib.previousElementSibling as Element | null)) {
+          if (sib.nodeName.toLowerCase() === name) nth++;
+        }
+        selector += `:nth-of-type(${nth})`;
+      }
+      parts.unshift(selector);
+      node = node.parentElement;
+    }
+    return parts.join(' > ');
+  } catch {
+    return null;
+  }
+}
+
+function xPath(el: Element): string | null {
+  try {
+    if ((document as any).evaluate) {
+      const xpath = (node: Node): string => {
+        if (node === document.body) return '/html/body';
+        const ix = (sibling: Node | null, name: string): number => {
+          let i = 1;
+          for (; sibling; sibling = sibling.previousSibling) {
+            if (sibling.nodeName === name) i++;
+          }
+          return i;
+        };
+        const segs: string[] = [];
+        for (; node && node.nodeType === 1; node = node.parentNode!) {
+          const name = node.nodeName.toLowerCase();
+          segs.unshift(`${name}[${ix(node, name.toUpperCase())}]`);
+        }
+        return '/' + segs.join('/');
+      };
+      return xpath(el);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function attrMap(el: Element): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  try {
+    for (const a of Array.from(el.attributes)) {
+      out[a.name] = a.value ?? null;
+    }
+  } catch {
+    /* empty */
+  }
+  return out;
+}
+
+function nearbyText(el: Element): string[] {
+  const texts: string[] = [];
+  try {
+    const grab = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const t = (node.textContent || '').trim();
+        if (t) texts.push(t);
+      }
+    };
+    // siblings text samples
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    el.parentElement &&
+      Array.from(el.parentElement.childNodes).forEach((n) => grab(n));
+    return texts.slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
+function ancestorBrief(el: Element): Array<Record<string, string | null>> {
+  const arr: Array<Record<string, string | null>> = [];
+  try {
+    let p: Element | null = el.parentElement;
+    let i = 0;
+    while (p && i < 6) {
+      arr.push({
+        tag: p.tagName || null,
+        id: p.id || null,
+        class: p.getAttribute('class') || null,
+      });
+      p = p.parentElement;
+      i++;
+    }
+  } catch {
+    /* empty */
+  }
+  return arr;
+}
+
+// Parse the first integer from a string, or null if none.
+function firstInt(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const m = text.match(/\d+/);
+  if (!m) return null;
+  const n = parseInt(m[0], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* ========== SDK ========== */
 export type AutoAssistantOptions = ClientOptions & {
   siteId: string;
   sessionId: string;
 
-  selectors?: {
-    addButton?: string; // clicks imply +1
-    removeButton?: string; // clicks imply -1
-    cartCounter?: string; // read textContent as number
-    cartItem?: string; // count elements when no counter
-    panelSelector?: string; // optional container to render into
-  };
+  // Optional render target for ask/final turns
+  panelSelector?: string;
 
-  minCountToProceed?: number; // default 2
-  debounceMs?: number; // default 250
+  // Debounce for deduping rapid events
+  debounceMs?: number; // default 150
 
-  /** Stuff you want to attach to /suggest/get context */
+  // Cooldown after a final turn before new convo can start
+  finalCooldownMs?: number; // default 30000
+
+  // You can provide base context that always goes to /suggest/get
   baseContext?: Record<string, unknown>;
 };
+
+type EventKind =
+  | 'dom_click'
+  | 'input_change'
+  | 'submit'
+  | 'page_load'
+  | 'route_change';
 
 export class AutoAssistant {
   private api: ReturnType<typeof createApi>;
@@ -146,38 +271,32 @@ export class AutoAssistant {
   private opts: Required<
     Pick<
       AutoAssistantOptions,
-      'siteId' | 'sessionId' | 'minCountToProceed' | 'debounceMs'
+      'siteId' | 'sessionId' | 'debounceMs' | 'finalCooldownMs'
     >
   > &
     AutoAssistantOptions;
 
   private detachFns: Array<() => void> = [];
-  private mo?: MutationObserver;
-  private inflight = 0;
-  private lastCount = 0;
   private debTimer?: number;
-  private lastTurn?: Turn; // remember last turn (ask/final)
+  private inflight = false;
+  private lastContext = {
+    matchedRules: [] as string[],
+    eventType: 'page_load' as string,
+  };
+  private activeTurn?: Turn;
+  private cooldownUntil = 0;
 
   constructor(options: AutoAssistantOptions) {
     this.opts = {
+      debounceMs: options.debounceMs ?? 150,
+      finalCooldownMs: options.finalCooldownMs ?? 30000,
       ...options,
-      minCountToProceed: options.minCountToProceed ?? 2,
-      debounceMs: options.debounceMs ?? 250,
-      selectors: {
-        addButton: "[data-testid='add']",
-        removeButton: "[data-testid='remove']",
-        cartCounter: '#cart-count',
-        cartItem: "[data-testid='cart-item']",
-        panelSelector: '#suggestions',
-        ...(options.selectors ?? {}),
-      },
     };
     this.api = createApi(options);
   }
 
   on(
     evt:
-      | 'cart:changed'
       | 'rule:checked'
       | 'turn:ask'
       | 'turn:final'
@@ -189,35 +308,98 @@ export class AutoAssistant {
     return this.bus.on(evt, fn);
   }
 
-  /** Start auto-detection */
   start() {
-    const { addButton, removeButton, cartCounter, cartItem } =
-      this.opts.selectors!;
-
-    if (addButton) this.attach('click', addButton, () => this.bumpCount(+1));
-    if (removeButton)
-      this.attach('click', removeButton, () => this.bumpCount(-1));
-
-    this.mo = new MutationObserver(() => this.scheduleProcess());
-    const observeTargets: Element[] = [];
-    if (cartCounter) {
-      const el = document.querySelector(cartCounter);
-      if (el) observeTargets.push(el);
-    }
-    if (cartItem) {
-      document
-        .querySelectorAll(cartItem)
-        .forEach((el) => observeTargets.push(el));
-    }
-    observeTargets.forEach((el) =>
-      this.mo!.observe(el, {
-        childList: true,
-        characterData: true,
-        subtree: true,
-      })
+    // Page load
+    this.schedule(() =>
+      this.handleEvent('page_load', document.body || undefined)
     );
 
-    this.scheduleProcess(true);
+    // Clicks
+    const onClick = (e: Event) => {
+      this.schedule(() =>
+        this.handleEvent('dom_click', e.target as Element | undefined)
+      );
+    };
+    document.addEventListener('click', onClick, true);
+    this.detachFns.push(() =>
+      document.removeEventListener('click', onClick, true)
+    );
+
+    // Input / change
+    const onChange = (e: Event) => {
+      this.schedule(() =>
+        this.handleEvent('input_change', e.target as Element | undefined)
+      );
+    };
+    document.addEventListener('input', onChange, true);
+    document.addEventListener('change', onChange, true);
+    this.detachFns.push(() =>
+      document.removeEventListener('input', onChange, true)
+    );
+    this.detachFns.push(() =>
+      document.removeEventListener('change', onChange, true)
+    );
+
+    // Submit
+    const onSubmit = (e: Event) => {
+      this.schedule(() =>
+        this.handleEvent('submit', e.target as Element | undefined)
+      );
+    };
+    document.addEventListener('submit', onSubmit, true);
+    this.detachFns.push(() =>
+      document.removeEventListener('submit', onSubmit, true)
+    );
+
+    // Basic route changes (SPA)
+    const _push = history.pushState;
+    const _replace = history.replaceState;
+    history.pushState = function (...args: any[]) {
+      const r = _push.apply(this, args as any);
+      window.dispatchEvent(new Event('agent-route-change'));
+      return r;
+    };
+    history.replaceState = function (...args: any[]) {
+      const r = _replace.apply(this, args as any);
+      window.dispatchEvent(new Event('agent-route-change'));
+      return r;
+    };
+    const onPop = () =>
+      this.schedule(() => this.handleEvent('route_change', undefined));
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('agent-route-change', onPop as any);
+    this.detachFns.push(() => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('agent-route-change', onPop as any);
+      history.pushState = _push;
+      history.replaceState = _replace;
+    });
+
+    // Generic DOM mutation detection (MutationObserver)
+    try {
+      const pickTarget = (n?: Node | null): Element | undefined => {
+        if (!n) return undefined;
+        if (n.nodeType === Node.ELEMENT_NODE) return n as Element;
+        if (n.nodeType === Node.TEXT_NODE)
+          return (n.parentElement || undefined) as Element | undefined;
+        return undefined;
+      };
+      const mutObserver = new MutationObserver((muts) => {
+        const raw = muts[0]?.target as Node | undefined;
+        const tgt = pickTarget(raw);
+        // Server only accepts canonical types; treat mutations as a generic interaction
+        this.schedule(() => this.handleEvent('dom_click', tgt));
+      });
+      mutObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+      });
+      this.detachFns.push(() => mutObserver.disconnect());
+    } catch {
+      // ignore if observer cannot start
+    }
   }
 
   stop() {
@@ -229,186 +411,256 @@ export class AutoAssistant {
       }
     });
     this.detachFns = [];
-    this.mo?.disconnect();
     if (this.debTimer) window.clearTimeout(this.debTimer);
   }
 
-  /** Continue the ask flow: send the chosen action back to /suggest/get */
+  /** Answer an ask turn (chips/buttons) */
   async answerAsk(
     turn: Turn,
     action: Action | { id: string; label?: string; value?: unknown }
   ) {
-    const { siteId, sessionId, baseContext } = this.opts;
-
-    const req: SuggestGetRequest = {
-      siteId,
-      sessionId,
-      prevTurnId: turn.turnId,
-      answers: { choice: action.id, value: (action as any).value },
-      context: { ...(this.opts.baseContext ?? {}) },
-    };
-
     try {
+      const { siteId, sessionId, baseContext } = this.opts;
+      const req: SuggestGetRequest = {
+        siteId,
+        sessionId,
+        prevTurnId: turn.turnId,
+        answers: { choice: action.id, value: (action as any).value },
+        context: { ...(baseContext ?? {}) },
+      };
       const { turn: next } = await this.api.suggestGet(req);
-      this.lastTurn = next;
-      if (next.status === 'ask') {
-        this.bus.emit('turn:ask', next);
-        const panel = this.panelEl();
-        if (panel) renderAskTurn(panel, next, (a) => this.answerAsk(next, a));
-      } else {
-        const suggestions = next.suggestions ?? [];
-        this.bus.emit('suggest:ready', suggestions, next);
-        this.bus.emit('turn:final', next);
-        const panel = this.panelEl();
-        if (panel)
-          renderFinalSuggestions(
-            panel,
-            suggestions,
-            (cta) => this.bus.emit('sdk:action', cta),
-            next
-          );
-      }
+      this.setActiveTurn(next);
     } catch (e) {
       this.bus.emit('error', e);
     }
   }
 
-  /* ---------------- internals ---------------- */
-
-  private attach(evt: string, selector: string, handler: EventListener) {
-    const fn = (e: Event) => {
-      const t = e.target as Element | null;
-      if (!t) return;
-      if (t.closest(selector)) handler(e);
-    };
-    document.addEventListener(evt, fn, true);
-    this.detachFns.push(() => document.removeEventListener(evt, fn, true));
-  }
-
-  private readCount(): number {
-    const { cartCounter, cartItem } = this.opts.selectors!;
-    if (cartCounter) {
-      const el = document.querySelector(cartCounter);
-      if (el) {
-        const n = parseInt((el.textContent || '0').replace(/\D+/g, ''), 10);
-        if (!Number.isNaN(n)) return n;
-      }
-    }
-    if (cartItem) {
-      const n = document.querySelectorAll(cartItem).length;
-      if (n >= 0) return n;
-    }
-    return this.lastCount;
-  }
-
-  private bumpCount(delta: number) {
-    this.lastCount = clamp(this.lastCount + delta, 0, 9999);
-    this.scheduleProcess(true);
-  }
-
-  private scheduleProcess(force = false) {
-    if (this.debTimer) window.clearTimeout(this.debTimer);
-    this.debTimer = window.setTimeout(
-      () => this.process(force),
-      this.opts.debounceMs
-    );
-  }
-
-  private async process(force = false) {
-    const count = this.readCount();
-    const changed = force || count !== this.lastCount;
-    this.lastCount = count;
-    if (!changed) return;
-
-    this.bus.emit('cart:changed', count);
-
-    if (count < this.opts.minCountToProceed) {
-      this.bus.emit('turn:cleared');
-      const panel = this.panelEl();
-      if (panel) panel.innerHTML = '';
-      return;
-    }
-
-    if (this.inflight > 0) return;
-    this.inflight++;
-
+  /** Answer an ask turn via form submission */
+  private async answerForm(turn: Turn, formData: FormData) {
     try {
-      await this.runFlow(count);
+      const { siteId, sessionId, baseContext } = this.opts;
+      const answers: Record<string, unknown> = {};
+      const keys: string[] = [];
+      formData.forEach((_, key) => {
+        if (!keys.includes(key)) keys.push(key);
+      });
+      for (const key of keys) {
+        const values = formData.getAll(key);
+        answers[key] =
+          values.length === 1
+            ? values[0] instanceof File
+              ? values[0].name
+              : values[0]
+            : values.map((v) => (v instanceof File ? v.name : v));
+      }
+      const req: SuggestGetRequest = {
+        siteId,
+        sessionId,
+        prevTurnId: turn.turnId,
+        answers,
+        context: { ...(baseContext ?? {}) },
+      };
+      const { turn: next } = await this.api.suggestGet(req);
+      this.setActiveTurn(next);
     } catch (e) {
       this.bus.emit('error', e);
-    } finally {
-      this.inflight = 0;
     }
   }
 
-  private async runFlow(count: number) {
-    const { siteId, sessionId } = this.opts;
+  /* ========== internals ========== */
 
-    // 1) /rule/check
-    const rcReq: RuleCheckRequest = {
-      siteId,
-      sessionId,
-      event: {
-        type: 'dom_click',
-        ts: Date.now(),
-        telemetry: {
-          attributes: { cartCount: String(count) },
-        } as EventSchema['telemetry'],
-      } as EventSchema,
-    };
-    const rcRes = await this.api.ruleCheck(rcReq);
-    this.bus.emit('rule:checked', rcRes);
+  private schedule(fn: () => void) {
+    if (this.debTimer) window.clearTimeout(this.debTimer);
+    this.debTimer = window.setTimeout(fn, this.opts.debounceMs);
+  }
 
-    if (!rcRes.shouldProceed) {
-      this.bus.emit('turn:cleared');
-      const panel = this.panelEl();
-      if (panel) panel.innerHTML = '';
-      return;
-    }
-
-    // 2) /suggest/get (first turn)
-    const sgReq: SuggestGetRequest = {
-      siteId,
-      sessionId,
-      context: {
-        matchedRules: rcRes.matchedRules,
-        eventType: rcRes.eventType,
-        ...(this.opts.baseContext ?? {}),
-      },
-    };
-
-    const { turn } = await this.api.suggestGet(sgReq);
-    this.lastTurn = turn;
-
-    if (turn.status === 'ask') {
-      this.bus.emit('turn:ask', turn);
-      const panel = this.panelEl();
-      if (panel) renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a));
-    } else {
-      const suggestions = turn.suggestions ?? [];
-      this.bus.emit('suggest:ready', suggestions, turn);
-      this.bus.emit('turn:final', turn);
-      const panel = this.panelEl();
-      if (panel)
-        renderFinalSuggestions(
-          panel,
-          suggestions,
-          (cta) => this.bus.emit('sdk:action', cta),
-          turn
-        );
-    }
+  private canOpenConversation(): boolean {
+    if (!this.activeTurn) return Date.now() >= this.cooldownUntil;
+    if (this.activeTurn.status === 'ask') return false;
+    return Date.now() >= this.cooldownUntil;
   }
 
   private panelEl(): HTMLElement | null {
-    const sel = this.opts.selectors?.panelSelector;
+    const sel = this.opts.panelSelector;
     return sel ? (document.querySelector(sel) as HTMLElement | null) : null;
+  }
+
+  private setActiveTurn(turn?: Turn) {
+    this.activeTurn = turn;
+    const panel = this.panelEl();
+    if (!panel) {
+      if (turn?.status === 'ask') this.bus.emit('turn:ask', turn);
+      else if (turn?.status === 'final') {
+        this.bus.emit('suggest:ready', turn.suggestions ?? [], turn);
+        this.bus.emit('turn:final', turn);
+        this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+      } else {
+        this.bus.emit('turn:cleared');
+      }
+      return;
+    }
+
+    if (!turn) {
+      panel.innerHTML = '';
+      this.bus.emit('turn:cleared');
+      return;
+    }
+
+    if (turn.status === 'ask') {
+      renderAskTurn(
+        panel,
+        turn,
+        (a) => this.answerAsk(turn, a),
+        (fd) => this.answerForm(turn, fd as FormData)
+      );
+      this.bus.emit('turn:ask', turn);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      renderFinalSuggestions(panel, turn.suggestions ?? [], () => {}, turn);
+      this.bus.emit('suggest:ready', turn.suggestions ?? [], turn);
+      this.bus.emit('turn:final', turn);
+      this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+    }
+  }
+
+  private buildTelemetry(target?: Element): EventSchema['telemetry'] {
+    const el = target && target.nodeType === 1 ? (target as Element) : null;
+    const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
+    const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
+    const attributes = el ? attrMap(el) : {};
+    // Promote semantic action into telemetry.attributes.action (without changing event.type)
+    try {
+      const withAction = el?.closest('[data-action]') as HTMLElement | null;
+      const action = withAction?.getAttribute('data-action');
+      if (action && !(attributes as any)['action']) {
+        (attributes as any)['action'] = action;
+      }
+    } catch {
+      /* empty */
+    }
+    // Heuristic: surface obvious numeric counters from the DOM into attributes
+    try {
+      const candidates: Element[] = [];
+      // a) direct id match (common in demos)
+      const byId = document.getElementById('cart-count');
+      if (byId) candidates.push(byId);
+      // b) common data-testid
+      const byTestId = document.querySelector('[data-testid="cart-count"]');
+      if (byTestId) candidates.push(byTestId);
+      // c) any element whose id/class hints at a counter
+      const hinted = Array.from(
+        document.querySelectorAll(
+          '[id*="count" i], [class*="count" i], [id*="qty" i], [class*="qty" i], [id*="quantity" i], [class*="quantity" i], [id*="badge" i], [class*="badge" i]'
+        )
+      );
+      hinted.forEach((el2) => candidates.push(el2));
+
+      // Deduplicate element list
+      const uniq = Array.from(new Set(candidates));
+
+      for (const cand of uniq) {
+        const txt = (cand.textContent || '').trim();
+        const n = firstInt(txt);
+        if (n == null) continue;
+        const id = (cand as HTMLElement).id || '';
+        const cls = (cand.getAttribute('class') || '')
+          .split(/\s+/)
+          .filter(Boolean);
+        // choose a stable name: prefer id, else a class containing a hint
+        let key = '';
+        if (id) key = id;
+        else {
+          const hint = cls.find((c) => /(count|qty|quantity|badge)/i.test(c));
+          if (hint) key = hint;
+        }
+        if (!key) continue;
+        // camelCase: cart-count -> cartCount, total_qty -> totalQty
+        const camel = key
+          .replace(/[-_]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
+          .replace(/^(.)/, (m) => m.toLowerCase());
+        (attributes as any)[camel] = String(n);
+      }
+    } catch {
+      /* best-effort only */
+    }
+    const css = el ? cssPath(el) : null;
+    const xp = el ? xPath(el) : null;
+    const near = el ? nearbyText(el) : [];
+    const ancs = el ? ancestorBrief(el) : [];
+
+    // ensure strings or nulls
+    const toStr = (obj: Record<string, string | null>) =>
+      Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [k, v == null ? null : String(v)])
+      );
+
+    return {
+      elementText: safeStr(elementText),
+      elementHtml: safeStr(elementHtml),
+      attributes: toStr(attributes),
+      cssPath: safeStr(css),
+      xpath: safeStr(xp),
+      nearbyText: near.map((t) => String(t)).slice(0, 5),
+      ancestors: ancs.map((a) =>
+        Object.fromEntries(
+          Object.entries(a).map(([k, v]) => [k, v == null ? null : String(v)])
+        )
+      ),
+    } as EventSchema['telemetry'];
+  }
+
+  private async handleEvent(kind: EventKind, target?: Element) {
+    // avoid concurrent runs
+    if (this.inflight) return;
+    this.inflight = true;
+
+    try {
+      // 1) rule check
+      const rcReq: RuleCheckRequest = {
+        siteId: this.opts.siteId,
+        sessionId: this.opts.sessionId,
+        event: {
+          type: kind,
+          ts: Date.now(),
+          telemetry: this.buildTelemetry(target),
+        } as EventSchema,
+      };
+
+      const rcRes = await this.api.ruleCheck(rcReq);
+      this.bus.emit('rule:checked', rcRes);
+
+      this.lastContext = {
+        matchedRules: rcRes.matchedRules,
+        eventType: rcRes.eventType,
+      };
+
+      // 2) ask agent only if rules pass + allowed by cooldown/turn state
+      if (!rcRes.shouldProceed || !this.canOpenConversation()) {
+        if (!rcRes.shouldProceed) this.setActiveTurn(undefined);
+        return;
+      }
+
+      const sgReq: SuggestGetRequest = {
+        siteId: this.opts.siteId,
+        sessionId: this.opts.sessionId,
+        context: {
+          matchedRules: rcRes.matchedRules,
+          eventType: rcRes.eventType,
+          ...(this.opts.baseContext ?? {}),
+        },
+      };
+
+      const { turn } = await this.api.suggestGet(sgReq);
+      this.setActiveTurn(turn);
+    } catch (e) {
+      this.bus.emit('error', e);
+    } finally {
+      this.inflight = false;
+    }
   }
 }
 
-/* =========================
- * Render helpers (optional)
- * ========================= */
-
+/* ========== Minimal render helpers (generic) ========== */
 export function renderAskTurn(
   container: HTMLElement,
   turn: Turn,
@@ -438,7 +690,6 @@ export function renderAskTurn(
     turn.actions.forEach((a) => {
       const btn = document.createElement('button');
       btn.textContent = a.label;
-      btn.setAttribute('data-action-id', a.id);
       btn.onclick = () => onAction(a);
       btn.style.padding = '6px 10px';
       btn.style.borderRadius = '8px';
@@ -498,7 +749,7 @@ export function renderAskTurn(
         }
         case 'radio': {
           const group = document.createElement('div');
-          (f.options ?? []).forEach((opt, i) => {
+          (f.options ?? []).forEach((opt) => {
             const lbl = document.createElement('label');
             lbl.style.marginRight = '10px';
             const r = document.createElement('input');
@@ -512,13 +763,9 @@ export function renderAskTurn(
           input = group;
           break;
         }
-        case 'number':
-        case 'range':
-        case 'toggle':
-        case 'text':
         default: {
           const el = document.createElement('input');
-          el.type = f.type === 'number' ? 'number' : 'text';
+          el.type = 'text';
           (el as HTMLInputElement).name = f.key;
           input = el;
         }
@@ -556,7 +803,17 @@ export function renderFinalSuggestions(
       | NonNullable<Suggestion['actions']>[number]
       | NonNullable<Suggestion['primaryCta']>
   ) => void,
-  turn?: Turn
+  turn: {
+    intentId: string;
+    turnId: string;
+    status: 'ask' | 'final';
+    message?: string | null;
+    actions?: components['schemas']['Action'][] | null;
+    form?: components['schemas']['FormSpec'] | null;
+    suggestions?: components['schemas']['Suggestion'][] | null;
+    ui?: components['schemas']['UIHint'] | null;
+    ttlSec?: number | null;
+  }
 ) {
   container.innerHTML = '';
   if (!suggestions?.length) {
@@ -585,15 +842,6 @@ export function renderFinalSuggestions(
       desc.style.opacity = '0.9';
       desc.style.marginTop = '4px';
       card.appendChild(desc);
-    }
-
-    if (typeof s.price === 'number') {
-      const price = document.createElement('div');
-      price.textContent = s.currency
-        ? `${s.price} ${s.currency}`
-        : `${s.price}`;
-      price.style.marginTop = '6px';
-      card.appendChild(price);
     }
 
     const actions = [
@@ -628,16 +876,14 @@ export function renderFinalSuggestions(
   container.appendChild(frag);
 }
 
-/* =========================
- * UMD convenience (optional)
- * ========================= */
+/* ========== UMD convenience ========== */
 declare global {
   interface Window {
-    AgentSDK?: any;
+    AgentSDK?: unknown;
   }
 }
 if (typeof window !== 'undefined') {
-  (window as any).AgentSDK = {
+  window.AgentSDK = {
     AutoAssistant,
     renderAskTurn,
     renderFinalSuggestions,

@@ -19,6 +19,23 @@ class RuleCheckResponse(BaseModel):
     reason: Optional[str] = None
 
 # ==============================================================================
+# /rule/track  (control plane for SDK tracking behavior)
+# ==============================================================================
+
+class RuleTrackRequest(BaseModel):
+    siteId: str
+    status: Literal["on", "off"] = "off"   # on = SDK tracks only specified events, off = SDK tracks everything
+    version: Optional[str] = None            # optional ruleset version
+    events: Optional[Dict[str, List[str]]] = None  # mapping from eventType to list of selectors
+
+class RuleTrackResponse(BaseModel):
+    siteId: str
+    status: Literal["on", "off"]
+    version: Optional[str] = None
+    updatedAt: Optional[str] = None
+    events: Optional[Dict[str, List[str]]] = None
+
+# ==============================================================================
 # /suggest/get  (agent-driven ask/final loop)
 # ==============================================================================
 

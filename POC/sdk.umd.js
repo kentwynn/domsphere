@@ -37,18 +37,18 @@
     };
 
     /**
-     * Auto Assistant SDK (POC)
-     * - Self-detects cart changes (clicks + MutationObserver)
-     * - Calls /rule/check then /suggest/get (returns { turn })
-     * - Supports ask -> final micro-conversation via answerAsk()
-     * - Minimal render helpers for ask + final turns
+     * Auto Assistant SDK (Generic, cart-agnostic)
+     * ---------------------------------------------------------
+     * - Observes DOM events (click, input/change, submit, route changes)
+     * - POSTs /rule/check (Event enum + string-only telemetry)
+     * - If shouldProceed: POSTs /suggest/get, handles ask → final
+     * - Optional rendering into a panel container
      *
-     * Build-ready for Nx + Rollup. Only type-imports from api-client.
+     * Defaults:
+     *   baseUrl: http://localhost:4000  (FastAPI; /suggest/get proxies to agent)
+     *
+     * OpenAPI types are imported only for compile-time safety.
      */
-    /* =========================
-     * Small utils
-     * ========================= */
-    const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
     function postJson(baseUrl_1, path_1, body_1) {
         return __awaiter(this, arguments, void 0, function* (baseUrl, path, body, headers = {}) {
             const res = yield fetch(new URL(path, baseUrl).toString(), {
@@ -64,7 +64,7 @@
         });
     }
     function createApi(opts) {
-        const { baseUrl, contractVersion = null, requestIdFactory, fetchHeaders = {}, } = opts;
+        const { baseUrl = 'http://localhost:4000', contractVersion = null, requestIdFactory, fetchHeaders = {}, } = opts;
         const headers = () => (Object.assign({ 'X-Contract-Version': contractVersion !== null && contractVersion !== void 0 ? contractVersion : undefined, 'X-Request-Id': requestIdFactory === null || requestIdFactory === void 0 ? void 0 : requestIdFactory() }, fetchHeaders));
         return {
             ruleCheck: (body) => postJson(baseUrl, '/rule/check', body, headers()),
@@ -97,47 +97,239 @@
             });
         }
     }
+    /* ========== Telemetry builders (string-only) ========== */
+    function safeStr(v) {
+        if (v == null)
+            return null;
+        try {
+            const t = typeof v;
+            if (t === 'string')
+                return v;
+            if (t === 'number' || t === 'boolean')
+                return String(v);
+            // compress long HTML/text
+            const s = JSON.stringify(v);
+            return s.length > 5000 ? s.slice(0, 5000) : s;
+        }
+        catch (_a) {
+            return null;
+        }
+    }
+    function cssPath(el) {
+        try {
+            const parts = [];
+            let node = el;
+            while (node && node.nodeType === 1) {
+                const name = node.nodeName.toLowerCase();
+                let selector = name;
+                if (node.id) {
+                    selector += `#${node.id}`;
+                    parts.unshift(selector);
+                    break;
+                }
+                else {
+                    let sib = node;
+                    let nth = 1;
+                    while ((sib = sib.previousElementSibling)) {
+                        if (sib.nodeName.toLowerCase() === name)
+                            nth++;
+                    }
+                    selector += `:nth-of-type(${nth})`;
+                }
+                parts.unshift(selector);
+                node = node.parentElement;
+            }
+            return parts.join(' > ');
+        }
+        catch (_a) {
+            return null;
+        }
+    }
+    function xPath(el) {
+        try {
+            if (document.evaluate) {
+                const xpath = (node) => {
+                    if (node === document.body)
+                        return '/html/body';
+                    const ix = (sibling, name) => {
+                        let i = 1;
+                        for (; sibling; sibling = sibling.previousSibling) {
+                            if (sibling.nodeName === name)
+                                i++;
+                        }
+                        return i;
+                    };
+                    const segs = [];
+                    for (; node && node.nodeType === 1; node = node.parentNode) {
+                        const name = node.nodeName.toLowerCase();
+                        segs.unshift(`${name}[${ix(node, name.toUpperCase())}]`);
+                    }
+                    return '/' + segs.join('/');
+                };
+                return xpath(el);
+            }
+            return null;
+        }
+        catch (_a) {
+            return null;
+        }
+    }
+    function attrMap(el) {
+        var _a;
+        const out = {};
+        try {
+            for (const a of Array.from(el.attributes)) {
+                out[a.name] = (_a = a.value) !== null && _a !== void 0 ? _a : null;
+            }
+        }
+        catch (_b) {
+            /* empty */
+        }
+        return out;
+    }
+    function nearbyText(el) {
+        const texts = [];
+        try {
+            const grab = (node) => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    const t = (node.textContent || '').trim();
+                    if (t)
+                        texts.push(t);
+                }
+            };
+            // siblings text samples
+            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+            el.parentElement &&
+                Array.from(el.parentElement.childNodes).forEach((n) => grab(n));
+            return texts.slice(0, 5);
+        }
+        catch (_a) {
+            return [];
+        }
+    }
+    function ancestorBrief(el) {
+        const arr = [];
+        try {
+            let p = el.parentElement;
+            let i = 0;
+            while (p && i < 6) {
+                arr.push({
+                    tag: p.tagName || null,
+                    id: p.id || null,
+                    class: p.getAttribute('class') || null,
+                });
+                p = p.parentElement;
+                i++;
+            }
+        }
+        catch (_a) {
+            /* empty */
+        }
+        return arr;
+    }
+    // Parse the first integer from a string, or null if none.
+    function firstInt(text) {
+        if (!text)
+            return null;
+        const m = text.match(/\d+/);
+        if (!m)
+            return null;
+        const n = parseInt(m[0], 10);
+        return Number.isFinite(n) ? n : null;
+    }
     class AutoAssistant {
         constructor(options) {
-            var _a, _b, _c;
+            var _a, _b;
             this.bus = new Emitter();
             this.detachFns = [];
-            this.inflight = 0;
-            this.lastCount = 0;
-            this.opts = Object.assign(Object.assign({}, options), { minCountToProceed: (_a = options.minCountToProceed) !== null && _a !== void 0 ? _a : 2, debounceMs: (_b = options.debounceMs) !== null && _b !== void 0 ? _b : 250, selectors: Object.assign({ addButton: "[data-testid='add']", removeButton: "[data-testid='remove']", cartCounter: '#cart-count', cartItem: "[data-testid='cart-item']", panelSelector: '#suggestions' }, ((_c = options.selectors) !== null && _c !== void 0 ? _c : {})) });
+            this.inflight = false;
+            this.lastContext = {
+                matchedRules: [],
+                eventType: 'page_load',
+            };
+            this.cooldownUntil = 0;
+            this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
         }
         on(evt, fn) {
             return this.bus.on(evt, fn);
         }
-        /** Start auto-detection */
         start() {
-            const { addButton, removeButton, cartCounter, cartItem } = this.opts.selectors;
-            if (addButton)
-                this.attach('click', addButton, () => this.bumpCount(1));
-            if (removeButton)
-                this.attach('click', removeButton, () => this.bumpCount(-1));
-            this.mo = new MutationObserver(() => this.scheduleProcess());
-            const observeTargets = [];
-            if (cartCounter) {
-                const el = document.querySelector(cartCounter);
-                if (el)
-                    observeTargets.push(el);
+            // Page load
+            this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+            // Clicks
+            const onClick = (e) => {
+                this.schedule(() => this.handleEvent('dom_click', e.target));
+            };
+            document.addEventListener('click', onClick, true);
+            this.detachFns.push(() => document.removeEventListener('click', onClick, true));
+            // Input / change
+            const onChange = (e) => {
+                this.schedule(() => this.handleEvent('input_change', e.target));
+            };
+            document.addEventListener('input', onChange, true);
+            document.addEventListener('change', onChange, true);
+            this.detachFns.push(() => document.removeEventListener('input', onChange, true));
+            this.detachFns.push(() => document.removeEventListener('change', onChange, true));
+            // Submit
+            const onSubmit = (e) => {
+                this.schedule(() => this.handleEvent('submit', e.target));
+            };
+            document.addEventListener('submit', onSubmit, true);
+            this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
+            // Basic route changes (SPA)
+            const _push = history.pushState;
+            const _replace = history.replaceState;
+            history.pushState = function (...args) {
+                const r = _push.apply(this, args);
+                window.dispatchEvent(new Event('agent-route-change'));
+                return r;
+            };
+            history.replaceState = function (...args) {
+                const r = _replace.apply(this, args);
+                window.dispatchEvent(new Event('agent-route-change'));
+                return r;
+            };
+            const onPop = () => this.schedule(() => this.handleEvent('route_change', undefined));
+            window.addEventListener('popstate', onPop);
+            window.addEventListener('agent-route-change', onPop);
+            this.detachFns.push(() => {
+                window.removeEventListener('popstate', onPop);
+                window.removeEventListener('agent-route-change', onPop);
+                history.pushState = _push;
+                history.replaceState = _replace;
+            });
+            // Generic DOM mutation detection (MutationObserver)
+            try {
+                const pickTarget = (n) => {
+                    if (!n)
+                        return undefined;
+                    if (n.nodeType === Node.ELEMENT_NODE)
+                        return n;
+                    if (n.nodeType === Node.TEXT_NODE)
+                        return (n.parentElement || undefined);
+                    return undefined;
+                };
+                const mutObserver = new MutationObserver((muts) => {
+                    var _a;
+                    const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
+                    const tgt = pickTarget(raw);
+                    // Server only accepts canonical types; treat mutations as a generic interaction
+                    this.schedule(() => this.handleEvent('dom_click', tgt));
+                });
+                mutObserver.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true,
+                    attributes: true,
+                });
+                this.detachFns.push(() => mutObserver.disconnect());
             }
-            if (cartItem) {
-                document
-                    .querySelectorAll(cartItem)
-                    .forEach((el) => observeTargets.push(el));
+            catch (_a) {
+                // ignore if observer cannot start
             }
-            observeTargets.forEach((el) => this.mo.observe(el, {
-                childList: true,
-                characterData: true,
-                subtree: true,
-            }));
-            this.scheduleProcess(true);
         }
         stop() {
-            var _a;
             this.detachFns.forEach((f) => {
                 try {
                     f();
@@ -147,170 +339,241 @@
                 }
             });
             this.detachFns = [];
-            (_a = this.mo) === null || _a === void 0 ? void 0 : _a.disconnect();
             if (this.debTimer)
                 window.clearTimeout(this.debTimer);
         }
-        /** Continue the ask flow: send the chosen action back to /suggest/get */
+        /** Answer an ask turn (chips/buttons) */
         answerAsk(turn, action) {
             return __awaiter(this, void 0, void 0, function* () {
-                var _a, _b;
-                const { siteId, sessionId, baseContext } = this.opts;
-                const req = {
-                    siteId,
-                    sessionId,
-                    prevTurnId: turn.turnId,
-                    answers: { choice: action.id, value: action.value },
-                    context: Object.assign({}, ((_a = this.opts.baseContext) !== null && _a !== void 0 ? _a : {})),
-                };
                 try {
+                    const { siteId, sessionId, baseContext } = this.opts;
+                    const req = {
+                        siteId,
+                        sessionId,
+                        prevTurnId: turn.turnId,
+                        answers: { choice: action.id, value: action.value },
+                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
+                    };
                     const { turn: next } = yield this.api.suggestGet(req);
-                    this.lastTurn = next;
-                    if (next.status === 'ask') {
-                        this.bus.emit('turn:ask', next);
-                        const panel = this.panelEl();
-                        if (panel)
-                            renderAskTurn(panel, next, (a) => this.answerAsk(next, a));
-                    }
-                    else {
-                        const suggestions = (_b = next.suggestions) !== null && _b !== void 0 ? _b : [];
-                        this.bus.emit('suggest:ready', suggestions, next);
-                        this.bus.emit('turn:final', next);
-                        const panel = this.panelEl();
-                        if (panel)
-                            renderFinalSuggestions(panel, suggestions, (cta) => this.bus.emit('sdk:action', cta), next);
-                    }
+                    this.setActiveTurn(next);
                 }
                 catch (e) {
                     this.bus.emit('error', e);
                 }
             });
         }
-        /* ---------------- internals ---------------- */
-        attach(evt, selector, handler) {
-            const fn = (e) => {
-                const t = e.target;
-                if (!t)
-                    return;
-                if (t.closest(selector))
-                    handler(e);
-            };
-            document.addEventListener(evt, fn, true);
-            this.detachFns.push(() => document.removeEventListener(evt, fn, true));
-        }
-        readCount() {
-            const { cartCounter, cartItem } = this.opts.selectors;
-            if (cartCounter) {
-                const el = document.querySelector(cartCounter);
-                if (el) {
-                    const n = parseInt((el.textContent || '0').replace(/\D+/g, ''), 10);
-                    if (!Number.isNaN(n))
-                        return n;
+        /** Answer an ask turn via form submission */
+        answerForm(turn, formData) {
+            return __awaiter(this, void 0, void 0, function* () {
+                try {
+                    const { siteId, sessionId, baseContext } = this.opts;
+                    const answers = {};
+                    const keys = [];
+                    formData.forEach((_, key) => {
+                        if (!keys.includes(key))
+                            keys.push(key);
+                    });
+                    for (const key of keys) {
+                        const values = formData.getAll(key);
+                        answers[key] =
+                            values.length === 1
+                                ? values[0] instanceof File
+                                    ? values[0].name
+                                    : values[0]
+                                : values.map((v) => (v instanceof File ? v.name : v));
+                    }
+                    const req = {
+                        siteId,
+                        sessionId,
+                        prevTurnId: turn.turnId,
+                        answers,
+                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
+                    };
+                    const { turn: next } = yield this.api.suggestGet(req);
+                    this.setActiveTurn(next);
                 }
-            }
-            if (cartItem) {
-                const n = document.querySelectorAll(cartItem).length;
-                if (n >= 0)
-                    return n;
-            }
-            return this.lastCount;
+                catch (e) {
+                    this.bus.emit('error', e);
+                }
+            });
         }
-        bumpCount(delta) {
-            this.lastCount = clamp(this.lastCount + delta, 0, 9999);
-            this.scheduleProcess(true);
-        }
-        scheduleProcess(force = false) {
+        /* ========== internals ========== */
+        schedule(fn) {
             if (this.debTimer)
                 window.clearTimeout(this.debTimer);
-            this.debTimer = window.setTimeout(() => this.process(force), this.opts.debounceMs);
+            this.debTimer = window.setTimeout(fn, this.opts.debounceMs);
         }
-        process() {
-            return __awaiter(this, arguments, void 0, function* (force = false) {
-                const count = this.readCount();
-                const changed = force || count !== this.lastCount;
-                this.lastCount = count;
-                if (!changed)
-                    return;
-                this.bus.emit('cart:changed', count);
-                if (count < this.opts.minCountToProceed) {
-                    this.bus.emit('turn:cleared');
-                    const panel = this.panelEl();
-                    if (panel)
-                        panel.innerHTML = '';
-                    return;
+        canOpenConversation() {
+            if (!this.activeTurn)
+                return Date.now() >= this.cooldownUntil;
+            if (this.activeTurn.status === 'ask')
+                return false;
+            return Date.now() >= this.cooldownUntil;
+        }
+        panelEl() {
+            const sel = this.opts.panelSelector;
+            return sel ? document.querySelector(sel) : null;
+        }
+        setActiveTurn(turn) {
+            var _a, _b, _c;
+            this.activeTurn = turn;
+            const panel = this.panelEl();
+            if (!panel) {
+                if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'ask')
+                    this.bus.emit('turn:ask', turn);
+                else if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'final') {
+                    this.bus.emit('suggest:ready', (_a = turn.suggestions) !== null && _a !== void 0 ? _a : [], turn);
+                    this.bus.emit('turn:final', turn);
+                    this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
                 }
-                if (this.inflight > 0)
+                else {
+                    this.bus.emit('turn:cleared');
+                }
+                return;
+            }
+            if (!turn) {
+                panel.innerHTML = '';
+                this.bus.emit('turn:cleared');
+                return;
+            }
+            if (turn.status === 'ask') {
+                renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a), (fd) => this.answerForm(turn, fd));
+                this.bus.emit('turn:ask', turn);
+            }
+            else {
+                // eslint-disable-next-line @typescript-eslint/no-empty-function
+                renderFinalSuggestions(panel, (_b = turn.suggestions) !== null && _b !== void 0 ? _b : [], () => { });
+                this.bus.emit('suggest:ready', (_c = turn.suggestions) !== null && _c !== void 0 ? _c : [], turn);
+                this.bus.emit('turn:final', turn);
+                this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+            }
+        }
+        buildTelemetry(target) {
+            const el = target && target.nodeType === 1 ? target : null;
+            const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
+            const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
+            const attributes = el ? attrMap(el) : {};
+            // Promote semantic action into telemetry.attributes.action (without changing event.type)
+            try {
+                const withAction = el === null || el === void 0 ? void 0 : el.closest('[data-action]');
+                const action = withAction === null || withAction === void 0 ? void 0 : withAction.getAttribute('data-action');
+                if (action && !attributes['action']) {
+                    attributes['action'] = action;
+                }
+            }
+            catch (_a) {
+                /* empty */
+            }
+            // Heuristic: surface obvious numeric counters from the DOM into attributes
+            try {
+                const candidates = [];
+                // a) direct id match (common in demos)
+                const byId = document.getElementById('cart-count');
+                if (byId)
+                    candidates.push(byId);
+                // b) common data-testid
+                const byTestId = document.querySelector('[data-testid="cart-count"]');
+                if (byTestId)
+                    candidates.push(byTestId);
+                // c) any element whose id/class hints at a counter
+                const hinted = Array.from(document.querySelectorAll('[id*="count" i], [class*="count" i], [id*="qty" i], [class*="qty" i], [id*="quantity" i], [class*="quantity" i], [id*="badge" i], [class*="badge" i]'));
+                hinted.forEach((el2) => candidates.push(el2));
+                // Deduplicate element list
+                const uniq = Array.from(new Set(candidates));
+                for (const cand of uniq) {
+                    const txt = (cand.textContent || '').trim();
+                    const n = firstInt(txt);
+                    if (n == null)
+                        continue;
+                    const id = cand.id || '';
+                    const cls = (cand.getAttribute('class') || '')
+                        .split(/\s+/)
+                        .filter(Boolean);
+                    // choose a stable name: prefer id, else a class containing a hint
+                    let key = '';
+                    if (id)
+                        key = id;
+                    else {
+                        const hint = cls.find((c) => /(count|qty|quantity|badge)/i.test(c));
+                        if (hint)
+                            key = hint;
+                    }
+                    if (!key)
+                        continue;
+                    // camelCase: cart-count -> cartCount, total_qty -> totalQty
+                    const camel = key
+                        .replace(/[-_]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
+                        .replace(/^(.)/, (m) => m.toLowerCase());
+                    attributes[camel] = String(n);
+                }
+            }
+            catch (_b) {
+                /* best-effort only */
+            }
+            const css = el ? cssPath(el) : null;
+            const xp = el ? xPath(el) : null;
+            const near = el ? nearbyText(el) : [];
+            const ancs = el ? ancestorBrief(el) : [];
+            // ensure strings or nulls
+            const toStr = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, v == null ? null : String(v)]));
+            return {
+                elementText: safeStr(elementText),
+                elementHtml: safeStr(elementHtml),
+                attributes: toStr(attributes),
+                cssPath: safeStr(css),
+                xpath: safeStr(xp),
+                nearbyText: near.map((t) => String(t)).slice(0, 5),
+                ancestors: ancs.map((a) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v == null ? null : String(v)]))),
+            };
+        }
+        handleEvent(kind, target) {
+            return __awaiter(this, void 0, void 0, function* () {
+                var _a;
+                // avoid concurrent runs
+                if (this.inflight)
                     return;
-                this.inflight++;
+                this.inflight = true;
                 try {
-                    yield this.runFlow(count);
+                    // 1) rule check
+                    const rcReq = {
+                        siteId: this.opts.siteId,
+                        sessionId: this.opts.sessionId,
+                        event: {
+                            type: kind,
+                            ts: Date.now(),
+                            telemetry: this.buildTelemetry(target),
+                        },
+                    };
+                    const rcRes = yield this.api.ruleCheck(rcReq);
+                    this.bus.emit('rule:checked', rcRes);
+                    this.lastContext = {
+                        matchedRules: rcRes.matchedRules,
+                        eventType: rcRes.eventType,
+                    };
+                    // 2) ask agent only if rules pass + allowed by cooldown/turn state
+                    if (!rcRes.shouldProceed || !this.canOpenConversation()) {
+                        if (!rcRes.shouldProceed)
+                            this.setActiveTurn(undefined);
+                        return;
+                    }
+                    const sgReq = {
+                        siteId: this.opts.siteId,
+                        sessionId: this.opts.sessionId,
+                        context: Object.assign({ matchedRules: rcRes.matchedRules, eventType: rcRes.eventType }, ((_a = this.opts.baseContext) !== null && _a !== void 0 ? _a : {})),
+                    };
+                    const { turn } = yield this.api.suggestGet(sgReq);
+                    this.setActiveTurn(turn);
                 }
                 catch (e) {
                     this.bus.emit('error', e);
                 }
                 finally {
-                    this.inflight = 0;
+                    this.inflight = false;
                 }
             });
-        }
-        runFlow(count) {
-            return __awaiter(this, void 0, void 0, function* () {
-                var _a, _b;
-                const { siteId, sessionId } = this.opts;
-                // 1) /rule/check
-                const rcReq = {
-                    siteId,
-                    sessionId,
-                    event: {
-                        type: 'dom_click',
-                        ts: Date.now(),
-                        telemetry: {
-                            attributes: { cartCount: String(count) },
-                        },
-                    },
-                };
-                const rcRes = yield this.api.ruleCheck(rcReq);
-                this.bus.emit('rule:checked', rcRes);
-                if (!rcRes.shouldProceed) {
-                    this.bus.emit('turn:cleared');
-                    const panel = this.panelEl();
-                    if (panel)
-                        panel.innerHTML = '';
-                    return;
-                }
-                // 2) /suggest/get (first turn)
-                const sgReq = {
-                    siteId,
-                    sessionId,
-                    context: Object.assign({ matchedRules: rcRes.matchedRules, eventType: rcRes.eventType }, ((_a = this.opts.baseContext) !== null && _a !== void 0 ? _a : {})),
-                };
-                const { turn } = yield this.api.suggestGet(sgReq);
-                this.lastTurn = turn;
-                if (turn.status === 'ask') {
-                    this.bus.emit('turn:ask', turn);
-                    const panel = this.panelEl();
-                    if (panel)
-                        renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a));
-                }
-                else {
-                    const suggestions = (_b = turn.suggestions) !== null && _b !== void 0 ? _b : [];
-                    this.bus.emit('suggest:ready', suggestions, turn);
-                    this.bus.emit('turn:final', turn);
-                    const panel = this.panelEl();
-                    if (panel)
-                        renderFinalSuggestions(panel, suggestions, (cta) => this.bus.emit('sdk:action', cta));
-                }
-            });
-        }
-        panelEl() {
-            var _a;
-            const sel = (_a = this.opts.selectors) === null || _a === void 0 ? void 0 : _a.panelSelector;
-            return sel ? document.querySelector(sel) : null;
         }
     }
-    /* =========================
-     * Render helpers (optional)
-     * ========================= */
+    /* ========== Minimal render helpers (generic) ========== */
     function renderAskTurn(container, turn, onAction, onSubmitForm) {
         var _a, _b, _c, _d;
         container.innerHTML = '';
@@ -334,7 +597,6 @@
             turn.actions.forEach((a) => {
                 const btn = document.createElement('button');
                 btn.textContent = a.label;
-                btn.setAttribute('data-action-id', a.id);
                 btn.onclick = () => onAction(a);
                 btn.style.padding = '6px 10px';
                 btn.style.borderRadius = '8px';
@@ -391,7 +653,7 @@
                     }
                     case 'radio': {
                         const group = document.createElement('div');
-                        ((_b = f.options) !== null && _b !== void 0 ? _b : []).forEach((opt, i) => {
+                        ((_b = f.options) !== null && _b !== void 0 ? _b : []).forEach((opt) => {
                             const lbl = document.createElement('label');
                             lbl.style.marginRight = '10px';
                             const r = document.createElement('input');
@@ -405,13 +667,9 @@
                         input = group;
                         break;
                     }
-                    case 'number':
-                    case 'range':
-                    case 'toggle':
-                    case 'text':
                     default: {
                         const el = document.createElement('input');
-                        el.type = f.type === 'number' ? 'number' : 'text';
+                        el.type = 'text';
                         el.name = f.key;
                         input = el;
                     }
@@ -461,14 +719,6 @@
                 desc.style.opacity = '0.9';
                 desc.style.marginTop = '4px';
                 card.appendChild(desc);
-            }
-            if (typeof s.price === 'number') {
-                const price = document.createElement('div');
-                price.textContent = s.currency
-                    ? `${s.price} ${s.currency}`
-                    : `${s.price}`;
-                price.style.marginTop = '6px';
-                card.appendChild(price);
             }
             const actions = [
                 ...((_b = s.actions) !== null && _b !== void 0 ? _b : []),

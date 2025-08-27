@@ -21,6 +21,24 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/rule/track": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rule Track Get */
+        get: operations["rule_track_get_rule_track_get"];
+        put?: never;
+        /** Rule Track Post */
+        post: operations["rule_track_post_rule_track_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/suggest/get": {
         parameters: {
             query?: never;
@@ -273,6 +291,41 @@ export type components = {
             /** Reason */
             reason?: string | null;
         };
+        /** RuleTrackRequest */
+        RuleTrackRequest: {
+            /** Siteid */
+            siteId: string;
+            /**
+             * Status
+             * @default off
+             * @enum {string}
+             */
+            status: "on" | "off";
+            /** Version */
+            version?: string | null;
+            /** Events */
+            events?: {
+                [key: string]: string[];
+            } | null;
+        };
+        /** RuleTrackResponse */
+        RuleTrackResponse: {
+            /** Siteid */
+            siteId: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "on" | "off";
+            /** Version */
+            version?: string | null;
+            /** Updatedat */
+            updatedAt?: string | null;
+            /** Events */
+            events?: {
+                [key: string]: string[];
+            } | null;
+        };
         /** SiteAtlasRequest */
         SiteAtlasRequest: {
             /** Siteid */
@@ -496,6 +549,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RuleCheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rule_track_get_rule_track_get: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleTrackResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rule_track_post_rule_track_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleTrackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleTrackResponse"];
                 };
             };
             /** @description Validation Error */

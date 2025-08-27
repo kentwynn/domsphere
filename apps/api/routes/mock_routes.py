@@ -33,9 +33,11 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
             {
                 "id": "cart_gte_2",
                 "enabled": True,
-                "eventType": ["dom_click", "add_to_cart"],
+                # Only canonical server-accepted event types
+                "eventType": ["dom_click"],
                 "when": [
-                    {"field": "telemetry.attributes.cartCount", "op": "gte", "value": 2}
+                    {"field": "telemetry.attributes.action", "op": "equals", "value": "add_to_cart"},
+                    {"field": "telemetry.attributes.cartCount", "op": "gte", "value": 2},
                 ],
             }
         ],
@@ -59,6 +61,7 @@ def _get_path(obj: Any, path: str) -> Any:
 def _op_eval(left: Any, op: str, right: Any) -> bool:
     try:
         if op == "equals": return left == right
+        if op == "eq": return left == right
         if op == "in": return left in right if isinstance(right, (list, tuple, set)) else False
         if op == "gte": return left is not None and right is not None and left >= right
         if op == "lte": return left is not None and right is not None and left <= right
@@ -121,6 +124,51 @@ def rule_check(
         matchedRules=matched,
         shouldProceed=len(matched) > 0,
         reason=(None if matched else "NO_MATCH"),
+    )
+
+# ==============================================================================
+# /rule/track (mock control plane)
+# ==============================================================================
+from contracts.sdk_api import RuleTrackRequest, RuleTrackResponse
+
+@router.post("/rule/track", response_model=RuleTrackResponse)
+def rule_track_post(
+    payload: RuleTrackRequest,
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
+) -> RuleTrackResponse:
+    # Echo back a valid structure; no persistence in mock
+    return RuleTrackResponse(
+        siteId=payload.siteId,
+        status=payload.status or "off",
+        version=payload.version or "ruleset-001",
+        updatedAt=None,
+        events=payload.events or {},
+    )
+
+@router.get("/rule/track", response_model=RuleTrackResponse)
+def rule_track_get(
+    siteId: str = "demo-site",
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
+) -> RuleTrackResponse:
+    # Provide a minimal, usable tracking profile for the PoC
+    return RuleTrackResponse(
+        siteId=siteId,
+        status="on",
+        version="ruleset-001",
+        updatedAt=None,
+        events={
+            "dom_click": [
+                "[data-action='add_to_cart']",
+                "[data-action='checkout']",
+                "[data-action='search']",
+                "#promo-banner",
+            ],
+            "mutation": [
+                "#cart-count",
+            ],
+        },
     )
 
 # ==============================================================================
