@@ -13,6 +13,8 @@ export type FormSpec = components['schemas']['FormSpec'];
 export type UIHint = components['schemas']['UIHint'];
 
 // Minimal type for the rule-track profile
+// Use the OpenAPI contract type for rule tracking (request shape is compatible for our read usage)
+// Fallback structural type (generator type alias lookup appears unavailable in this build context)
 export type RuleTrackProfile = {
   siteId: string;
   status: 'on' | 'off';
@@ -27,4 +29,3 @@ export type ClientOptions = {
   requestIdFactory?: () => string; // -> X-Request-Id
   fetchHeaders?: Record<string, string>;
 };
-

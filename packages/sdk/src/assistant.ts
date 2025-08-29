@@ -1,26 +1,25 @@
 import { createApi } from './api';
 import { Emitter, type Listener } from './emitter';
+import { renderAskTurn, renderFinalSuggestions } from './render';
 import {
+  ancestorBrief,
+  attrMap,
+  cssPath,
+  firstInt,
+  nearbyText,
+  safeStr,
+  xPath,
+} from './telemetry';
+import {
+  type Action,
+  type ClientOptions,
   type EventSchema,
   type RuleCheckRequest,
+  type RuleTrackProfile,
   type SuggestGetRequest,
   type SuggestGetResponse,
   type Turn,
-  type Action,
-  type Suggestion,
-  type ClientOptions,
-  type RuleTrackProfile,
 } from './types';
-import {
-  safeStr,
-  cssPath,
-  xPath,
-  attrMap,
-  nearbyText,
-  ancestorBrief,
-  firstInt,
-} from './telemetry';
-import { renderAskTurn, renderFinalSuggestions } from './render';
 
 export type AutoAssistantOptions = ClientOptions & {
   siteId: string;
@@ -31,13 +30,21 @@ export type AutoAssistantOptions = ClientOptions & {
   baseContext?: Record<string, unknown>;
 };
 
-type EventKind = 'dom_click' | 'input_change' | 'submit' | 'page_load' | 'route_change';
+type EventKind =
+  | 'dom_click'
+  | 'input_change'
+  | 'submit'
+  | 'page_load'
+  | 'route_change';
 
 export class AutoAssistant {
   private api: ReturnType<typeof createApi>;
   private bus = new Emitter();
   private opts: Required<
-    Pick<AutoAssistantOptions, 'siteId' | 'sessionId' | 'debounceMs' | 'finalCooldownMs'>
+    Pick<
+      AutoAssistantOptions,
+      'siteId' | 'sessionId' | 'debounceMs' | 'finalCooldownMs'
+    >
   > &
     AutoAssistantOptions;
 
@@ -54,7 +61,9 @@ export class AutoAssistant {
   private trackProfile?: RuleTrackProfile;
   private trackOn = false;
   private selClick: string[] = [];
+  private selInput: string[] = [];
   private selMutation: string[] = [];
+  private allow: Set<EventKind> = new Set();
 
   constructor(options: AutoAssistantOptions) {
     this.opts = {
@@ -66,13 +75,22 @@ export class AutoAssistant {
   }
 
   on(
-    evt: 'rule:checked' | 'turn:ask' | 'turn:final' | 'turn:cleared' | 'suggest:ready' | 'error',
+    evt:
+      | 'rule:checked'
+      | 'turn:ask'
+      | 'turn:final'
+      | 'turn:cleared'
+      | 'suggest:ready'
+      | 'error',
     fn: Listener
   ) {
     return this.bus.on(evt, fn);
   }
 
-  private matchesAny(target: Element | undefined, selectors: string[]): boolean {
+  private matchesAny(
+    target: Element | undefined,
+    selectors: string[]
+  ): boolean {
     if (!target) return false;
     for (const sel of selectors) {
       try {
@@ -85,61 +103,118 @@ export class AutoAssistant {
   }
 
   async start() {
+    // 1) Load tracking profile to decide operating mode
     try {
       const prof = await this.api.ruleTrackGet();
       this.trackProfile = prof;
       this.trackOn = prof?.status === 'on';
       const ev = (prof?.events || {}) as Record<string, unknown>;
-      this.selClick = Array.isArray(ev['dom_click']) ? (ev['dom_click'] as string[]) : [];
-      this.selMutation = Array.isArray(ev['mutation']) ? (ev['mutation'] as string[]) : [];
+      // Allowed event kinds when focused tracking is ON
+      this.allow = new Set(Object.keys(ev) as EventKind[]);
+      this.selClick = Array.isArray(ev['dom_click'])
+        ? (ev['dom_click'] as string[])
+        : [];
+      this.selInput = Array.isArray(ev['input_change'])
+        ? (ev['input_change'] as string[])
+        : [];
+      this.selMutation = Array.isArray(ev['mutation'])
+        ? (ev['mutation'] as string[])
+        : [];
     } catch {
       this.trackOn = false; // rich mode fallback
+      this.allow = new Set<EventKind>([
+        'dom_click',
+        'input_change',
+        'submit',
+        'page_load',
+        'route_change',
+      ]);
       this.selClick = [];
+      this.selInput = [];
       this.selMutation = [];
     }
+    // 2) Register listeners in a clear on/off branch for readability
+    if (this.trackOn) {
+      this.setupListenersFocusMode();
+    } else {
+      this.setupListenersRichMode();
+    }
+  }
 
-    if (!this.trackOn) {
-      this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+  // Focused tracking: only emit allowed events and only for allowed selectors
+  private setupListenersFocusMode() {
+    // page_load
+    if (this.allow.has('page_load')) {
+      this.schedule(() =>
+        this.handleEvent('page_load', document.body || undefined)
+      );
     }
 
+    // clicks
     const onClick = (e: Event) => {
       const tgt = e.target as Element | undefined;
-      if (this.trackOn && !this.matchesAny(tgt, this.selClick)) return;
+      if (!this.allow.has('dom_click')) return;
+      if (!this.matchesAny(tgt, this.selClick)) return;
       this.schedule(() => this.handleEvent('dom_click', tgt));
     };
     document.addEventListener('click', onClick, true);
-    this.detachFns.push(() => document.removeEventListener('click', onClick, true));
+    this.detachFns.push(() =>
+      document.removeEventListener('click', onClick, true)
+    );
 
+    // input/change
     const onChange = (e: Event) => {
-      if (this.trackOn) return;
-      this.schedule(() => this.handleEvent('input_change', e.target as Element | undefined));
+      const tgt = e.target as Element | undefined;
+      if (!this.allow.has('input_change')) return;
+      if (!this.matchesAny(tgt, this.selInput)) return;
+      this.schedule(() => this.handleEvent('input_change', tgt));
     };
     document.addEventListener('input', onChange, true);
     document.addEventListener('change', onChange, true);
-    this.detachFns.push(() => document.removeEventListener('input', onChange, true));
-    this.detachFns.push(() => document.removeEventListener('change', onChange, true));
+    this.detachFns.push(() =>
+      document.removeEventListener('input', onChange, true)
+    );
+    this.detachFns.push(() =>
+      document.removeEventListener('change', onChange, true)
+    );
 
+    // submit
     const onSubmit = (e: Event) => {
-      if (this.trackOn) return;
-      this.schedule(() => this.handleEvent('submit', e.target as Element | undefined));
+      if (!this.allow.has('submit')) return;
+      this.schedule(() =>
+        this.handleEvent('submit', e.target as Element | undefined)
+      );
     };
     document.addEventListener('submit', onSubmit, true);
-    this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
+    this.detachFns.push(() =>
+      document.removeEventListener('submit', onSubmit, true)
+    );
 
+    // route change
     const _push = history.pushState;
     const _replace = history.replaceState;
-    history.pushState = function (this: History, data: unknown, unused: string, url?: string | URL | null) {
+    history.pushState = function (
+      this: History,
+      data: unknown,
+      unused: string,
+      url?: string | URL | null
+    ) {
       const r = _push.apply(this, [data, unused, url]);
       window.dispatchEvent(new Event('agent-route-change'));
       return r;
     };
-    history.replaceState = function (this: History, data: unknown, unused: string, url?: string | URL | null) {
+    history.replaceState = function (
+      this: History,
+      data: unknown,
+      unused: string,
+      url?: string | URL | null
+    ) {
       const r = _replace.apply(this, [data, unused, url]);
       window.dispatchEvent(new Event('agent-route-change'));
       return r;
     };
     const onPop = () => {
-      if (this.trackOn) return;
+      if (!this.allow.has('route_change')) return;
       this.schedule(() => this.handleEvent('route_change', undefined));
     };
     window.addEventListener('popstate', onPop);
@@ -151,17 +226,126 @@ export class AutoAssistant {
       history.replaceState = _replace;
     });
 
+    // mutation
+    try {
+      if (this.allow.has('mutation' as EventKind)) {
+        const pickTarget = (n?: Node | null): Element | undefined => {
+          if (!n) return undefined;
+          if (n.nodeType === Node.ELEMENT_NODE) return n as Element;
+          if (n.nodeType === Node.TEXT_NODE)
+            return (n.parentElement || undefined) as Element | undefined;
+          return undefined;
+        };
+        const mutObserver = new MutationObserver((muts) => {
+          const raw = muts[0]?.target as Node | undefined;
+          const tgt = pickTarget(raw);
+          if (!this.matchesAny(tgt, this.selMutation)) return;
+          this.schedule(() => this.handleEvent('dom_click', tgt));
+        });
+        mutObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+        });
+        this.detachFns.push(() => mutObserver.disconnect());
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Rich mode (tracking off): emit all core events
+  private setupListenersRichMode() {
+    // page_load
+    this.schedule(() =>
+      this.handleEvent('page_load', document.body || undefined)
+    );
+
+    // clicks
+    const onClick = (e: Event) => {
+      this.schedule(() =>
+        this.handleEvent('dom_click', e.target as Element | undefined)
+      );
+    };
+    document.addEventListener('click', onClick, true);
+    this.detachFns.push(() =>
+      document.removeEventListener('click', onClick, true)
+    );
+
+    // input/change
+    const onChange = (e: Event) => {
+      this.schedule(() =>
+        this.handleEvent('input_change', e.target as Element | undefined)
+      );
+    };
+    document.addEventListener('input', onChange, true);
+    document.addEventListener('change', onChange, true);
+    this.detachFns.push(() =>
+      document.removeEventListener('input', onChange, true)
+    );
+    this.detachFns.push(() =>
+      document.removeEventListener('change', onChange, true)
+    );
+
+    // submit
+    const onSubmit = (e: Event) => {
+      this.schedule(() =>
+        this.handleEvent('submit', e.target as Element | undefined)
+      );
+    };
+    document.addEventListener('submit', onSubmit, true);
+    this.detachFns.push(() =>
+      document.removeEventListener('submit', onSubmit, true)
+    );
+
+    // route change
+    const _push = history.pushState;
+    const _replace = history.replaceState;
+    history.pushState = function (
+      this: History,
+      data: unknown,
+      unused: string,
+      url?: string | URL | null
+    ) {
+      const r = _push.apply(this, [data, unused, url]);
+      window.dispatchEvent(new Event('agent-route-change'));
+      return r;
+    };
+    history.replaceState = function (
+      this: History,
+      data: unknown,
+      unused: string,
+      url?: string | URL | null
+    ) {
+      const r = _replace.apply(this, [data, unused, url]);
+      window.dispatchEvent(new Event('agent-route-change'));
+      return r;
+    };
+    const onPop = () => {
+      this.schedule(() => this.handleEvent('route_change', undefined));
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('agent-route-change', onPop as EventListener);
+    this.detachFns.push(() => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('agent-route-change', onPop as EventListener);
+      history.pushState = _push;
+      history.replaceState = _replace;
+    });
+
+    // mutation
     try {
       const pickTarget = (n?: Node | null): Element | undefined => {
         if (!n) return undefined;
         if (n.nodeType === Node.ELEMENT_NODE) return n as Element;
-        if (n.nodeType === Node.TEXT_NODE) return (n.parentElement || undefined) as Element | undefined;
+        if (n.nodeType === Node.TEXT_NODE)
+          return (n.parentElement || undefined) as Element | undefined;
         return undefined;
       };
       const mutObserver = new MutationObserver((muts) => {
         const raw = muts[0]?.target as Node | undefined;
         const tgt = pickTarget(raw);
-        if (this.trackOn && !this.matchesAny(tgt, this.selMutation)) return;
         this.schedule(() => this.handleEvent('dom_click', tgt));
       });
       mutObserver.observe(document.body, {
@@ -172,7 +356,7 @@ export class AutoAssistant {
       });
       this.detachFns.push(() => mutObserver.disconnect());
     } catch {
-      // ignore if observer cannot start
+      /* ignore */
     }
   }
 
@@ -200,7 +384,9 @@ export class AutoAssistant {
         prevTurnId: turn.turnId,
         answers: {
           choice: action.id,
-          value: isActionWithValue(action) ? (action.value as string | number | boolean | null | undefined) : undefined,
+          value: isActionWithValue(action)
+            ? (action.value as string | number | boolean | null | undefined)
+            : undefined,
         },
         context: { ...(baseContext ?? {}) },
       };
@@ -280,7 +466,12 @@ export class AutoAssistant {
     }
 
     if (turn.status === 'ask') {
-      renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a), (fd) => this.answerForm(turn, fd as FormData));
+      renderAskTurn(
+        panel,
+        turn,
+        (a) => this.answerAsk(turn, a),
+        (fd) => this.answerForm(turn, fd as FormData)
+      );
       this.bus.emit('turn:ask', turn);
     } else {
       renderFinalSuggestions(panel, turn.suggestions ?? [], () => undefined);
@@ -343,9 +534,12 @@ export class AutoAssistant {
         if (id) return id;
         const dataNames: string[] = [];
         for (const a of Array.from(cand.attributes)) {
-          if (a.name.startsWith('data-')) dataNames.push(a.name.replace(/^data-/, ''));
+          if (a.name.startsWith('data-'))
+            dataNames.push(a.name.replace(/^data-/, ''));
         }
-        const pref = dataNames.find((n) => /^(name|counter|count|qty|quantity|total|badge|value)$/i.test(n));
+        const pref = dataNames.find((n) =>
+          /^(name|counter|count|qty|quantity|total|badge|value)$/i.test(n)
+        );
         if (pref) return pref;
         if (dataNames.length) return dataNames[0];
         const cls = (cand.getAttribute('class') || '').trim();
@@ -360,7 +554,9 @@ export class AutoAssistant {
         const key = pickKey(cand);
         if (!key) continue;
         const camel = key
-          .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? String(c).toUpperCase() : ''))
+          .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) =>
+            c ? String(c).toUpperCase() : ''
+          )
           .replace(/^(.)/, (m) => m.toLowerCase());
         attributes[camel] = String(n);
       }
@@ -373,7 +569,9 @@ export class AutoAssistant {
     const ancs = el ? ancestorBrief(el) : [];
 
     const toStr = (obj: Record<string, string | null>) =>
-      Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, v == null ? null : String(v)]));
+      Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [k, v == null ? null : String(v)])
+      );
 
     return {
       elementText: safeStr(elementText),
@@ -382,7 +580,11 @@ export class AutoAssistant {
       cssPath: safeStr(css),
       xpath: safeStr(xp),
       nearbyText: near.map((t) => String(t)).slice(0, 5),
-      ancestors: ancs.map((a) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v == null ? null : String(v)]))),
+      ancestors: ancs.map((a) =>
+        Object.fromEntries(
+          Object.entries(a).map(([k, v]) => [k, v == null ? null : String(v)])
+        )
+      ),
     } as EventSchema['telemetry'];
   }
 
@@ -439,4 +641,3 @@ function isActionWithValue(
 ): a is { id: string; label?: string; value?: unknown } {
   return typeof (a as { value?: unknown }).value !== 'undefined';
 }
-

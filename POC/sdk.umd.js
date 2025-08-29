@@ -104,146 +104,6 @@
         }
     }
 
-    function safeStr(v) {
-        if (v == null)
-            return null;
-        try {
-            const t = typeof v;
-            if (t === 'string')
-                return v;
-            if (t === 'number' || t === 'boolean')
-                return String(v);
-            const s = JSON.stringify(v);
-            return s.length > 5000 ? s.slice(0, 5000) : s;
-        }
-        catch (_a) {
-            return null;
-        }
-    }
-    function cssPath(el) {
-        try {
-            const parts = [];
-            let node = el;
-            while (node && node.nodeType === 1) {
-                const name = node.nodeName.toLowerCase();
-                let selector = name;
-                if (node.id) {
-                    selector += `#${node.id}`;
-                    parts.unshift(selector);
-                    break;
-                }
-                else {
-                    let sib = node;
-                    let nth = 1;
-                    while ((sib = sib.previousElementSibling)) {
-                        if (sib.nodeName.toLowerCase() === name)
-                            nth++;
-                    }
-                    selector += `:nth-of-type(${nth})`;
-                }
-                parts.unshift(selector);
-                node = node.parentElement;
-            }
-            return parts.join(' > ');
-        }
-        catch (_a) {
-            return null;
-        }
-    }
-    function xPath(el) {
-        try {
-            if (document.evaluate) {
-                const xpath = (start) => {
-                    let node = start;
-                    if (node === document.body)
-                        return '/html/body';
-                    const ix = (sibling, name) => {
-                        let i = 1;
-                        for (; sibling; sibling = sibling.previousSibling) {
-                            if (sibling.nodeName === name)
-                                i++;
-                        }
-                        return i;
-                    };
-                    const segs = [];
-                    for (; node && node.nodeType === 1;) {
-                        const cur = node;
-                        const name = node.nodeName.toLowerCase();
-                        segs.unshift(`${name}[${ix(node, name.toUpperCase())}]`);
-                        node = cur.parentElement;
-                    }
-                    return '/' + segs.join('/');
-                };
-                return xpath(el);
-            }
-            return null;
-        }
-        catch (_a) {
-            return null;
-        }
-    }
-    function attrMap(el) {
-        var _a;
-        const out = {};
-        try {
-            for (const a of Array.from(el.attributes)) {
-                out[a.name] = (_a = a.value) !== null && _a !== void 0 ? _a : null;
-            }
-        }
-        catch (_b) {
-            /* empty */
-        }
-        return out;
-    }
-    function nearbyText(el) {
-        const texts = [];
-        try {
-            const grab = (node) => {
-                if (node.nodeType === Node.TEXT_NODE) {
-                    const t = (node.textContent || '').trim();
-                    if (t)
-                        texts.push(t);
-                }
-            };
-            if (el.parentElement) {
-                Array.from(el.parentElement.childNodes).forEach((n) => grab(n));
-            }
-            return texts.slice(0, 5);
-        }
-        catch (_a) {
-            return [];
-        }
-    }
-    function ancestorBrief(el) {
-        const arr = [];
-        try {
-            let p = el.parentElement;
-            let i = 0;
-            while (p && i < 6) {
-                arr.push({
-                    tag: p.tagName || null,
-                    id: p.id || null,
-                    class: p.getAttribute('class') || null,
-                });
-                p = p.parentElement;
-                i++;
-            }
-        }
-        catch (_a) {
-            /* empty */
-        }
-        return arr;
-    }
-    function firstInt(text) {
-        if (!text)
-            return null;
-        const m = text.match(/\d+/);
-        if (!m)
-            return null;
-        const n = parseInt(m[0], 10);
-        return Number.isFinite(n) ? n : null;
-    }
-
     function renderAskTurn(container, turn, onAction, onSubmitForm) {
         var _a, _b, _c, _d;
         container.innerHTML = '';
@@ -414,6 +274,146 @@
         container.appendChild(frag);
     }
 
+    function safeStr(v) {
+        if (v == null)
+            return null;
+        try {
+            const t = typeof v;
+            if (t === 'string')
+                return v;
+            if (t === 'number' || t === 'boolean')
+                return String(v);
+            const s = JSON.stringify(v);
+            return s.length > 5000 ? s.slice(0, 5000) : s;
+        }
+        catch (_a) {
+            return null;
+        }
+    }
+    function cssPath(el) {
+        try {
+            const parts = [];
+            let node = el;
+            while (node && node.nodeType === 1) {
+                const name = node.nodeName.toLowerCase();
+                let selector = name;
+                if (node.id) {
+                    selector += `#${node.id}`;
+                    parts.unshift(selector);
+                    break;
+                }
+                else {
+                    let sib = node;
+                    let nth = 1;
+                    while ((sib = sib.previousElementSibling)) {
+                        if (sib.nodeName.toLowerCase() === name)
+                            nth++;
+                    }
+                    selector += `:nth-of-type(${nth})`;
+                }
+                parts.unshift(selector);
+                node = node.parentElement;
+            }
+            return parts.join(' > ');
+        }
+        catch (_a) {
+            return null;
+        }
+    }
+    function xPath(el) {
+        try {
+            if (document.evaluate) {
+                const xpath = (start) => {
+                    let node = start;
+                    if (node === document.body)
+                        return '/html/body';
+                    const ix = (sibling, name) => {
+                        let i = 1;
+                        for (; sibling; sibling = sibling.previousSibling) {
+                            if (sibling.nodeName === name)
+                                i++;
+                        }
+                        return i;
+                    };
+                    const segs = [];
+                    for (; node && node.nodeType === 1;) {
+                        const cur = node;
+                        const name = node.nodeName.toLowerCase();
+                        segs.unshift(`${name}[${ix(node, name.toUpperCase())}]`);
+                        node = cur.parentElement;
+                    }
+                    return '/' + segs.join('/');
+                };
+                return xpath(el);
+            }
+            return null;
+        }
+        catch (_a) {
+            return null;
+        }
+    }
+    function attrMap(el) {
+        var _a;
+        const out = {};
+        try {
+            for (const a of Array.from(el.attributes)) {
+                out[a.name] = (_a = a.value) !== null && _a !== void 0 ? _a : null;
+            }
+        }
+        catch (_b) {
+            /* empty */
+        }
+        return out;
+    }
+    function nearbyText(el) {
+        const texts = [];
+        try {
+            const grab = (node) => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    const t = (node.textContent || '').trim();
+                    if (t)
+                        texts.push(t);
+                }
+            };
+            if (el.parentElement) {
+                Array.from(el.parentElement.childNodes).forEach((n) => grab(n));
+            }
+            return texts.slice(0, 5);
+        }
+        catch (_a) {
+            return [];
+        }
+    }
+    function ancestorBrief(el) {
+        const arr = [];
+        try {
+            let p = el.parentElement;
+            let i = 0;
+            while (p && i < 6) {
+                arr.push({
+                    tag: p.tagName || null,
+                    id: p.id || null,
+                    class: p.getAttribute('class') || null,
+                });
+                p = p.parentElement;
+                i++;
+            }
+        }
+        catch (_a) {
+            /* empty */
+        }
+        return arr;
+    }
+    function firstInt(text) {
+        if (!text)
+            return null;
+        const m = text.match(/\d+/);
+        if (!m)
+            return null;
+        const n = parseInt(m[0], 10);
+        return Number.isFinite(n) ? n : null;
+    }
+
     class AutoAssistant {
         constructor(options) {
             var _a, _b;
@@ -427,7 +427,9 @@
             this.cooldownUntil = 0;
             this.trackOn = false;
             this.selClick = [];
+            this.selInput = [];
             this.selMutation = [];
+            this.allow = new Set();
             this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
         }
@@ -450,72 +452,113 @@
         }
         start() {
             return __awaiter(this, void 0, void 0, function* () {
+                // 1) Load tracking profile to decide operating mode
                 try {
                     const prof = yield this.api.ruleTrackGet();
                     this.trackProfile = prof;
                     this.trackOn = (prof === null || prof === void 0 ? void 0 : prof.status) === 'on';
                     const ev = ((prof === null || prof === void 0 ? void 0 : prof.events) || {});
-                    this.selClick = Array.isArray(ev['dom_click']) ? ev['dom_click'] : [];
-                    this.selMutation = Array.isArray(ev['mutation']) ? ev['mutation'] : [];
+                    // Allowed event kinds when focused tracking is ON
+                    this.allow = new Set(Object.keys(ev));
+                    this.selClick = Array.isArray(ev['dom_click'])
+                        ? ev['dom_click']
+                        : [];
+                    this.selInput = Array.isArray(ev['input_change'])
+                        ? ev['input_change']
+                        : [];
+                    this.selMutation = Array.isArray(ev['mutation'])
+                        ? ev['mutation']
+                        : [];
                 }
                 catch (_a) {
                     this.trackOn = false; // rich mode fallback
+                    this.allow = new Set([
+                        'dom_click',
+                        'input_change',
+                        'submit',
+                        'page_load',
+                        'route_change',
+                    ]);
                     this.selClick = [];
+                    this.selInput = [];
                     this.selMutation = [];
                 }
-                if (!this.trackOn) {
-                    this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+                // 2) Register listeners in a clear on/off branch for readability
+                if (this.trackOn) {
+                    this.setupListenersFocusMode();
                 }
-                const onClick = (e) => {
-                    const tgt = e.target;
-                    if (this.trackOn && !this.matchesAny(tgt, this.selClick))
-                        return;
-                    this.schedule(() => this.handleEvent('dom_click', tgt));
-                };
-                document.addEventListener('click', onClick, true);
-                this.detachFns.push(() => document.removeEventListener('click', onClick, true));
-                const onChange = (e) => {
-                    if (this.trackOn)
-                        return;
-                    this.schedule(() => this.handleEvent('input_change', e.target));
-                };
-                document.addEventListener('input', onChange, true);
-                document.addEventListener('change', onChange, true);
-                this.detachFns.push(() => document.removeEventListener('input', onChange, true));
-                this.detachFns.push(() => document.removeEventListener('change', onChange, true));
-                const onSubmit = (e) => {
-                    if (this.trackOn)
-                        return;
-                    this.schedule(() => this.handleEvent('submit', e.target));
-                };
-                document.addEventListener('submit', onSubmit, true);
-                this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
-                const _push = history.pushState;
-                const _replace = history.replaceState;
-                history.pushState = function (data, unused, url) {
-                    const r = _push.apply(this, [data, unused, url]);
-                    window.dispatchEvent(new Event('agent-route-change'));
-                    return r;
-                };
-                history.replaceState = function (data, unused, url) {
-                    const r = _replace.apply(this, [data, unused, url]);
-                    window.dispatchEvent(new Event('agent-route-change'));
-                    return r;
-                };
-                const onPop = () => {
-                    if (this.trackOn)
-                        return;
-                    this.schedule(() => this.handleEvent('route_change', undefined));
-                };
-                window.addEventListener('popstate', onPop);
-                window.addEventListener('agent-route-change', onPop);
-                this.detachFns.push(() => {
-                    window.removeEventListener('popstate', onPop);
-                    window.removeEventListener('agent-route-change', onPop);
-                    history.pushState = _push;
-                    history.replaceState = _replace;
-                });
-                try {
+                else {
+                    this.setupListenersRichMode();
+                }
+            });
+        }
+        // Focused tracking: only emit allowed events and only for allowed selectors
+        setupListenersFocusMode() {
+            // page_load
+            if (this.allow.has('page_load')) {
+                this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+            }
+            // clicks
+            const onClick = (e) => {
+                const tgt = e.target;
+                if (!this.allow.has('dom_click'))
+                    return;
+                if (!this.matchesAny(tgt, this.selClick))
+                    return;
+                this.schedule(() => this.handleEvent('dom_click', tgt));
+            };
+            document.addEventListener('click', onClick, true);
+            this.detachFns.push(() => document.removeEventListener('click', onClick, true));
+            // input/change
+            const onChange = (e) => {
+                const tgt = e.target;
+                if (!this.allow.has('input_change'))
+                    return;
+                if (!this.matchesAny(tgt, this.selInput))
+                    return;
+                this.schedule(() => this.handleEvent('input_change', tgt));
+            };
+            document.addEventListener('input', onChange, true);
+            document.addEventListener('change', onChange, true);
+            this.detachFns.push(() => document.removeEventListener('input', onChange, true));
+            this.detachFns.push(() => document.removeEventListener('change', onChange, true));
+            // submit
+            const onSubmit = (e) => {
+                if (!this.allow.has('submit'))
+                    return;
+                this.schedule(() => this.handleEvent('submit', e.target));
+            };
+            document.addEventListener('submit', onSubmit, true);
+            this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
+            // route change
+            const _push = history.pushState;
+            const _replace = history.replaceState;
+            history.pushState = function (data, unused, url) {
+                const r = _push.apply(this, [data, unused, url]);
+                window.dispatchEvent(new Event('agent-route-change'));
+                return r;
+            };
+            history.replaceState = function (data, unused, url) {
+                const r = _replace.apply(this, [data, unused, url]);
+                window.dispatchEvent(new Event('agent-route-change'));
+                return r;
+            };
+            const onPop = () => {
+                if (!this.allow.has('route_change'))
+                    return;
+                this.schedule(() => this.handleEvent('route_change', undefined));
+            };
+            window.addEventListener('popstate', onPop);
+            window.addEventListener('agent-route-change', onPop);
+            this.detachFns.push(() => {
+                window.removeEventListener('popstate', onPop);
+                window.removeEventListener('agent-route-change', onPop);
+                history.pushState = _push;
+                history.replaceState = _replace;
+            });
+            // mutation
+            try {
+                if (this.allow.has('mutation')) {
                     const pickTarget = (n) => {
                         if (!n)
                             return undefined;
@@ -529,7 +572,7 @@
                         var _a;
                         const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
                         const tgt = pickTarget(raw);
-                        if (this.trackOn && !this.matchesAny(tgt, this.selMutation))
+                        if (!this.matchesAny(tgt, this.selMutation))
                             return;
                         this.schedule(() => this.handleEvent('dom_click', tgt));
                     });
@@ -541,10 +584,87 @@
                     });
                     this.detachFns.push(() => mutObserver.disconnect());
                 }
-                catch (_b) {
-                    // ignore if observer cannot start
-                }
+            }
+            catch (_a) {
+                /* ignore */
+            }
+        }
+        // Rich mode (tracking off): emit all core events
+        setupListenersRichMode() {
+            // page_load
+            this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+            // clicks
+            const onClick = (e) => {
+                this.schedule(() => this.handleEvent('dom_click', e.target));
+            };
+            document.addEventListener('click', onClick, true);
+            this.detachFns.push(() => document.removeEventListener('click', onClick, true));
+            // input/change
+            const onChange = (e) => {
+                this.schedule(() => this.handleEvent('input_change', e.target));
+            };
+            document.addEventListener('input', onChange, true);
+            document.addEventListener('change', onChange, true);
+            this.detachFns.push(() => document.removeEventListener('input', onChange, true));
+            this.detachFns.push(() => document.removeEventListener('change', onChange, true));
+            // submit
+            const onSubmit = (e) => {
+                this.schedule(() => this.handleEvent('submit', e.target));
+            };
+            document.addEventListener('submit', onSubmit, true);
+            this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
+            // route change
+            const _push = history.pushState;
+            const _replace = history.replaceState;
+            history.pushState = function (data, unused, url) {
+                const r = _push.apply(this, [data, unused, url]);
+                window.dispatchEvent(new Event('agent-route-change'));
+                return r;
+            };
+            history.replaceState = function (data, unused, url) {
+                const r = _replace.apply(this, [data, unused, url]);
+                window.dispatchEvent(new Event('agent-route-change'));
+                return r;
+            };
+            const onPop = () => {
+                this.schedule(() => this.handleEvent('route_change', undefined));
+            };
+            window.addEventListener('popstate', onPop);
+            window.addEventListener('agent-route-change', onPop);
+            this.detachFns.push(() => {
+                window.removeEventListener('popstate', onPop);
+                window.removeEventListener('agent-route-change', onPop);
+                history.pushState = _push;
+                history.replaceState = _replace;
             });
+            // mutation
+            try {
+                const pickTarget = (n) => {
+                    if (!n)
+                        return undefined;
+                    if (n.nodeType === Node.ELEMENT_NODE)
+                        return n;
+                    if (n.nodeType === Node.TEXT_NODE)
+                        return (n.parentElement || undefined);
+                    return undefined;
+                };
+                const mutObserver = new MutationObserver((muts) => {
+                    var _a;
+                    const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
+                    const tgt = pickTarget(raw);
+                    this.schedule(() => this.handleEvent('dom_click', tgt));
+                });
+                mutObserver.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true,
+                    attributes: true,
+                });
+                this.detachFns.push(() => mutObserver.disconnect());
+            }
+            catch (_a) {
+                /* ignore */
+            }
         }
         stop() {
             this.detachFns.forEach((f) => {
@@ -569,7 +689,9 @@
                         prevTurnId: turn.turnId,
                         answers: {
                             choice: action.id,
-                            value: isActionWithValue(action) ? action.value : undefined,
+                            value: isActionWithValue(action)
+                                ? action.value
+                                : undefined,
                         },
                         context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
                     };
@@ -740,7 +862,7 @@
                     if (!key)
                         continue;
                     const camel = key
-                        .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? String(c).toUpperCase() : ''))
+                        .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => c ? String(c).toUpperCase() : '')
                         .replace(/^(.)/, (m) => m.toLowerCase());
                     attributes[camel] = String(n);
                 }
