@@ -93,7 +93,11 @@
         on(evt, fn) {
             if (!this.m.has(evt))
                 this.m.set(evt, new Set());
-            this.m.get(evt).add(fn);
+            const set = this.m.get(evt);
+            if (set)
+                set.add(fn);
+            else
+                this.m.set(evt, new Set([fn]));
             return () => this.off(evt, fn);
         }
         off(evt, fn) {
@@ -163,7 +167,8 @@
     function xPath(el) {
         try {
             if (document.evaluate) {
-                const xpath = (node) => {
+                const xpath = (start) => {
+                    let node = start;
                     if (node === document.body)
                         return '/html/body';
                     const ix = (sibling, name) => {
@@ -175,9 +180,11 @@
                         return i;
                     };
                     const segs = [];
-                    for (; node && node.nodeType === 1; node = node.parentNode) {
+                    for (; node && node.nodeType === 1;) {
+                        const cur = node;
                         const name = node.nodeName.toLowerCase();
                         segs.unshift(`${name}[${ix(node, name.toUpperCase())}]`);
+                        node = cur.parentElement;
                     }
                     return '/' + segs.join('/');
                 };
@@ -213,9 +220,9 @@
                 }
             };
             // siblings text samples
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-            el.parentElement &&
+            if (el.parentElement) {
                 Array.from(el.parentElement.childNodes).forEach((n) => grab(n));
+            }
             return texts.slice(0, 5);
         }
         catch (_a) {
@@ -293,7 +300,7 @@
                     const prof = yield this.api.ruleTrackGet();
                     this.trackProfile = prof;
                     this.trackOn = (prof === null || prof === void 0 ? void 0 : prof.status) === 'on';
-                    const ev = (prof === null || prof === void 0 ? void 0 : prof.events) || {};
+                    const ev = ((prof === null || prof === void 0 ? void 0 : prof.events) || {});
                     this.selClick = Array.isArray(ev['dom_click'])
                         ? ev['dom_click']
                         : [];
@@ -340,13 +347,13 @@
                 // Basic route changes (SPA)
                 const _push = history.pushState;
                 const _replace = history.replaceState;
-                history.pushState = function (...args) {
-                    const r = _push.apply(this, args);
+                history.pushState = function (data, unused, url) {
+                    const r = _push.apply(this, [data, unused, url]);
                     window.dispatchEvent(new Event('agent-route-change'));
                     return r;
                 };
-                history.replaceState = function (...args) {
-                    const r = _replace.apply(this, args);
+                history.replaceState = function (data, unused, url) {
+                    const r = _replace.apply(this, [data, unused, url]);
                     window.dispatchEvent(new Event('agent-route-change'));
                     return r;
                 };
@@ -418,7 +425,10 @@
                         siteId,
                         sessionId,
                         prevTurnId: turn.turnId,
-                        answers: { choice: action.id, value: action.value },
+                        answers: {
+                            choice: action.id,
+                            value: (isActionWithValue(action) ? action.value : undefined),
+                        },
                         context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
                     };
                     const { turn: next } = yield this.api.suggestGet(req);
@@ -508,8 +518,7 @@
                 this.bus.emit('turn:ask', turn);
             }
             else {
-                // eslint-disable-next-line @typescript-eslint/no-empty-function
-                renderFinalSuggestions(panel, (_b = turn.suggestions) !== null && _b !== void 0 ? _b : [], () => { });
+                renderFinalSuggestions(panel, (_b = turn.suggestions) !== null && _b !== void 0 ? _b : [], () => undefined);
                 this.bus.emit('suggest:ready', (_c = turn.suggestions) !== null && _c !== void 0 ? _c : [], turn);
                 this.bus.emit('turn:final', turn);
                 this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
@@ -524,57 +533,87 @@
             try {
                 const withAction = el === null || el === void 0 ? void 0 : el.closest('[data-action]');
                 const action = withAction === null || withAction === void 0 ? void 0 : withAction.getAttribute('data-action');
-                if (action && !attributes['action']) {
+                if (action && !('action' in attributes)) {
                     attributes['action'] = action;
                 }
             }
             catch (_a) {
                 /* empty */
             }
-            // Heuristic: surface obvious numeric counters from the DOM into attributes
+            // Surface numeric values from likely counter elements into attributes (generic)
             try {
                 const candidates = [];
-                // a) direct id match (common in demos)
-                const byId = document.getElementById('cart-count');
-                if (byId)
-                    candidates.push(byId);
-                // b) common data-testid
-                const byTestId = document.querySelector('[data-testid="cart-count"]');
-                if (byTestId)
-                    candidates.push(byTestId);
-                // c) any element whose id/class hints at a counter
-                const hinted = Array.from(document.querySelectorAll('[id*="count" i], [class*="count" i], [id*="qty" i], [class*="qty" i], [id*="quantity" i], [class*="quantity" i], [id*="badge" i], [class*="badge" i]'));
-                hinted.forEach((el2) => candidates.push(el2));
-                // Deduplicate element list
+                // (a) Always consider the event target and a few ancestors
+                if (el) {
+                    candidates.push(el);
+                    let p = el.parentElement;
+                    let hops = 0;
+                    while (p && hops < 4) {
+                        candidates.push(p);
+                        p = p.parentElement;
+                        hops++;
+                    }
+                }
+                // (b) If a server-provided tracking profile is ON, include configured mutation selectors
+                try {
+                    const want = this.selMutation;
+                    const isOn = !!this.trackOn;
+                    if (isOn && Array.isArray(want) && want.length) {
+                        for (const sel of want) {
+                            try {
+                                document.querySelectorAll(sel).forEach((node) => {
+                                    if (node instanceof Element)
+                                        candidates.push(node);
+                                });
+                            }
+                            catch (_b) {
+                                /* invalid selector from server; ignore */
+                            }
+                        }
+                    }
+                }
+                catch (_c) {
+                    /* ignore */
+                }
+                // Deduplicate
                 const uniq = Array.from(new Set(candidates));
+                // Helper: choose a stable attribute key for a numeric element
+                const pickKey = (cand) => {
+                    const id = cand.id || '';
+                    if (id)
+                        return id;
+                    // prefer semantic data-* keys
+                    const dataNames = [];
+                    for (const a of Array.from(cand.attributes)) {
+                        if (a.name.startsWith('data-'))
+                            dataNames.push(a.name.replace(/^data-/, ''));
+                    }
+                    const pref = dataNames.find((n) => /^(name|counter|count|qty|quantity|total|badge|value)$/i.test(n));
+                    if (pref)
+                        return pref;
+                    if (dataNames.length)
+                        return dataNames[0];
+                    const cls = (cand.getAttribute('class') || '').trim();
+                    if (cls)
+                        return cls.split(/\s+/)[0];
+                    return cand.tagName ? cand.tagName.toLowerCase() : null;
+                };
                 for (const cand of uniq) {
                     const txt = (cand.textContent || '').trim();
                     const n = firstInt(txt);
                     if (n == null)
-                        continue;
-                    const id = cand.id || '';
-                    const cls = (cand.getAttribute('class') || '')
-                        .split(/\s+/)
-                        .filter(Boolean);
-                    // choose a stable name: prefer id, else a class containing a hint
-                    let key = '';
-                    if (id)
-                        key = id;
-                    else {
-                        const hint = cls.find((c) => /(count|qty|quantity|badge)/i.test(c));
-                        if (hint)
-                            key = hint;
-                    }
+                        continue; // not a simple numeric text
+                    const key = pickKey(cand);
                     if (!key)
                         continue;
-                    // camelCase: cart-count -> cartCount, total_qty -> totalQty
+                    // camelCase the key: cart-count -> cartCount, total_qty -> totalQty
                     const camel = key
-                        .replace(/[-_]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
+                        .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => c ? String(c).toUpperCase() : '')
                         .replace(/^(.)/, (m) => m.toLowerCase());
                     attributes[camel] = String(n);
                 }
             }
-            catch (_b) {
+            catch (_d) {
                 /* best-effort only */
             }
             const css = el ? cssPath(el) : null;
@@ -639,6 +678,10 @@
                 }
             });
         }
+    }
+    // Type guard to safely read optional `value` from action-like inputs
+    function isActionWithValue(a) {
+        return typeof a.value !== 'undefined';
     }
     /* ========== Minimal render helpers (generic) ========== */
     function renderAskTurn(container, turn, onAction, onSubmitForm) {
@@ -761,7 +804,7 @@
         }
         container.appendChild(panel);
     }
-    function renderFinalSuggestions(container, suggestions, onCta, turn) {
+    function renderFinalSuggestions(container, suggestions, onCta) {
         container.innerHTML = '';
         if (!(suggestions === null || suggestions === void 0 ? void 0 : suggestions.length)) {
             container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;

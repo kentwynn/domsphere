@@ -115,18 +115,21 @@ export function createApi(opts: ClientOptions) {
 }
 
 /* ========== Tiny event bus ========== */
-type Listener = (...args: any[]) => void;
+// Generic listener that accepts unknown args to avoid `any`
+type Listener = (...args: unknown[]) => void;
 class Emitter {
   private m = new Map<string, Set<Listener>>();
   on(evt: string, fn: Listener) {
     if (!this.m.has(evt)) this.m.set(evt, new Set());
-    this.m.get(evt)!.add(fn);
+    const set = this.m.get(evt);
+    if (set) set.add(fn);
+    else this.m.set(evt, new Set([fn]));
     return () => this.off(evt, fn);
   }
   off(evt: string, fn: Listener) {
     this.m.get(evt)?.delete(fn);
   }
-  emit(evt: string, ...a: any[]) {
+  emit(evt: string, ...a: unknown[]) {
     this.m.get(evt)?.forEach((fn) => {
       try {
         fn(...a);
@@ -182,8 +185,9 @@ function cssPath(el: Element): string | null {
 
 function xPath(el: Element): string | null {
   try {
-    if ((document as any).evaluate) {
-      const xpath = (node: Node): string => {
+    if ((document as Document & { evaluate?: unknown }).evaluate) {
+      const xpath = (start: Node): string => {
+        let node: Node | null = start;
         if (node === document.body) return '/html/body';
         const ix = (sibling: Node | null, name: string): number => {
           let i = 1;
@@ -193,9 +197,11 @@ function xPath(el: Element): string | null {
           return i;
         };
         const segs: string[] = [];
-        for (; node && node.nodeType === 1; node = node.parentNode!) {
+        for (; node && (node as Element).nodeType === 1; ) {
+          const cur = node as Element;
           const name = node.nodeName.toLowerCase();
           segs.unshift(`${name}[${ix(node, name.toUpperCase())}]`);
+          node = cur.parentElement;
         }
         return '/' + segs.join('/');
       };
@@ -229,9 +235,9 @@ function nearbyText(el: Element): string[] {
       }
     };
     // siblings text samples
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    el.parentElement &&
+    if (el.parentElement) {
       Array.from(el.parentElement.childNodes).forEach((n) => grab(n));
+    }
     return texts.slice(0, 5);
   } catch {
     return [];
@@ -361,12 +367,12 @@ export class AutoAssistant {
       const prof = await this.api.ruleTrackGet();
       this.trackProfile = prof;
       this.trackOn = prof?.status === 'on';
-      const ev = prof?.events || {};
-      this.selClick = Array.isArray((ev as any)['dom_click'])
-        ? (ev as any)['dom_click']
+      const ev = (prof?.events || {}) as Record<string, unknown>;
+      this.selClick = Array.isArray(ev['dom_click'])
+        ? (ev['dom_click'] as string[])
         : [];
-      this.selMutation = Array.isArray((ev as any)['mutation'])
-        ? (ev as any)['mutation']
+      this.selMutation = Array.isArray(ev['mutation'])
+        ? (ev['mutation'] as string[])
         : [];
     } catch {
       this.trackOn = false; // rich mode fallback
@@ -423,13 +429,23 @@ export class AutoAssistant {
     // Basic route changes (SPA)
     const _push = history.pushState;
     const _replace = history.replaceState;
-    history.pushState = function (...args: any[]) {
-      const r = _push.apply(this, args as any);
+    history.pushState = function (
+      this: History,
+      data: unknown,
+      unused: string,
+      url?: string | URL | null
+    ) {
+      const r = _push.apply(this, [data, unused, url]);
       window.dispatchEvent(new Event('agent-route-change'));
       return r;
     };
-    history.replaceState = function (...args: any[]) {
-      const r = _replace.apply(this, args as any);
+    history.replaceState = function (
+      this: History,
+      data: unknown,
+      unused: string,
+      url?: string | URL | null
+    ) {
+      const r = _replace.apply(this, [data, unused, url]);
       window.dispatchEvent(new Event('agent-route-change'));
       return r;
     };
@@ -438,10 +454,10 @@ export class AutoAssistant {
       this.schedule(() => this.handleEvent('route_change', undefined));
     };
     window.addEventListener('popstate', onPop);
-    window.addEventListener('agent-route-change', onPop as any);
+    window.addEventListener('agent-route-change', onPop as EventListener);
     this.detachFns.push(() => {
       window.removeEventListener('popstate', onPop);
-      window.removeEventListener('agent-route-change', onPop as any);
+      window.removeEventListener('agent-route-change', onPop as EventListener);
       history.pushState = _push;
       history.replaceState = _replace;
     });
@@ -497,7 +513,15 @@ export class AutoAssistant {
         siteId,
         sessionId,
         prevTurnId: turn.turnId,
-        answers: { choice: action.id, value: (action as any).value },
+        answers: {
+          choice: action.id,
+          value: (isActionWithValue(action) ? action.value : undefined) as
+            | string
+            | number
+            | boolean
+            | null
+            | undefined,
+        },
         context: { ...(baseContext ?? {}) },
       };
       const { turn: next } = await this.api.suggestGet(req);
@@ -587,8 +611,7 @@ export class AutoAssistant {
       );
       this.bus.emit('turn:ask', turn);
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      renderFinalSuggestions(panel, turn.suggestions ?? [], () => {}, turn);
+      renderFinalSuggestions(panel, turn.suggestions ?? [], () => undefined);
       this.bus.emit('suggest:ready', turn.suggestions ?? [], turn);
       this.bus.emit('turn:final', turn);
       this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
@@ -599,13 +622,13 @@ export class AutoAssistant {
     const el = target && target.nodeType === 1 ? (target as Element) : null;
     const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
     const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
-    const attributes = el ? attrMap(el) : {};
+    const attributes: Record<string, string | null> = el ? attrMap(el) : {};
     // Promote semantic action into telemetry.attributes.action (without changing event.type)
     try {
       const withAction = el?.closest('[data-action]') as HTMLElement | null;
       const action = withAction?.getAttribute('data-action');
-      if (action && !(attributes as any)['action']) {
-        (attributes as any)['action'] = action;
+      if (action && !('action' in attributes)) {
+        attributes['action'] = action;
       }
     } catch {
       /* empty */
@@ -628,8 +651,8 @@ export class AutoAssistant {
 
       // (b) If a server-provided tracking profile is ON, include configured mutation selectors
       try {
-        const want = (this as any).selMutation as string[] | undefined;
-        const isOn = !!(this as any).trackOn;
+        const want = this.selMutation as string[] | undefined;
+        const isOn = !!this.trackOn;
         if (isOn && Array.isArray(want) && want.length) {
           for (const sel of want) {
             try {
@@ -680,7 +703,7 @@ export class AutoAssistant {
             c ? String(c).toUpperCase() : ''
           )
           .replace(/^(.)/, (m) => m.toLowerCase());
-        (attributes as any)[camel] = String(n);
+        attributes[camel] = String(n);
       }
     } catch {
       /* best-effort only */
@@ -760,6 +783,13 @@ export class AutoAssistant {
       this.inflight = false;
     }
   }
+}
+
+// Type guard to safely read optional `value` from action-like inputs
+function isActionWithValue(
+  a: Action | { id: string; label?: string; value?: unknown }
+): a is { id: string; label?: string; value?: unknown } {
+  return typeof (a as { value?: unknown }).value !== 'undefined';
 }
 
 /* ========== Minimal render helpers (generic) ========== */
@@ -904,18 +934,7 @@ export function renderFinalSuggestions(
     cta:
       | NonNullable<Suggestion['actions']>[number]
       | NonNullable<Suggestion['primaryCta']>
-  ) => void,
-  turn: {
-    intentId: string;
-    turnId: string;
-    status: 'ask' | 'final';
-    message?: string | null;
-    actions?: components['schemas']['Action'][] | null;
-    form?: components['schemas']['FormSpec'] | null;
-    suggestions?: components['schemas']['Suggestion'][] | null;
-    ui?: components['schemas']['UIHint'] | null;
-    ttlSec?: number | null;
-  }
+  ) => void
 ) {
   container.innerHTML = '';
   if (!suggestions?.length) {
