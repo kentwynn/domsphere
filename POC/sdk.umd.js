@@ -36,19 +36,6 @@
         return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
     };
 
-    /**
-     * Auto Assistant SDK (Generic, cart-agnostic)
-     * ---------------------------------------------------------
-     * - Observes DOM events (click, input/change, submit, route changes)
-     * - POSTs /rule/check (Event enum + string-only telemetry)
-     * - If shouldProceed: POSTs /suggest/get, handles ask → final
-     * - Optional rendering into a panel container
-     *
-     * Defaults:
-     *   baseUrl: http://localhost:4000  (FastAPI; /suggest/get proxies to agent)
-     *
-     * OpenAPI types are imported only for compile-time safety.
-     */
     function postJson(baseUrl_1, path_1, body_1) {
         return __awaiter(this, arguments, void 0, function* (baseUrl, path, body, headers = {}) {
             const res = yield fetch(new URL(path, baseUrl).toString(), {
@@ -63,7 +50,6 @@
             return (yield res.json());
         });
     }
-    // Helper for GET requests returning JSON
     function getJson(baseUrl_1, path_1) {
         return __awaiter(this, arguments, void 0, function* (baseUrl, path, headers = {}) {
             const res = yield fetch(new URL(path, baseUrl).toString(), {
@@ -86,6 +72,7 @@
             ruleTrackGet: () => getJson(baseUrl, '/rule/track', headers()),
         };
     }
+
     class Emitter {
         constructor() {
             this.m = new Map();
@@ -116,7 +103,7 @@
             });
         }
     }
-    /* ========== Telemetry builders (string-only) ========== */
+
     function safeStr(v) {
         if (v == null)
             return null;
@@ -126,7 +113,6 @@
                 return v;
             if (t === 'number' || t === 'boolean')
                 return String(v);
-            // compress long HTML/text
             const s = JSON.stringify(v);
             return s.length > 5000 ? s.slice(0, 5000) : s;
         }
@@ -219,7 +205,6 @@
                         texts.push(t);
                 }
             };
-            // siblings text samples
             if (el.parentElement) {
                 Array.from(el.parentElement.childNodes).forEach((n) => grab(n));
             }
@@ -249,7 +234,6 @@
         }
         return arr;
     }
-    // Parse the first integer from a string, or null if none.
     function firstInt(text) {
         if (!text)
             return null;
@@ -259,431 +243,7 @@
         const n = parseInt(m[0], 10);
         return Number.isFinite(n) ? n : null;
     }
-    class AutoAssistant {
-        constructor(options) {
-            var _a, _b;
-            this.bus = new Emitter();
-            this.detachFns = [];
-            this.inflight = false;
-            this.lastContext = {
-                matchedRules: [],
-                eventType: 'page_load',
-            };
-            this.cooldownUntil = 0;
-            this.trackOn = false;
-            this.selClick = [];
-            this.selMutation = [];
-            this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
-            this.api = createApi(options);
-        }
-        on(evt, fn) {
-            return this.bus.on(evt, fn);
-        }
-        matchesAny(target, selectors) {
-            if (!target)
-                return false;
-            for (const sel of selectors) {
-                try {
-                    if (target.closest(sel))
-                        return true;
-                }
-                catch (_a) {
-                    /* invalid selector */
-                }
-            }
-            return false;
-        }
-        start() {
-            return __awaiter(this, void 0, void 0, function* () {
-                // 0) Fetch track profile first; if fetch fails, default to rich mode (off)
-                try {
-                    const prof = yield this.api.ruleTrackGet();
-                    this.trackProfile = prof;
-                    this.trackOn = (prof === null || prof === void 0 ? void 0 : prof.status) === 'on';
-                    const ev = ((prof === null || prof === void 0 ? void 0 : prof.events) || {});
-                    this.selClick = Array.isArray(ev['dom_click'])
-                        ? ev['dom_click']
-                        : [];
-                    this.selMutation = Array.isArray(ev['mutation'])
-                        ? ev['mutation']
-                        : [];
-                }
-                catch (_a) {
-                    this.trackOn = false; // rich mode fallback
-                    this.selClick = [];
-                    this.selMutation = [];
-                }
-                // 1) Only send page_load when rich mode (track off)
-                if (!this.trackOn) {
-                    this.schedule(() => this.handleEvent('page_load', document.body || undefined));
-                }
-                // Clicks
-                const onClick = (e) => {
-                    const tgt = e.target;
-                    if (this.trackOn && !this.matchesAny(tgt, this.selClick))
-                        return;
-                    this.schedule(() => this.handleEvent('dom_click', tgt));
-                };
-                document.addEventListener('click', onClick, true);
-                this.detachFns.push(() => document.removeEventListener('click', onClick, true));
-                // Input / change
-                const onChange = (e) => {
-                    if (this.trackOn)
-                        return;
-                    this.schedule(() => this.handleEvent('input_change', e.target));
-                };
-                document.addEventListener('input', onChange, true);
-                document.addEventListener('change', onChange, true);
-                this.detachFns.push(() => document.removeEventListener('input', onChange, true));
-                this.detachFns.push(() => document.removeEventListener('change', onChange, true));
-                // Submit
-                const onSubmit = (e) => {
-                    if (this.trackOn)
-                        return;
-                    this.schedule(() => this.handleEvent('submit', e.target));
-                };
-                document.addEventListener('submit', onSubmit, true);
-                this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
-                // Basic route changes (SPA)
-                const _push = history.pushState;
-                const _replace = history.replaceState;
-                history.pushState = function (data, unused, url) {
-                    const r = _push.apply(this, [data, unused, url]);
-                    window.dispatchEvent(new Event('agent-route-change'));
-                    return r;
-                };
-                history.replaceState = function (data, unused, url) {
-                    const r = _replace.apply(this, [data, unused, url]);
-                    window.dispatchEvent(new Event('agent-route-change'));
-                    return r;
-                };
-                const onPop = () => {
-                    if (this.trackOn)
-                        return;
-                    this.schedule(() => this.handleEvent('route_change', undefined));
-                };
-                window.addEventListener('popstate', onPop);
-                window.addEventListener('agent-route-change', onPop);
-                this.detachFns.push(() => {
-                    window.removeEventListener('popstate', onPop);
-                    window.removeEventListener('agent-route-change', onPop);
-                    history.pushState = _push;
-                    history.replaceState = _replace;
-                });
-                // Generic DOM mutation detection (MutationObserver)
-                try {
-                    const pickTarget = (n) => {
-                        if (!n)
-                            return undefined;
-                        if (n.nodeType === Node.ELEMENT_NODE)
-                            return n;
-                        if (n.nodeType === Node.TEXT_NODE)
-                            return (n.parentElement || undefined);
-                        return undefined;
-                    };
-                    const mutObserver = new MutationObserver((muts) => {
-                        var _a;
-                        const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
-                        const tgt = pickTarget(raw);
-                        // Only send when mutation target matches configured selectors in focus mode
-                        if (this.trackOn && !this.matchesAny(tgt, this.selMutation))
-                            return;
-                        this.schedule(() => this.handleEvent('dom_click', tgt));
-                    });
-                    mutObserver.observe(document.body, {
-                        childList: true,
-                        subtree: true,
-                        characterData: true,
-                        attributes: true,
-                    });
-                    this.detachFns.push(() => mutObserver.disconnect());
-                }
-                catch (_b) {
-                    // ignore if observer cannot start
-                }
-            });
-        }
-        stop() {
-            this.detachFns.forEach((f) => {
-                try {
-                    f();
-                }
-                catch (_a) {
-                    /* empty */
-                }
-            });
-            this.detachFns = [];
-            if (this.debTimer)
-                window.clearTimeout(this.debTimer);
-        }
-        /** Answer an ask turn (chips/buttons) */
-        answerAsk(turn, action) {
-            return __awaiter(this, void 0, void 0, function* () {
-                try {
-                    const { siteId, sessionId, baseContext } = this.opts;
-                    const req = {
-                        siteId,
-                        sessionId,
-                        prevTurnId: turn.turnId,
-                        answers: {
-                            choice: action.id,
-                            value: (isActionWithValue(action) ? action.value : undefined),
-                        },
-                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
-                    };
-                    const { turn: next } = yield this.api.suggestGet(req);
-                    this.setActiveTurn(next);
-                }
-                catch (e) {
-                    this.bus.emit('error', e);
-                }
-            });
-        }
-        /** Answer an ask turn via form submission */
-        answerForm(turn, formData) {
-            return __awaiter(this, void 0, void 0, function* () {
-                try {
-                    const { siteId, sessionId, baseContext } = this.opts;
-                    const answers = {};
-                    const keys = [];
-                    formData.forEach((_, key) => {
-                        if (!keys.includes(key))
-                            keys.push(key);
-                    });
-                    for (const key of keys) {
-                        const values = formData.getAll(key);
-                        answers[key] =
-                            values.length === 1
-                                ? values[0] instanceof File
-                                    ? values[0].name
-                                    : values[0]
-                                : values.map((v) => (v instanceof File ? v.name : v));
-                    }
-                    const req = {
-                        siteId,
-                        sessionId,
-                        prevTurnId: turn.turnId,
-                        answers,
-                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
-                    };
-                    const { turn: next } = yield this.api.suggestGet(req);
-                    this.setActiveTurn(next);
-                }
-                catch (e) {
-                    this.bus.emit('error', e);
-                }
-            });
-        }
-        /* ========== internals ========== */
-        schedule(fn) {
-            if (this.debTimer)
-                window.clearTimeout(this.debTimer);
-            this.debTimer = window.setTimeout(fn, this.opts.debounceMs);
-        }
-        canOpenConversation() {
-            if (!this.activeTurn)
-                return Date.now() >= this.cooldownUntil;
-            if (this.activeTurn.status === 'ask')
-                return false;
-            return Date.now() >= this.cooldownUntil;
-        }
-        panelEl() {
-            const sel = this.opts.panelSelector;
-            return sel ? document.querySelector(sel) : null;
-        }
-        setActiveTurn(turn) {
-            var _a, _b, _c;
-            this.activeTurn = turn;
-            const panel = this.panelEl();
-            if (!panel) {
-                if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'ask')
-                    this.bus.emit('turn:ask', turn);
-                else if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'final') {
-                    this.bus.emit('suggest:ready', (_a = turn.suggestions) !== null && _a !== void 0 ? _a : [], turn);
-                    this.bus.emit('turn:final', turn);
-                    this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
-                }
-                else {
-                    this.bus.emit('turn:cleared');
-                }
-                return;
-            }
-            if (!turn) {
-                panel.innerHTML = '';
-                this.bus.emit('turn:cleared');
-                return;
-            }
-            if (turn.status === 'ask') {
-                renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a), (fd) => this.answerForm(turn, fd));
-                this.bus.emit('turn:ask', turn);
-            }
-            else {
-                renderFinalSuggestions(panel, (_b = turn.suggestions) !== null && _b !== void 0 ? _b : [], () => undefined);
-                this.bus.emit('suggest:ready', (_c = turn.suggestions) !== null && _c !== void 0 ? _c : [], turn);
-                this.bus.emit('turn:final', turn);
-                this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
-            }
-        }
-        buildTelemetry(target) {
-            const el = target && target.nodeType === 1 ? target : null;
-            const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
-            const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
-            const attributes = el ? attrMap(el) : {};
-            // Promote semantic action into telemetry.attributes.action (without changing event.type)
-            try {
-                const withAction = el === null || el === void 0 ? void 0 : el.closest('[data-action]');
-                const action = withAction === null || withAction === void 0 ? void 0 : withAction.getAttribute('data-action');
-                if (action && !('action' in attributes)) {
-                    attributes['action'] = action;
-                }
-            }
-            catch (_a) {
-                /* empty */
-            }
-            // Surface numeric values from likely counter elements into attributes (generic)
-            try {
-                const candidates = [];
-                // (a) Always consider the event target and a few ancestors
-                if (el) {
-                    candidates.push(el);
-                    let p = el.parentElement;
-                    let hops = 0;
-                    while (p && hops < 4) {
-                        candidates.push(p);
-                        p = p.parentElement;
-                        hops++;
-                    }
-                }
-                // (b) If a server-provided tracking profile is ON, include configured mutation selectors
-                try {
-                    const want = this.selMutation;
-                    const isOn = !!this.trackOn;
-                    if (isOn && Array.isArray(want) && want.length) {
-                        for (const sel of want) {
-                            try {
-                                document.querySelectorAll(sel).forEach((node) => {
-                                    if (node instanceof Element)
-                                        candidates.push(node);
-                                });
-                            }
-                            catch (_b) {
-                                /* invalid selector from server; ignore */
-                            }
-                        }
-                    }
-                }
-                catch (_c) {
-                    /* ignore */
-                }
-                // Deduplicate
-                const uniq = Array.from(new Set(candidates));
-                // Helper: choose a stable attribute key for a numeric element
-                const pickKey = (cand) => {
-                    const id = cand.id || '';
-                    if (id)
-                        return id;
-                    // prefer semantic data-* keys
-                    const dataNames = [];
-                    for (const a of Array.from(cand.attributes)) {
-                        if (a.name.startsWith('data-'))
-                            dataNames.push(a.name.replace(/^data-/, ''));
-                    }
-                    const pref = dataNames.find((n) => /^(name|counter|count|qty|quantity|total|badge|value)$/i.test(n));
-                    if (pref)
-                        return pref;
-                    if (dataNames.length)
-                        return dataNames[0];
-                    const cls = (cand.getAttribute('class') || '').trim();
-                    if (cls)
-                        return cls.split(/\s+/)[0];
-                    return cand.tagName ? cand.tagName.toLowerCase() : null;
-                };
-                for (const cand of uniq) {
-                    const txt = (cand.textContent || '').trim();
-                    const n = firstInt(txt);
-                    if (n == null)
-                        continue; // not a simple numeric text
-                    const key = pickKey(cand);
-                    if (!key)
-                        continue;
-                    // camelCase the key: cart-count -> cartCount, total_qty -> totalQty
-                    const camel = key
-                        .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => c ? String(c).toUpperCase() : '')
-                        .replace(/^(.)/, (m) => m.toLowerCase());
-                    attributes[camel] = String(n);
-                }
-            }
-            catch (_d) {
-                /* best-effort only */
-            }
-            const css = el ? cssPath(el) : null;
-            const xp = el ? xPath(el) : null;
-            const near = el ? nearbyText(el) : [];
-            const ancs = el ? ancestorBrief(el) : [];
-            // ensure strings or nulls
-            const toStr = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, v == null ? null : String(v)]));
-            return {
-                elementText: safeStr(elementText),
-                elementHtml: safeStr(elementHtml),
-                attributes: toStr(attributes),
-                cssPath: safeStr(css),
-                xpath: safeStr(xp),
-                nearbyText: near.map((t) => String(t)).slice(0, 5),
-                ancestors: ancs.map((a) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v == null ? null : String(v)]))),
-            };
-        }
-        handleEvent(kind, target) {
-            return __awaiter(this, void 0, void 0, function* () {
-                var _a;
-                // avoid concurrent runs
-                if (this.inflight)
-                    return;
-                this.inflight = true;
-                try {
-                    // 1) rule check
-                    const rcReq = {
-                        siteId: this.opts.siteId,
-                        sessionId: this.opts.sessionId,
-                        event: {
-                            type: kind,
-                            ts: Date.now(),
-                            telemetry: this.buildTelemetry(target),
-                        },
-                    };
-                    const rcRes = yield this.api.ruleCheck(rcReq);
-                    this.bus.emit('rule:checked', rcRes);
-                    this.lastContext = {
-                        matchedRules: rcRes.matchedRules,
-                        eventType: rcRes.eventType,
-                    };
-                    // 2) ask agent only if rules pass + allowed by cooldown/turn state
-                    if (!rcRes.shouldProceed || !this.canOpenConversation()) {
-                        if (!rcRes.shouldProceed)
-                            this.setActiveTurn(undefined);
-                        return;
-                    }
-                    const sgReq = {
-                        siteId: this.opts.siteId,
-                        sessionId: this.opts.sessionId,
-                        context: Object.assign({ matchedRules: rcRes.matchedRules, eventType: rcRes.eventType }, ((_a = this.opts.baseContext) !== null && _a !== void 0 ? _a : {})),
-                    };
-                    const { turn } = yield this.api.suggestGet(sgReq);
-                    this.setActiveTurn(turn);
-                }
-                catch (e) {
-                    this.bus.emit('error', e);
-                }
-                finally {
-                    this.inflight = false;
-                }
-            });
-        }
-    }
-    // Type guard to safely read optional `value` from action-like inputs
-    function isActionWithValue(a) {
-        return typeof a.value !== 'undefined';
-    }
-    /* ========== Minimal render helpers (generic) ========== */
+
     function renderAskTurn(container, turn, onAction, onSubmitForm) {
         var _a, _b, _c, _d;
         container.innerHTML = '';
@@ -738,41 +298,38 @@
                     case 'textarea': {
                         const el = document.createElement('textarea');
                         el.name = f.key;
-                        el.rows = 3;
+                        el.required = !!f.required;
+                        // Placeholder not part of strict spec; omit to keep types safe
                         input = el;
                         break;
                     }
                     case 'select': {
                         const el = document.createElement('select');
                         el.name = f.key;
+                        el.required = !!f.required;
                         ((_a = f.options) !== null && _a !== void 0 ? _a : []).forEach((opt) => {
+                            var _a;
                             const o = document.createElement('option');
                             o.value = String(opt.value);
-                            o.textContent = opt.label;
+                            o.textContent = (_a = opt.label) !== null && _a !== void 0 ? _a : String(opt.value);
                             el.appendChild(o);
                         });
-                        input = el;
-                        break;
-                    }
-                    case 'checkbox': {
-                        const el = document.createElement('input');
-                        el.type = 'checkbox';
-                        el.name = f.key;
                         input = el;
                         break;
                     }
                     case 'radio': {
                         const group = document.createElement('div');
                         ((_b = f.options) !== null && _b !== void 0 ? _b : []).forEach((opt) => {
-                            const lbl = document.createElement('label');
-                            lbl.style.marginRight = '10px';
+                            var _a;
+                            const wrapRadio = document.createElement('label');
+                            wrapRadio.style.marginRight = '8px';
                             const r = document.createElement('input');
                             r.type = 'radio';
                             r.name = f.key;
                             r.value = String(opt.value);
-                            lbl.appendChild(r);
-                            lbl.append(' ' + opt.label);
-                            group.appendChild(lbl);
+                            wrapRadio.appendChild(r);
+                            wrapRadio.appendChild(document.createTextNode((_a = opt.label) !== null && _a !== void 0 ? _a : String(opt.value)));
+                            group.appendChild(wrapRadio);
                         });
                         input = group;
                         break;
@@ -804,7 +361,7 @@
         }
         container.appendChild(panel);
     }
-    function renderFinalSuggestions(container, suggestions, onCta) {
+    function renderFinalSuggestions(container, suggestions, onCta, _turn) {
         container.innerHTML = '';
         if (!(suggestions === null || suggestions === void 0 ? void 0 : suggestions.length)) {
             container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;
@@ -856,6 +413,405 @@
         });
         container.appendChild(frag);
     }
+
+    class AutoAssistant {
+        constructor(options) {
+            var _a, _b;
+            this.bus = new Emitter();
+            this.detachFns = [];
+            this.inflight = false;
+            this.lastContext = {
+                matchedRules: [],
+                eventType: 'page_load',
+            };
+            this.cooldownUntil = 0;
+            this.trackOn = false;
+            this.selClick = [];
+            this.selMutation = [];
+            this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
+            this.api = createApi(options);
+        }
+        on(evt, fn) {
+            return this.bus.on(evt, fn);
+        }
+        matchesAny(target, selectors) {
+            if (!target)
+                return false;
+            for (const sel of selectors) {
+                try {
+                    if (target.closest(sel))
+                        return true;
+                }
+                catch (_a) {
+                    /* invalid selector */
+                }
+            }
+            return false;
+        }
+        start() {
+            return __awaiter(this, void 0, void 0, function* () {
+                try {
+                    const prof = yield this.api.ruleTrackGet();
+                    this.trackProfile = prof;
+                    this.trackOn = (prof === null || prof === void 0 ? void 0 : prof.status) === 'on';
+                    const ev = ((prof === null || prof === void 0 ? void 0 : prof.events) || {});
+                    this.selClick = Array.isArray(ev['dom_click']) ? ev['dom_click'] : [];
+                    this.selMutation = Array.isArray(ev['mutation']) ? ev['mutation'] : [];
+                }
+                catch (_a) {
+                    this.trackOn = false; // rich mode fallback
+                    this.selClick = [];
+                    this.selMutation = [];
+                }
+                if (!this.trackOn) {
+                    this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+                }
+                const onClick = (e) => {
+                    const tgt = e.target;
+                    if (this.trackOn && !this.matchesAny(tgt, this.selClick))
+                        return;
+                    this.schedule(() => this.handleEvent('dom_click', tgt));
+                };
+                document.addEventListener('click', onClick, true);
+                this.detachFns.push(() => document.removeEventListener('click', onClick, true));
+                const onChange = (e) => {
+                    if (this.trackOn)
+                        return;
+                    this.schedule(() => this.handleEvent('input_change', e.target));
+                };
+                document.addEventListener('input', onChange, true);
+                document.addEventListener('change', onChange, true);
+                this.detachFns.push(() => document.removeEventListener('input', onChange, true));
+                this.detachFns.push(() => document.removeEventListener('change', onChange, true));
+                const onSubmit = (e) => {
+                    if (this.trackOn)
+                        return;
+                    this.schedule(() => this.handleEvent('submit', e.target));
+                };
+                document.addEventListener('submit', onSubmit, true);
+                this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
+                const _push = history.pushState;
+                const _replace = history.replaceState;
+                history.pushState = function (data, unused, url) {
+                    const r = _push.apply(this, [data, unused, url]);
+                    window.dispatchEvent(new Event('agent-route-change'));
+                    return r;
+                };
+                history.replaceState = function (data, unused, url) {
+                    const r = _replace.apply(this, [data, unused, url]);
+                    window.dispatchEvent(new Event('agent-route-change'));
+                    return r;
+                };
+                const onPop = () => {
+                    if (this.trackOn)
+                        return;
+                    this.schedule(() => this.handleEvent('route_change', undefined));
+                };
+                window.addEventListener('popstate', onPop);
+                window.addEventListener('agent-route-change', onPop);
+                this.detachFns.push(() => {
+                    window.removeEventListener('popstate', onPop);
+                    window.removeEventListener('agent-route-change', onPop);
+                    history.pushState = _push;
+                    history.replaceState = _replace;
+                });
+                try {
+                    const pickTarget = (n) => {
+                        if (!n)
+                            return undefined;
+                        if (n.nodeType === Node.ELEMENT_NODE)
+                            return n;
+                        if (n.nodeType === Node.TEXT_NODE)
+                            return (n.parentElement || undefined);
+                        return undefined;
+                    };
+                    const mutObserver = new MutationObserver((muts) => {
+                        var _a;
+                        const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
+                        const tgt = pickTarget(raw);
+                        if (this.trackOn && !this.matchesAny(tgt, this.selMutation))
+                            return;
+                        this.schedule(() => this.handleEvent('dom_click', tgt));
+                    });
+                    mutObserver.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                        characterData: true,
+                        attributes: true,
+                    });
+                    this.detachFns.push(() => mutObserver.disconnect());
+                }
+                catch (_b) {
+                    // ignore if observer cannot start
+                }
+            });
+        }
+        stop() {
+            this.detachFns.forEach((f) => {
+                try {
+                    f();
+                }
+                catch (_a) {
+                    /* empty */
+                }
+            });
+            this.detachFns = [];
+            if (this.debTimer)
+                window.clearTimeout(this.debTimer);
+        }
+        answerAsk(turn, action) {
+            return __awaiter(this, void 0, void 0, function* () {
+                try {
+                    const { siteId, sessionId, baseContext } = this.opts;
+                    const req = {
+                        siteId,
+                        sessionId,
+                        prevTurnId: turn.turnId,
+                        answers: {
+                            choice: action.id,
+                            value: isActionWithValue(action) ? action.value : undefined,
+                        },
+                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
+                    };
+                    const { turn: next } = yield this.api.suggestGet(req);
+                    this.setActiveTurn(next);
+                }
+                catch (e) {
+                    this.bus.emit('error', e);
+                }
+            });
+        }
+        answerForm(turn, formData) {
+            return __awaiter(this, void 0, void 0, function* () {
+                try {
+                    const { siteId, sessionId, baseContext } = this.opts;
+                    const answers = {};
+                    const keys = [];
+                    formData.forEach((_, key) => {
+                        if (!keys.includes(key))
+                            keys.push(key);
+                    });
+                    for (const key of keys) {
+                        const values = formData.getAll(key);
+                        answers[key] =
+                            values.length === 1
+                                ? values[0] instanceof File
+                                    ? values[0].name
+                                    : values[0]
+                                : values.map((v) => (v instanceof File ? v.name : v));
+                    }
+                    const req = {
+                        siteId,
+                        sessionId,
+                        prevTurnId: turn.turnId,
+                        answers,
+                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
+                    };
+                    const { turn: next } = yield this.api.suggestGet(req);
+                    this.setActiveTurn(next);
+                }
+                catch (e) {
+                    this.bus.emit('error', e);
+                }
+            });
+        }
+        schedule(fn) {
+            if (this.debTimer)
+                window.clearTimeout(this.debTimer);
+            this.debTimer = window.setTimeout(fn, this.opts.debounceMs);
+        }
+        canOpenConversation() {
+            if (!this.activeTurn)
+                return Date.now() >= this.cooldownUntil;
+            if (this.activeTurn.status === 'ask')
+                return false;
+            return Date.now() >= this.cooldownUntil;
+        }
+        panelEl() {
+            const sel = this.opts.panelSelector;
+            return sel ? document.querySelector(sel) : null;
+        }
+        setActiveTurn(turn) {
+            var _a, _b, _c;
+            this.activeTurn = turn;
+            const panel = this.panelEl();
+            if (!panel) {
+                if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'ask')
+                    this.bus.emit('turn:ask', turn);
+                else if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'final') {
+                    this.bus.emit('suggest:ready', (_a = turn.suggestions) !== null && _a !== void 0 ? _a : [], turn);
+                    this.bus.emit('turn:final', turn);
+                    this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+                }
+                else {
+                    this.bus.emit('turn:cleared');
+                }
+                return;
+            }
+            if (!turn) {
+                panel.innerHTML = '';
+                this.bus.emit('turn:cleared');
+                return;
+            }
+            if (turn.status === 'ask') {
+                renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a), (fd) => this.answerForm(turn, fd));
+                this.bus.emit('turn:ask', turn);
+            }
+            else {
+                renderFinalSuggestions(panel, (_b = turn.suggestions) !== null && _b !== void 0 ? _b : [], () => undefined);
+                this.bus.emit('suggest:ready', (_c = turn.suggestions) !== null && _c !== void 0 ? _c : [], turn);
+                this.bus.emit('turn:final', turn);
+                this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+            }
+        }
+        buildTelemetry(target) {
+            const el = target && target.nodeType === 1 ? target : null;
+            const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
+            const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
+            const attributes = el ? attrMap(el) : {};
+            try {
+                const withAction = el === null || el === void 0 ? void 0 : el.closest('[data-action]');
+                const action = withAction === null || withAction === void 0 ? void 0 : withAction.getAttribute('data-action');
+                if (action && !('action' in attributes)) {
+                    attributes['action'] = action;
+                }
+            }
+            catch (_a) {
+                /* empty */
+            }
+            try {
+                const candidates = [];
+                if (el) {
+                    candidates.push(el);
+                    let p = el.parentElement;
+                    let hops = 0;
+                    while (p && hops < 4) {
+                        candidates.push(p);
+                        p = p.parentElement;
+                        hops++;
+                    }
+                }
+                try {
+                    const want = this.selMutation;
+                    const isOn = !!this.trackOn;
+                    if (isOn && Array.isArray(want) && want.length) {
+                        for (const sel of want) {
+                            try {
+                                document.querySelectorAll(sel).forEach((node) => {
+                                    if (node instanceof Element)
+                                        candidates.push(node);
+                                });
+                            }
+                            catch (_b) {
+                                /* invalid selector from server; ignore */
+                            }
+                        }
+                    }
+                }
+                catch (_c) {
+                    /* ignore */
+                }
+                const uniq = Array.from(new Set(candidates));
+                const pickKey = (cand) => {
+                    const id = cand.id || '';
+                    if (id)
+                        return id;
+                    const dataNames = [];
+                    for (const a of Array.from(cand.attributes)) {
+                        if (a.name.startsWith('data-'))
+                            dataNames.push(a.name.replace(/^data-/, ''));
+                    }
+                    const pref = dataNames.find((n) => /^(name|counter|count|qty|quantity|total|badge|value)$/i.test(n));
+                    if (pref)
+                        return pref;
+                    if (dataNames.length)
+                        return dataNames[0];
+                    const cls = (cand.getAttribute('class') || '').trim();
+                    if (cls)
+                        return cls.split(/\s+/)[0];
+                    return cand.tagName ? cand.tagName.toLowerCase() : null;
+                };
+                for (const cand of uniq) {
+                    const txt = (cand.textContent || '').trim();
+                    const n = firstInt(txt);
+                    if (n == null)
+                        continue;
+                    const key = pickKey(cand);
+                    if (!key)
+                        continue;
+                    const camel = key
+                        .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? String(c).toUpperCase() : ''))
+                        .replace(/^(.)/, (m) => m.toLowerCase());
+                    attributes[camel] = String(n);
+                }
+            }
+            catch (_d) {
+                /* best-effort only */
+            }
+            const css = el ? cssPath(el) : null;
+            const xp = el ? xPath(el) : null;
+            const near = el ? nearbyText(el) : [];
+            const ancs = el ? ancestorBrief(el) : [];
+            const toStr = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, v == null ? null : String(v)]));
+            return {
+                elementText: safeStr(elementText),
+                elementHtml: safeStr(elementHtml),
+                attributes: toStr(attributes),
+                cssPath: safeStr(css),
+                xpath: safeStr(xp),
+                nearbyText: near.map((t) => String(t)).slice(0, 5),
+                ancestors: ancs.map((a) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v == null ? null : String(v)]))),
+            };
+        }
+        handleEvent(kind, target) {
+            return __awaiter(this, void 0, void 0, function* () {
+                var _a;
+                if (this.inflight)
+                    return;
+                this.inflight = true;
+                try {
+                    const rcReq = {
+                        siteId: this.opts.siteId,
+                        sessionId: this.opts.sessionId,
+                        event: {
+                            type: kind,
+                            ts: Date.now(),
+                            telemetry: this.buildTelemetry(target),
+                        },
+                    };
+                    const rcRes = yield this.api.ruleCheck(rcReq);
+                    this.bus.emit('rule:checked', rcRes);
+                    this.lastContext = {
+                        matchedRules: rcRes.matchedRules,
+                        eventType: rcRes.eventType,
+                    };
+                    if (!rcRes.shouldProceed || !this.canOpenConversation()) {
+                        if (!rcRes.shouldProceed)
+                            this.setActiveTurn(undefined);
+                        return;
+                    }
+                    const sgReq = {
+                        siteId: this.opts.siteId,
+                        sessionId: this.opts.sessionId,
+                        context: Object.assign({ matchedRules: rcRes.matchedRules, eventType: rcRes.eventType }, ((_a = this.opts.baseContext) !== null && _a !== void 0 ? _a : {})),
+                    };
+                    const { turn } = (yield this.api.suggestGet(sgReq));
+                    this.setActiveTurn(turn);
+                }
+                catch (e) {
+                    this.bus.emit('error', e);
+                }
+                finally {
+                    this.inflight = false;
+                }
+            });
+        }
+    }
+    function isActionWithValue(a) {
+        return typeof a.value !== 'undefined';
+    }
+
+    // Attach a simple UMD-style global for convenience when used via <script>
     if (typeof window !== 'undefined') {
         window.AgentSDK = {
             AutoAssistant,
