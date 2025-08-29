@@ -496,9 +496,30 @@ export class AutoAssistant {
       /* empty */
     }
     try {
+      // Candidate elements and optional selector-derived keys
       const candidates: Element[] = [];
+      const keyFromSelector = new Map<Element, string>();
 
-      if (el) {
+      if (this.trackOn) {
+        // In focus mode, rely on server-provided selectors for structure
+        const want = this.selMutation as string[] | undefined;
+        if (Array.isArray(want) && want.length) {
+          for (const sel of want) {
+            try {
+              document.querySelectorAll(sel).forEach((node) => {
+                if (node instanceof Element) {
+                  candidates.push(node);
+                  if (!keyFromSelector.has(node))
+                    keyFromSelector.set(node, selectorToKey(sel));
+                }
+              });
+            } catch {
+              /* invalid selector from server; ignore */
+            }
+          }
+        }
+      } else if (el) {
+        // In rich mode, consider target and ancestors (heuristic)
         candidates.push(el);
         let p: Element | null = el.parentElement;
         let hops = 0;
@@ -509,26 +530,9 @@ export class AutoAssistant {
         }
       }
 
-      try {
-        const want = this.selMutation as string[] | undefined;
-        const isOn = !!this.trackOn;
-        if (isOn && Array.isArray(want) && want.length) {
-          for (const sel of want) {
-            try {
-              document.querySelectorAll(sel).forEach((node) => {
-                if (node instanceof Element) candidates.push(node);
-              });
-            } catch {
-              /* invalid selector from server; ignore */
-            }
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-
       const uniq: Element[] = Array.from(new Set(candidates));
 
+      // Heuristic key picker used only in rich mode
       const pickKey = (cand: Element): string | null => {
         const id = (cand as HTMLElement).id || '';
         if (id) return id;
@@ -551,13 +555,11 @@ export class AutoAssistant {
         const txt = (cand.textContent || '').trim();
         const n = firstInt(txt);
         if (n == null) continue;
-        const key = pickKey(cand);
+        const key = this.trackOn
+          ? keyFromSelector.get(cand) ?? null
+          : pickKey(cand);
         if (!key) continue;
-        const camel = key
-          .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) =>
-            c ? String(c).toUpperCase() : ''
-          )
-          .replace(/^(.)/, (m) => m.toLowerCase());
+        const camel = toCamel(key);
         attributes[camel] = String(n);
       }
     } catch {
@@ -640,4 +642,28 @@ function isActionWithValue(
   a: Action | { id: string; label?: string; value?: unknown }
 ): a is { id: string; label?: string; value?: unknown } {
   return typeof (a as { value?: unknown }).value !== 'undefined';
+}
+
+// Convert identifiers like cart-count or total_qty to cartCount / totalQty
+function toCamel(key: string): string {
+  return key
+    .replace(/[^a-zA-Z0-9]+(.)/g, (_, c: string) => (c ? c.toUpperCase() : ''))
+    .replace(/^(.)/, (m) => m.toLowerCase());
+}
+
+// Derive a stable key name from a CSS selector provided by the server profile
+function selectorToKey(sel: string): string {
+  const s = sel.trim();
+  const last = s.split(/\s*[>+~\s]\s*/).pop() || s;
+  const data = last.match(/\[\s*data-([a-zA-Z0-9_-]+)/);
+  if (data) return toCamel(data[1]);
+  const id = last.match(/#([a-zA-Z0-9_-]+)/);
+  if (id) return toCamel(id[1]);
+  const cls = last.match(/\.([a-zA-Z0-9_-]+)/);
+  if (cls) return toCamel(cls[1]);
+  const nameAttr = last.match(/\[\s*name="?([a-zA-Z0-9_-]+)/);
+  if (nameAttr) return toCamel(nameAttr[1]);
+  const tag = last.match(/^([a-zA-Z0-9_-]+)/);
+  if (tag) return toCamel(tag[1]);
+  return toCamel(last.replace(/[^a-zA-Z0-9]+/g, '-'));
 }

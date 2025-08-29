@@ -787,6 +787,7 @@
             }
         }
         buildTelemetry(target) {
+            var _a;
             const el = target && target.nodeType === 1 ? target : null;
             const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
             const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
@@ -798,12 +799,35 @@
                     attributes['action'] = action;
                 }
             }
-            catch (_a) {
+            catch (_b) {
                 /* empty */
             }
             try {
+                // Candidate elements and optional selector-derived keys
                 const candidates = [];
-                if (el) {
+                const keyFromSelector = new Map();
+                if (this.trackOn) {
+                    // In focus mode, rely on server-provided selectors for structure
+                    const want = this.selMutation;
+                    if (Array.isArray(want) && want.length) {
+                        for (const sel of want) {
+                            try {
+                                document.querySelectorAll(sel).forEach((node) => {
+                                    if (node instanceof Element) {
+                                        candidates.push(node);
+                                        if (!keyFromSelector.has(node))
+                                            keyFromSelector.set(node, selectorToKey(sel));
+                                    }
+                                });
+                            }
+                            catch (_c) {
+                                /* invalid selector from server; ignore */
+                            }
+                        }
+                    }
+                }
+                else if (el) {
+                    // In rich mode, consider target and ancestors (heuristic)
                     candidates.push(el);
                     let p = el.parentElement;
                     let hops = 0;
@@ -813,27 +837,8 @@
                         hops++;
                     }
                 }
-                try {
-                    const want = this.selMutation;
-                    const isOn = !!this.trackOn;
-                    if (isOn && Array.isArray(want) && want.length) {
-                        for (const sel of want) {
-                            try {
-                                document.querySelectorAll(sel).forEach((node) => {
-                                    if (node instanceof Element)
-                                        candidates.push(node);
-                                });
-                            }
-                            catch (_b) {
-                                /* invalid selector from server; ignore */
-                            }
-                        }
-                    }
-                }
-                catch (_c) {
-                    /* ignore */
-                }
                 const uniq = Array.from(new Set(candidates));
+                // Heuristic key picker used only in rich mode
                 const pickKey = (cand) => {
                     const id = cand.id || '';
                     if (id)
@@ -858,12 +863,12 @@
                     const n = firstInt(txt);
                     if (n == null)
                         continue;
-                    const key = pickKey(cand);
+                    const key = this.trackOn
+                        ? (_a = keyFromSelector.get(cand)) !== null && _a !== void 0 ? _a : null
+                        : pickKey(cand);
                     if (!key)
                         continue;
-                    const camel = key
-                        .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => c ? String(c).toUpperCase() : '')
-                        .replace(/^(.)/, (m) => m.toLowerCase());
+                    const camel = toCamel(key);
                     attributes[camel] = String(n);
                 }
             }
@@ -931,6 +936,33 @@
     }
     function isActionWithValue(a) {
         return typeof a.value !== 'undefined';
+    }
+    // Convert identifiers like cart-count or total_qty to cartCount / totalQty
+    function toCamel(key) {
+        return key
+            .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
+            .replace(/^(.)/, (m) => m.toLowerCase());
+    }
+    // Derive a stable key name from a CSS selector provided by the server profile
+    function selectorToKey(sel) {
+        const s = sel.trim();
+        const last = s.split(/\s*[>+~\s]\s*/).pop() || s;
+        const data = last.match(/\[\s*data-([a-zA-Z0-9_-]+)/);
+        if (data)
+            return toCamel(data[1]);
+        const id = last.match(/#([a-zA-Z0-9_-]+)/);
+        if (id)
+            return toCamel(id[1]);
+        const cls = last.match(/\.([a-zA-Z0-9_-]+)/);
+        if (cls)
+            return toCamel(cls[1]);
+        const nameAttr = last.match(/\[\s*name="?([a-zA-Z0-9_-]+)/);
+        if (nameAttr)
+            return toCamel(nameAttr[1]);
+        const tag = last.match(/^([a-zA-Z0-9_-]+)/);
+        if (tag)
+            return toCamel(tag[1]);
+        return toCamel(last.replace(/[^a-zA-Z0-9]+/g, '-'));
     }
 
     // Attach a simple UMD-style global for convenience when used via <script>
