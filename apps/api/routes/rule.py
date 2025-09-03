@@ -1,5 +1,7 @@
 from __future__ import annotations
+from typing import Optional
 from fastapi import APIRouter, Header
+from helper.common import RULES_DB, _rule_matches
 from contracts.sdk_api import RuleCheckRequest, RuleCheckResponse, RuleTrackRequest, RuleTrackResponse
 
 router = APIRouter(prefix="/rule", tags=["rule"])
@@ -7,43 +9,56 @@ router = APIRouter(prefix="/rule", tags=["rule"])
 @router.post("/check", response_model=RuleCheckResponse)
 def rule_check(
     payload: RuleCheckRequest,
-    x_site_key: str | None = Header(default=None, alias="X-Site-Key"),
-    x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> RuleCheckResponse:
-    # TODO: classify event via atlas; load rules; evaluate deterministically
+    site_rules = RULES_DB.get(payload.siteId)
+    evt_type = getattr(payload.event, "type", None) or "unknown"
+    if not site_rules:
+        return RuleCheckResponse(eventType=evt_type, matchedRules=[], shouldProceed=False, reason="SITE_RULES_NOT_FOUND")
+
+    matched = [r["id"] for r in site_rules.get("rules", []) if r.get("enabled", True) and _rule_matches(r, payload)]
     return RuleCheckResponse(
-        eventType="unknown",
-        matchedRules=[],
-        shouldProceed=False,
-        reason="no_rule",
+        eventType=evt_type,
+        matchedRules=matched,
+        shouldProceed=len(matched) > 0,
+        reason=(None if matched else "NO_MATCH"),
     )
 
 @router.post("/track", response_model=RuleTrackResponse)
 def rule_track_post(
     payload: RuleTrackRequest,
-    x_site_key: str | None = Header(default=None, alias="X-Site-Key"),
-    x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> RuleTrackResponse:
     return RuleTrackResponse(
         siteId=payload.siteId,
-        status=payload.status,
-        version=None,
+        status=payload.status or "off",
+        version=payload.version or "ruleset-001",
         updatedAt=None,
-        events={},
+        events=payload.events or {},
     )
 
 @router.get("/track", response_model=RuleTrackResponse)
 def rule_track_get(
-    x_site_key: str | None = Header(default=None, alias="X-Site-Key"),
-    x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
+    siteId: str = "demo-site",
+    x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
+    x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> RuleTrackResponse:
     return RuleTrackResponse(
-        siteId="demo-site",
-        status="off",
-        version=None,
+        siteId=siteId,
+        status="on",
+        version="ruleset-001",
         updatedAt=None,
-        events={},
+        events={
+            "dom_click": [
+                "[data-action='add_to_cart']",
+                "[data-action='checkout']",
+                "[data-action='search']",
+                "#promo-banner",
+            ],
+            "mutation": [
+                "#cart-count",
+            ],
+        },
     )
