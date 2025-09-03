@@ -1,14 +1,14 @@
-# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# See: https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# compiled output
+# --- compiled / build output
 dist
 tmp
 out-tsc
 
-# dependencies
+# --- dependencies
 node_modules
 
-# IDEs and editors
+# --- IDEs and editors
 /.idea
 .project
 .classpath
@@ -16,16 +16,16 @@ node_modules
 *.launch
 .settings/
 *.sublime-workspace
-.env 
+.env
 
-# IDE - VSCode
+# VS Code (keep these specific files)
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# misc
+# --- misc
 /.sass-cache
 /connect.lock
 /coverage
@@ -35,15 +35,25 @@ yarn-error.log
 testem.log
 /typings
 
-# System Files
+# --- system files
 .DS_Store
 Thumbs.db
 
+# --- Nx
 .nx/cache
 .nx/workspace-data
-.cursor/rules/nx-rules.mdc
+
+# --- Cursor editor (ignore the whole folder; remove line below if you only want this file)
+.cursor/
+
+# --- GitHub meta (keep repo config if needed; remove if you intend to track)
 .github/instructions/nx.instructions.md
 
-# Next.js
+# --- Next.js
 .next
 out
+
+# --- Python caches (your request)
+__pycache__/
+*.py[cod]
+*$py.class
