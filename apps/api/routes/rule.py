@@ -52,10 +52,7 @@ def rule_track_get(
         updatedAt=None,
         events={
             "dom_click": [
-                "[data-action='add_to_cart']",
-                "[data-action='checkout']",
-                "[data-action='search']",
-                "#promo-banner",
+                "[data-action='add_to_cart']"
             ],
             "mutation": [
                 "#cart-count",
