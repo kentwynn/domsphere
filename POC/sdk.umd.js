@@ -104,59 +104,6 @@
         }
     }
 
-    function renderFinalSuggestions(container, suggestions, onCta) {
-        container.innerHTML = '';
-        if (!(suggestions === null || suggestions === void 0 ? void 0 : suggestions.length)) {
-            container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;
-            return;
-        }
-        const frag = document.createDocumentFragment();
-        suggestions.forEach((s) => {
-            var _a, _b;
-            const card = document.createElement('div');
-            card.setAttribute('data-testid', 'assistant-card');
-            card.style.border = '1px solid #e5e7eb';
-            card.style.borderRadius = '12px';
-            card.style.padding = '12px';
-            card.style.margin = '8px 0';
-            const title = document.createElement('div');
-            title.textContent = (_a = s.title) !== null && _a !== void 0 ? _a : s.type;
-            title.style.fontWeight = '600';
-            card.appendChild(title);
-            if (s.description) {
-                const desc = document.createElement('div');
-                desc.textContent = s.description;
-                desc.style.opacity = '0.9';
-                desc.style.marginTop = '4px';
-                card.appendChild(desc);
-            }
-            const actions = [
-                ...((_b = s.actions) !== null && _b !== void 0 ? _b : []),
-                ...(s.primaryCta ? [s.primaryCta] : []),
-            ].filter(Boolean);
-            if (actions.length) {
-                const row = document.createElement('div');
-                row.style.display = 'flex';
-                row.style.flexWrap = 'wrap';
-                row.style.gap = '8px';
-                row.style.marginTop = '10px';
-                actions.forEach((cta, idx) => {
-                    const btn = document.createElement('button');
-                    btn.textContent = cta.label;
-                    btn.setAttribute('data-cta-idx', String(idx));
-                    btn.onclick = () => onCta(cta);
-                    btn.style.padding = '6px 10px';
-                    btn.style.borderRadius = '8px';
-                    btn.style.border = '1px solid #d1d5db';
-                    row.appendChild(btn);
-                });
-                card.appendChild(row);
-            }
-            frag.appendChild(card);
-        });
-        container.appendChild(frag);
-    }
-
     function safeStr(v) {
         if (v == null)
             return null;
@@ -297,6 +244,202 @@
         return Number.isFinite(n) ? n : null;
     }
 
+    function normalizePath(p) {
+        let s = String(p || '/').trim();
+        if (!s.startsWith('/'))
+            s = '/' + s;
+        if (s.length > 1 && s.endsWith('/'))
+            s = s.slice(0, -1);
+        return s;
+    }
+    // Convert identifiers like cart-count or total_qty to cartCount / totalQty
+    function toCamel(key) {
+        return key
+            .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
+            .replace(/^(.)/, (m) => m.toLowerCase());
+    }
+
+    function ensureBucket(focus, kind) {
+        if (!focus.has(kind))
+            focus.set(kind, {
+                paths: new Set(),
+                elementIds: new Set(),
+                cssPaths: new Set(),
+                cssPatterns: [],
+            });
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        return focus.get(kind);
+    }
+    function collectFocusFromRules(rules) {
+        var _a, _b, _c;
+        const kinds = new Set();
+        const focus = new Map();
+        for (const r of rules) {
+            const triggers = ((_a = r.triggers) !== null && _a !== void 0 ? _a : []);
+            for (const t of triggers) {
+                const k = String(t.eventType || '').trim();
+                if (k &&
+                    ['dom_click', 'input_change', 'submit', 'page_load', 'route_change'].includes(k))
+                    kinds.add(k);
+                const ek = k;
+                const bucket = ensureBucket(focus, ek);
+                // equals filters
+                for (const cond of (_b = t.when) !== null && _b !== void 0 ? _b : []) {
+                    const field = String(cond.field || '');
+                    const op = String(cond.op || '').toLowerCase();
+                    const val = cond.value;
+                    if (op !== 'equals')
+                        continue;
+                    if (field === 'telemetry.attributes.path' && typeof val === 'string') {
+                        bucket.paths.add(normalizePath(val));
+                    }
+                    if (field === 'telemetry.attributes.id' && typeof val === 'string') {
+                        bucket.elementIds.add(val);
+                    }
+                    if (field === 'telemetry.cssPath' && typeof val === 'string') {
+                        bucket.cssPaths.add(val);
+                    }
+                }
+                // regex cssPath
+                for (const cond of (_c = t.when) !== null && _c !== void 0 ? _c : []) {
+                    const field = String(cond.field || '');
+                    const op = String(cond.op || '').toLowerCase();
+                    const val = cond.value;
+                    if (field === 'telemetry.cssPath' && op === 'regex' && typeof val === 'string') {
+                        try {
+                            bucket.cssPatterns.push(new RegExp(val));
+                        }
+                        catch (_d) {
+                            /* ignore */
+                        }
+                    }
+                }
+            }
+        }
+        return { focus, kinds };
+    }
+    function idMatches(focus, kind, target) {
+        const f = focus.get(kind);
+        if (!f)
+            return true;
+        if (f.elementIds.size === 0)
+            return true;
+        if (!target)
+            return false;
+        let el = target;
+        let hops = 0;
+        while (el && hops < 5) {
+            const id = el.id || '';
+            if (id && f.elementIds.has(id))
+                return true;
+            el = el.parentElement;
+            hops++;
+        }
+        return false;
+    }
+    function cssMatches(focus, kind, target) {
+        const f = focus.get(kind);
+        if (!f)
+            return true;
+        const hasCss = f.cssPaths.size > 0 || f.cssPatterns.length > 0;
+        if (!hasCss)
+            return true;
+        if (!target)
+            return false;
+        const candidates = [target];
+        let el = target.parentElement;
+        let hops = 0;
+        while (el && hops < 5) {
+            candidates.push(el);
+            el = el.parentElement;
+            hops++;
+        }
+        for (const c of candidates) {
+            try {
+                const cp = cssPath(c) || '';
+                if (!cp)
+                    continue;
+                if (f.cssPaths.has(cp))
+                    return true;
+                for (const re of f.cssPatterns) {
+                    try {
+                        if (re.test(cp))
+                            return true;
+                    }
+                    catch (_a) {
+                        /* ignore */
+                    }
+                }
+            }
+            catch (_b) {
+                /* ignore */
+            }
+        }
+        return false;
+    }
+    function targetMatches(focus, kind, target) {
+        const f = focus.get(kind);
+        if (!f)
+            return true;
+        const hasAny = f.elementIds.size > 0 || f.cssPaths.size > 0 || f.cssPatterns.length > 0;
+        if (!hasAny)
+            return true;
+        return idMatches(focus, kind, target) || cssMatches(focus, kind, target);
+    }
+
+    function renderFinalSuggestions(container, suggestions, onCta) {
+        container.innerHTML = '';
+        if (!(suggestions === null || suggestions === void 0 ? void 0 : suggestions.length)) {
+            container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        suggestions.forEach((s) => {
+            var _a, _b;
+            const card = document.createElement('div');
+            card.setAttribute('data-testid', 'assistant-card');
+            card.style.border = '1px solid #e5e7eb';
+            card.style.borderRadius = '12px';
+            card.style.padding = '12px';
+            card.style.margin = '8px 0';
+            const title = document.createElement('div');
+            title.textContent = (_a = s.title) !== null && _a !== void 0 ? _a : s.type;
+            title.style.fontWeight = '600';
+            card.appendChild(title);
+            if (s.description) {
+                const desc = document.createElement('div');
+                desc.textContent = s.description;
+                desc.style.opacity = '0.9';
+                desc.style.marginTop = '4px';
+                card.appendChild(desc);
+            }
+            const actions = [
+                ...((_b = s.actions) !== null && _b !== void 0 ? _b : []),
+                ...(s.primaryCta ? [s.primaryCta] : []),
+            ].filter(Boolean);
+            if (actions.length) {
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.flexWrap = 'wrap';
+                row.style.gap = '8px';
+                row.style.marginTop = '10px';
+                actions.forEach((cta, idx) => {
+                    const btn = document.createElement('button');
+                    btn.textContent = cta.label;
+                    btn.setAttribute('data-cta-idx', String(idx));
+                    btn.onclick = () => onCta(cta);
+                    btn.style.padding = '6px 10px';
+                    btn.style.borderRadius = '8px';
+                    btn.style.border = '1px solid #d1d5db';
+                    row.appendChild(btn);
+                });
+                card.appendChild(row);
+            }
+            frag.appendChild(card);
+        });
+        container.appendChild(frag);
+    }
+
     class AutoAssistant {
         constructor(options) {
             var _a, _b;
@@ -317,7 +460,7 @@
         }
         start() {
             return __awaiter(this, void 0, void 0, function* () {
-                var _a, _b, _c;
+                var _a;
                 // 1) Load rules to choose focus vs rich tracking
                 try {
                     const res = (yield this.api.ruleListGet(this.opts.siteId));
@@ -325,42 +468,8 @@
                     const tracked = rules.filter((r) => !!r.tracking);
                     this.trackOn = tracked.length > 0;
                     if (this.trackOn) {
-                        const kinds = new Set();
-                        this.focus.clear();
-                        for (const r of tracked) {
-                            const triggers = ((_b = r.triggers) !== null && _b !== void 0 ? _b : []);
-                            for (const t of triggers) {
-                                const k = String(t.eventType || '').trim();
-                                if (k &&
-                                    [
-                                        'dom_click',
-                                        'input_change',
-                                        'submit',
-                                        'page_load',
-                                        'route_change',
-                                    ].includes(k))
-                                    kinds.add(k);
-                                const ek = k;
-                                if (!this.focus.has(ek))
-                                    this.focus.set(ek, { paths: new Set(), elementIds: new Set() });
-                                const f = this.focus.get(ek);
-                                if (!f)
-                                    continue;
-                                for (const cond of (_c = t.when) !== null && _c !== void 0 ? _c : []) {
-                                    const field = String(cond.field || '');
-                                    const op = String(cond.op || '').toLowerCase();
-                                    const val = cond.value;
-                                    if (op !== 'equals')
-                                        continue;
-                                    if (field === 'telemetry.attributes.path' &&
-                                        typeof val === 'string')
-                                        f.paths.add(normalizePath(val));
-                                    if (field === 'telemetry.attributes.id' &&
-                                        typeof val === 'string')
-                                        f.elementIds.add(val);
-                                }
-                            }
-                        }
+                        const { focus, kinds } = collectFocusFromRules(tracked);
+                        this.focus = focus;
                         this.allow = kinds.size ? kinds : new Set(['page_load']);
                     }
                     else {
@@ -396,7 +505,7 @@
             // page_load
             if (this.allow.has('page_load')) {
                 this.schedule(() => {
-                    const target = this.pickFocusTarget('page_load') || (document.body || undefined);
+                    const target = this.pickFocusTarget('page_load') || document.body || undefined;
                     if (this.pathMatches('page_load'))
                         this.handleEvent('page_load', target);
                 });
@@ -409,9 +518,8 @@
                 const focusTgt = this.pickFocusTarget('dom_click') || tgt;
                 if (!this.pathMatches('dom_click'))
                     return;
-                // In focus mode, only emit when the actual event target (or its ancestors)
-                // matches a configured element id, if any ids are specified.
-                if (!this.idMatches('dom_click', tgt))
+                // Only emit when target matches configured ids or cssPath filters (if any)
+                if (!this.targetMatches('dom_click', tgt))
                     return;
                 this.schedule(() => this.handleEvent('dom_click', focusTgt));
             };
@@ -425,7 +533,7 @@
                 const focusTgt = this.pickFocusTarget('input_change') || tgt;
                 if (!this.pathMatches('input_change'))
                     return;
-                if (!this.idMatches('input_change', tgt))
+                if (!this.targetMatches('input_change', tgt))
                     return;
                 this.schedule(() => this.handleEvent('input_change', focusTgt));
             };
@@ -441,7 +549,7 @@
                 const focusTgt = this.pickFocusTarget('submit') || tgt;
                 if (!this.pathMatches('submit'))
                     return;
-                if (!this.idMatches('submit', tgt))
+                if (!this.targetMatches('submit', tgt))
                     return;
                 this.schedule(() => this.handleEvent('submit', focusTgt));
             };
@@ -476,7 +584,101 @@
                 history.pushState = _push;
                 history.replaceState = _replace;
             });
-            // No mutation observer in focus mode without selectors
+            // Observe text changes on configured elements (id or cssPath) to synthesize input_change
+            if (this.allow.has('input_change')) {
+                const f = this.focus.get('input_change');
+                if (f &&
+                    (f.elementIds.size > 0 ||
+                        f.cssPaths.size > 0 ||
+                        f.cssPatterns.length > 0)) {
+                    try {
+                        const observer = new MutationObserver((mutations) => {
+                            if (!this.pathMatches('input_change'))
+                                return;
+                            const seen = new Set();
+                            for (const m of mutations) {
+                                const t = m.target.nodeType === Node.TEXT_NODE
+                                    ? m.target.parentElement
+                                    : m.target;
+                                if (!t)
+                                    continue;
+                                // Bubble and collect first matching selector per mutation
+                                let el = t;
+                                let hops = 0;
+                                while (el && hops < 5) {
+                                    const id = el.id || '';
+                                    const matchId = id && f.elementIds.has(id);
+                                    let matchCss = false;
+                                    try {
+                                        const cp = cssPath(el) || '';
+                                        if (f.cssPaths.has(cp))
+                                            matchCss = true;
+                                        if (!matchCss) {
+                                            for (const re of f.cssPatterns) {
+                                                if (re.test(cp)) {
+                                                    matchCss = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    catch (_a) {
+                                        /* ignore */
+                                    }
+                                    if (matchId || matchCss) {
+                                        seen.add(el);
+                                        break;
+                                    }
+                                    el = el.parentElement;
+                                    hops++;
+                                }
+                            }
+                            seen.forEach((el) => {
+                                if (!this.targetMatches('input_change', el))
+                                    return;
+                                this.schedule(() => this.handleEvent('input_change', el));
+                            });
+                        });
+                        // Observe specific ids
+                        f.elementIds.forEach((id) => {
+                            const el = document.getElementById(id);
+                            if (el)
+                                observer.observe(el, {
+                                    subtree: true,
+                                    childList: true,
+                                    characterData: true,
+                                });
+                        });
+                        // Observe specific cssPath elements
+                        f.cssPaths.forEach((sel) => {
+                            try {
+                                const el = document.querySelector(sel);
+                                if (el)
+                                    observer.observe(el, {
+                                        subtree: true,
+                                        childList: true,
+                                        characterData: true,
+                                    });
+                            }
+                            catch (_a) {
+                                /* ignore */
+                            }
+                        });
+                        // If regex present, observe document body and filter
+                        if (f.cssPatterns.length > 0 && document.body) {
+                            observer.observe(document.body, {
+                                subtree: true,
+                                childList: true,
+                                characterData: true,
+                            });
+                        }
+                        this.detachFns.push(() => observer.disconnect());
+                    }
+                    catch (_a) {
+                        /* MutationObserver unavailable; skip */
+                    }
+                }
+            }
         }
         pickFocusTarget(kind) {
             const f = this.focus.get(kind);
@@ -486,6 +688,19 @@
                 const el = document.getElementById(id);
                 if (el)
                     return el;
+            }
+            // Fallback: try a configured cssPath selector
+            if (f.cssPaths.size > 0) {
+                for (const sel of f.cssPaths) {
+                    try {
+                        const el = document.querySelector(sel);
+                        if (el)
+                            return el;
+                    }
+                    catch (_a) {
+                        /* ignore invalid selector */
+                    }
+                }
             }
             return undefined;
         }
@@ -504,23 +719,13 @@
             }
         }
         idMatches(kind, target) {
-            const f = this.focus.get(kind);
-            if (!f)
-                return true;
-            if (f.elementIds.size === 0)
-                return true;
-            if (!target)
-                return false;
-            let el = target;
-            let hops = 0;
-            while (el && hops < 5) {
-                const id = el.id || '';
-                if (id && f.elementIds.has(id))
-                    return true;
-                el = el.parentElement;
-                hops++;
-            }
-            return false;
+            return idMatches(this.focus, kind, target);
+        }
+        cssMatches(kind, target) {
+            return cssMatches(this.focus, kind, target);
+        }
+        targetMatches(kind, target) {
+            return targetMatches(this.focus, kind, target);
         }
         // Only gate by path in focus mode; for DOM events we will send telemetry anchored
         // to the focused element (if configured) to satisfy id-based rule conditions.
@@ -579,7 +784,7 @@
                 var _a;
                 const m = (s.meta || {});
                 const step = Number((_a = m['step']) !== null && _a !== void 0 ? _a : 1);
-                return (Number.isFinite(step) ? step : 1) === this.currentStep;
+                return ((Number.isFinite(step) ? step : 1) === this.currentStep);
             });
             renderFinalSuggestions(panel, toShow, (cta) => this.executeCta(cta));
             this.bus.emit('suggest:ready', toShow);
@@ -769,20 +974,7 @@
             });
         }
     }
-    function normalizePath(p) {
-        let s = String(p || '/').trim();
-        if (!s.startsWith('/'))
-            s = '/' + s;
-        if (s.length > 1 && s.endsWith('/'))
-            s = s.slice(0, -1);
-        return s;
-    }
-    // Convert identifiers like cart-count or total_qty to cartCount / totalQty
-    function toCamel(key) {
-        return key
-            .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
-            .replace(/^(.)/, (m) => m.toLowerCase());
-    }
+    // normalizePath and toCamel moved to ./utils
 
     // Attach a simple UMD-style global for convenience when used via <script>
     if (typeof window !== 'undefined') {

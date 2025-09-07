@@ -19,10 +19,12 @@
       <a href="../">Home</a>
       <a href="../products/">Products</a>
       <a href="./">Cart</a>
+      <a href="../checkout/">Checkout</a>
     </nav>
     <section>
       <div>
-        Items: <span id="cart-count">2</span>
+        Items:
+        <input id="cart-count" type="number" min="0" value="2" style="width: 70px" />
         <button id="dec">-</button>
         <button id="inc">+</button>
       </div>
@@ -39,16 +41,36 @@
     <script>
       // Simple counter controls to trigger rules dynamically
       window.addEventListener('DOMContentLoaded', () => {
-        const countEl = document.getElementById('cart-count');
+        const countInput = document.getElementById('cart-count');
         const inc = document.getElementById('inc');
         const dec = document.getElementById('dec');
+        const checkoutBtn = document.getElementById('checkout');
         const clamp = (n) => (n < 0 ? 0 : n);
         const setCount = (n) => {
-          countEl.textContent = String(clamp(n));
+          if (!(countInput instanceof HTMLInputElement)) return;
+          const v = String(clamp(n));
+          countInput.value = v;
+          // Fire input/change so SDK rules listening for input_change will pick it up
+          countInput.dispatchEvent(new Event('input', { bubbles: true }));
+          countInput.dispatchEvent(new Event('change', { bubbles: true }));
         };
-        const getCount = () => parseInt(countEl.textContent || '0', 10) || 0;
+        const getCount = () => {
+          if (!(countInput instanceof HTMLInputElement)) return 0;
+          const n = parseInt(countInput.value || '0', 10);
+          return Number.isFinite(n) ? n : 0;
+        };
         inc?.addEventListener('click', () => setCount(getCount() + 1));
         dec?.addEventListener('click', () => setCount(getCount() - 1));
+        // Clamp negatives entered manually
+        if (countInput instanceof HTMLInputElement) {
+          countInput.addEventListener('change', () => {
+            const n = getCount();
+            if (n < 0) setCount(0);
+          });
+        }
+        checkoutBtn?.addEventListener('click', () => {
+          window.location.href = '../checkout/';
+        });
       });
     </script>
     <script>

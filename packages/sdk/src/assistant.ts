@@ -1,5 +1,13 @@
 import { createApi } from './api';
 import { Emitter, type Listener } from './emitter';
+import {
+  collectFocusFromRules,
+  cssMatches as cssMatchHelper,
+  idMatches as idMatchHelper,
+  targetMatches as targetMatchHelper,
+  type EventKind,
+  type FocusMap,
+} from './focus';
 import { renderFinalSuggestions } from './render';
 import {
   ancestorBrief,
@@ -21,6 +29,7 @@ import {
   type SuggestGetResponse,
   type Suggestion,
 } from './types';
+import { normalizePath, toCamel } from './utils';
 
 export type AutoAssistantOptions = ClientOptions & {
   siteId: string;
@@ -31,13 +40,6 @@ export type AutoAssistantOptions = ClientOptions & {
   baseContext?: Record<string, unknown>;
   ctaExecutor?: (cta: CtaSpec) => void;
 };
-
-type EventKind =
-  | 'dom_click'
-  | 'input_change'
-  | 'submit'
-  | 'page_load'
-  | 'route_change';
 
 export class AutoAssistant {
   private api: ReturnType<typeof createApi>;
@@ -56,10 +58,7 @@ export class AutoAssistant {
   private cooldownUntil = 0;
   private trackOn = false;
   private allow: Set<EventKind> = new Set();
-  private focus: Map<
-    EventKind,
-    { paths: Set<string>; elementIds: Set<string> }
-  > = new Map();
+  private focus: FocusMap = new Map();
   private lastSuggestions: Suggestion[] = [];
   private currentStep = 1;
 
@@ -89,49 +88,10 @@ export class AutoAssistant {
       const tracked = rules.filter((r) => !!r.tracking);
       this.trackOn = tracked.length > 0;
       if (this.trackOn) {
-        const kinds = new Set<EventKind>();
-        this.focus.clear();
-        for (const r of tracked) {
-          const triggers = (r.triggers ?? []) as Array<{
-            eventType?: string;
-            when?: Array<{ field?: string; op?: string; value?: unknown }>;
-          }>;
-          for (const t of triggers) {
-            const k = String(t.eventType || '').trim();
-            if (
-              k &&
-              [
-                'dom_click',
-                'input_change',
-                'submit',
-                'page_load',
-                'route_change',
-              ].includes(k)
-            )
-              kinds.add(k as EventKind);
-            const ek = k as EventKind;
-            if (!this.focus.has(ek))
-              this.focus.set(ek, { paths: new Set(), elementIds: new Set() });
-            const f = this.focus.get(ek);
-            if (!f) continue;
-            for (const cond of t.when ?? []) {
-              const field = String(cond.field || '');
-              const op = String(cond.op || '').toLowerCase();
-              const val = cond.value;
-              if (op !== 'equals') continue;
-              if (
-                field === 'telemetry.attributes.path' &&
-                typeof val === 'string'
-              )
-                f.paths.add(normalizePath(val));
-              if (
-                field === 'telemetry.attributes.id' &&
-                typeof val === 'string'
-              )
-                f.elementIds.add(val);
-            }
-          }
-        }
+        const { focus, kinds } = collectFocusFromRules(
+          tracked as RuleListItem[]
+        );
+        this.focus = focus;
         this.allow = kinds.size ? kinds : new Set<EventKind>(['page_load']);
       } else {
         this.allow = new Set<EventKind>([
@@ -169,8 +129,10 @@ export class AutoAssistant {
     // page_load
     if (this.allow.has('page_load')) {
       this.schedule(() => {
-        const target = this.pickFocusTarget('page_load') || (document.body || undefined);
-        if (this.pathMatches('page_load')) this.handleEvent('page_load', target);
+        const target =
+          this.pickFocusTarget('page_load') || document.body || undefined;
+        if (this.pathMatches('page_load'))
+          this.handleEvent('page_load', target);
       });
     }
 
@@ -180,9 +142,8 @@ export class AutoAssistant {
       if (!this.allow.has('dom_click')) return;
       const focusTgt = this.pickFocusTarget('dom_click') || tgt;
       if (!this.pathMatches('dom_click')) return;
-      // In focus mode, only emit when the actual event target (or its ancestors)
-      // matches a configured element id, if any ids are specified.
-      if (!this.idMatches('dom_click', tgt)) return;
+      // Only emit when target matches configured ids or cssPath filters (if any)
+      if (!this.targetMatches('dom_click', tgt)) return;
       this.schedule(() => this.handleEvent('dom_click', focusTgt));
     };
     document.addEventListener('click', onClick, true);
@@ -196,7 +157,7 @@ export class AutoAssistant {
       if (!this.allow.has('input_change')) return;
       const focusTgt = this.pickFocusTarget('input_change') || tgt;
       if (!this.pathMatches('input_change')) return;
-      if (!this.idMatches('input_change', tgt)) return;
+      if (!this.targetMatches('input_change', tgt)) return;
       this.schedule(() => this.handleEvent('input_change', focusTgt));
     };
     document.addEventListener('input', onChange, true);
@@ -214,7 +175,7 @@ export class AutoAssistant {
       const tgt = e.target as Element | undefined;
       const focusTgt = this.pickFocusTarget('submit') || tgt;
       if (!this.pathMatches('submit')) return;
-      if (!this.idMatches('submit', tgt)) return;
+      if (!this.targetMatches('submit', tgt)) return;
       this.schedule(() => this.handleEvent('submit', focusTgt));
     };
     document.addEventListener('submit', onSubmit, true);
@@ -260,7 +221,99 @@ export class AutoAssistant {
       history.replaceState = _replace;
     });
 
-    // No mutation observer in focus mode without selectors
+    // Observe text changes on configured elements (id or cssPath) to synthesize input_change
+    if (this.allow.has('input_change')) {
+      const f = this.focus.get('input_change');
+      if (
+        f &&
+        (f.elementIds.size > 0 ||
+          f.cssPaths.size > 0 ||
+          f.cssPatterns.length > 0)
+      ) {
+        try {
+          const observer = new MutationObserver((mutations) => {
+            if (!this.pathMatches('input_change')) return;
+            const seen = new Set<Element>();
+            for (const m of mutations) {
+              const t =
+                m.target.nodeType === Node.TEXT_NODE
+                  ? (m.target as CharacterData).parentElement
+                  : (m.target as Element | null);
+              if (!t) continue;
+              // Bubble and collect first matching selector per mutation
+              let el: Element | null = t;
+              let hops = 0;
+              while (el && hops < 5) {
+                const id = (el as HTMLElement).id || '';
+                const matchId = id && f.elementIds.has(id);
+                let matchCss = false;
+                try {
+                  const cp = cssPath(el) || '';
+                  if (f.cssPaths.has(cp)) matchCss = true;
+                  if (!matchCss) {
+                    for (const re of f.cssPatterns) {
+                      if (re.test(cp)) {
+                        matchCss = true;
+                        break;
+                      }
+                    }
+                  }
+                } catch {
+                  /* ignore */
+                }
+                if (matchId || matchCss) {
+                  seen.add(el);
+                  break;
+                }
+                el = el.parentElement;
+                hops++;
+              }
+            }
+            seen.forEach((el) => {
+              if (!this.targetMatches('input_change', el)) return;
+              this.schedule(() => this.handleEvent('input_change', el));
+            });
+          });
+
+          // Observe specific ids
+          f.elementIds.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el)
+              observer.observe(el, {
+                subtree: true,
+                childList: true,
+                characterData: true,
+              });
+          });
+          // Observe specific cssPath elements
+          f.cssPaths.forEach((sel) => {
+            try {
+              const el = document.querySelector(sel);
+              if (el)
+                observer.observe(el, {
+                  subtree: true,
+                  childList: true,
+                  characterData: true,
+                });
+            } catch {
+              /* ignore */
+            }
+          });
+          // If regex present, observe document body and filter
+          if (f.cssPatterns.length > 0 && document.body) {
+            observer.observe(document.body, {
+              subtree: true,
+              childList: true,
+              characterData: true,
+            });
+          }
+
+          this.detachFns.push(() => observer.disconnect());
+        } catch {
+          /* MutationObserver unavailable; skip */
+        }
+      }
+    }
   }
 
   private pickFocusTarget(kind: EventKind): Element | undefined {
@@ -269,6 +322,17 @@ export class AutoAssistant {
     for (const id of f.elementIds) {
       const el = document.getElementById(id);
       if (el) return el;
+    }
+    // Fallback: try a configured cssPath selector
+    if (f.cssPaths.size > 0) {
+      for (const sel of f.cssPaths) {
+        try {
+          const el = document.querySelector(sel);
+          if (el) return el as Element;
+        } catch {
+          /* ignore invalid selector */
+        }
+      }
     }
     return undefined;
   }
@@ -286,19 +350,15 @@ export class AutoAssistant {
   }
 
   private idMatches(kind: EventKind, target?: Element): boolean {
-    const f = this.focus.get(kind);
-    if (!f) return true;
-    if (f.elementIds.size === 0) return true;
-    if (!target) return false;
-    let el: Element | null = target;
-    let hops = 0;
-    while (el && hops < 5) {
-      const id = (el as HTMLElement).id || '';
-      if (id && f.elementIds.has(id)) return true;
-      el = el.parentElement;
-      hops++;
-    }
-    return false;
+    return idMatchHelper(this.focus, kind, target);
+  }
+
+  private cssMatches(kind: EventKind, target?: Element): boolean {
+    return cssMatchHelper(this.focus, kind, target);
+  }
+
+  private targetMatches(kind: EventKind, target?: Element): boolean {
+    return targetMatchHelper(this.focus, kind, target);
   }
 
   // Only gate by path in focus mode; for DOM events we will send telemetry anchored
@@ -358,7 +418,9 @@ export class AutoAssistant {
     const toShow = this.lastSuggestions.filter((s) => {
       const m = (s.meta || {}) as Record<string, unknown>;
       const step = Number(m['step'] ?? 1);
-      return (Number.isFinite(step) ? (step as number) : 1) === this.currentStep;
+      return (
+        (Number.isFinite(step) ? (step as number) : 1) === this.currentStep
+      );
     });
     renderFinalSuggestions(panel, toShow, (cta) => this.executeCta(cta));
     this.bus.emit('suggest:ready', toShow);
@@ -409,7 +471,9 @@ export class AutoAssistant {
       if (handlers[kind]) handlers[kind](cta);
       // After executing a CTA, advance to the next step if available
       const allSteps = this.lastSuggestions
-        .map((s) => Number(((s.meta || {}) as Record<string, unknown>)['step'] ?? 1))
+        .map((s) =>
+          Number(((s.meta || {}) as Record<string, unknown>)['step'] ?? 1)
+        )
         .filter((n) => Number.isFinite(n)) as number[];
       const maxStep = allSteps.length ? Math.max(...allSteps) : 1;
       if (this.currentStep < maxStep) {
@@ -554,16 +618,4 @@ export class AutoAssistant {
   }
 }
 
-function normalizePath(p: string): string {
-  let s = String(p || '/').trim();
-  if (!s.startsWith('/')) s = '/' + s;
-  if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1);
-  return s;
-}
-
-// Convert identifiers like cart-count or total_qty to cartCount / totalQty
-function toCamel(key: string): string {
-  return key
-    .replace(/[^a-zA-Z0-9]+(.)/g, (_, c: string) => (c ? c.toUpperCase() : ''))
-    .replace(/^(.)/, (m) => m.toLowerCase());
-}
+// normalizePath and toCamel moved to ./utils
