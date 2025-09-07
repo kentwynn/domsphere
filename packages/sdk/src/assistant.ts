@@ -56,6 +56,10 @@ export class AutoAssistant {
   private cooldownUntil = 0;
   private trackOn = false;
   private allow: Set<EventKind> = new Set();
+  private focus: Map<
+    EventKind,
+    { paths: Set<string>; elementIds: Set<string> }
+  > = new Map();
 
   constructor(options: AutoAssistantOptions) {
     this.opts = {
@@ -80,11 +84,16 @@ export class AutoAssistant {
         this.opts.siteId
       )) as RuleListResponse;
       const rules = (res?.rules ?? []) as RuleListItem[];
-      this.trackOn = rules.some((r) => !!r.tracking);
+      const tracked = rules.filter((r) => !!r.tracking);
+      this.trackOn = tracked.length > 0;
       if (this.trackOn) {
         const kinds = new Set<EventKind>();
-        for (const r of rules) {
-          const triggers = (r.triggers ?? []) as Array<{ eventType?: string }>;
+        this.focus.clear();
+        for (const r of tracked) {
+          const triggers = (r.triggers ?? []) as Array<{
+            eventType?: string;
+            when?: Array<{ field?: string; op?: string; value?: unknown }>;
+          }>;
           for (const t of triggers) {
             const k = String(t.eventType || '').trim();
             if (
@@ -98,6 +107,27 @@ export class AutoAssistant {
               ].includes(k)
             )
               kinds.add(k as EventKind);
+            const ek = k as EventKind;
+            if (!this.focus.has(ek))
+              this.focus.set(ek, { paths: new Set(), elementIds: new Set() });
+            const f = this.focus.get(ek);
+            if (!f) continue;
+            for (const cond of t.when ?? []) {
+              const field = String(cond.field || '');
+              const op = String(cond.op || '').toLowerCase();
+              const val = cond.value;
+              if (op !== 'equals') continue;
+              if (
+                field === 'telemetry.attributes.path' &&
+                typeof val === 'string'
+              )
+                f.paths.add(normalizePath(val));
+              if (
+                field === 'telemetry.attributes.id' &&
+                typeof val === 'string'
+              )
+                f.elementIds.add(val);
+            }
           }
         }
         this.allow = kinds.size ? kinds : new Set<EventKind>(['page_load']);
@@ -136,16 +166,19 @@ export class AutoAssistant {
   private setupListenersFocusMode() {
     // page_load
     if (this.allow.has('page_load')) {
-      this.schedule(() =>
-        this.handleEvent('page_load', document.body || undefined)
-      );
+      this.schedule(() => {
+        const target = this.pickFocusTarget('page_load') || (document.body || undefined);
+        if (this.pathMatches('page_load')) this.handleEvent('page_load', target);
+      });
     }
 
     // clicks
     const onClick = (e: Event) => {
       const tgt = e.target as Element | undefined;
       if (!this.allow.has('dom_click')) return;
-      this.schedule(() => this.handleEvent('dom_click', tgt));
+      const focusTgt = this.pickFocusTarget('dom_click') || tgt;
+      if (!this.pathMatches('dom_click')) return;
+      this.schedule(() => this.handleEvent('dom_click', focusTgt));
     };
     document.addEventListener('click', onClick, true);
     this.detachFns.push(() =>
@@ -156,7 +189,9 @@ export class AutoAssistant {
     const onChange = (e: Event) => {
       const tgt = e.target as Element | undefined;
       if (!this.allow.has('input_change')) return;
-      this.schedule(() => this.handleEvent('input_change', tgt));
+      const focusTgt = this.pickFocusTarget('input_change') || tgt;
+      if (!this.pathMatches('input_change')) return;
+      this.schedule(() => this.handleEvent('input_change', focusTgt));
     };
     document.addEventListener('input', onChange, true);
     document.addEventListener('change', onChange, true);
@@ -170,9 +205,10 @@ export class AutoAssistant {
     // submit
     const onSubmit = (e: Event) => {
       if (!this.allow.has('submit')) return;
-      this.schedule(() =>
-        this.handleEvent('submit', e.target as Element | undefined)
-      );
+      const tgt = e.target as Element | undefined;
+      const focusTgt = this.pickFocusTarget('submit') || tgt;
+      if (!this.pathMatches('submit')) return;
+      this.schedule(() => this.handleEvent('submit', focusTgt));
     };
     document.addEventListener('submit', onSubmit, true);
     this.detachFns.push(() =>
@@ -204,7 +240,9 @@ export class AutoAssistant {
     };
     const onPop = () => {
       if (!this.allow.has('route_change')) return;
-      this.schedule(() => this.handleEvent('route_change', undefined));
+      if (!this.pathMatches('route_change')) return;
+      const target = this.pickFocusTarget('route_change');
+      this.schedule(() => this.handleEvent('route_change', target));
     };
     window.addEventListener('popstate', onPop);
     window.addEventListener('agent-route-change', onPop as EventListener);
@@ -216,6 +254,50 @@ export class AutoAssistant {
     });
 
     // No mutation observer in focus mode without selectors
+  }
+
+  private pickFocusTarget(kind: EventKind): Element | undefined {
+    const f = this.focus.get(kind);
+    if (!f || f.elementIds.size === 0) return undefined;
+    for (const id of f.elementIds) {
+      const el = document.getElementById(id);
+      if (el) return el;
+    }
+    return undefined;
+  }
+
+  private pathMatches(kind: EventKind): boolean {
+    const f = this.focus.get(kind);
+    if (!f) return true;
+    if (f.paths.size === 0) return true;
+    try {
+      const cur = normalizePath(window.location.pathname || '/');
+      return f.paths.has(cur);
+    } catch {
+      return true;
+    }
+  }
+
+  private idMatches(kind: EventKind, target?: Element): boolean {
+    const f = this.focus.get(kind);
+    if (!f) return true;
+    if (f.elementIds.size === 0) return true;
+    if (!target) return false;
+    let el: Element | null = target;
+    let hops = 0;
+    while (el && hops < 5) {
+      const id = (el as HTMLElement).id || '';
+      if (id && f.elementIds.has(id)) return true;
+      el = el.parentElement;
+      hops++;
+    }
+    return false;
+  }
+
+  // Only gate by path in focus mode; for DOM events we will send telemetry anchored
+  // to the focused element (if configured) to satisfy id-based rule conditions.
+  private shouldEmit(kind: EventKind): boolean {
+    return this.pathMatches(kind);
   }
 
   // TODO: setupListenersRichMode removed. Reintroduce when we support rich tracking heuristics.
@@ -292,7 +374,7 @@ export class AutoAssistant {
           el?.click();
         },
         open: (c) => {
-          const url = (typeof c.url === 'string' && c.url) ? c.url : '';
+          const url = typeof c.url === 'string' && c.url ? c.url : '';
           if (url) window.location.href = url as string;
         },
       };
@@ -307,6 +389,12 @@ export class AutoAssistant {
     const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
     const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
     const attributes: Record<string, string | null> = el ? attrMap(el) : {};
+    // Always include current path so rules can filter on it
+    try {
+      attributes['path'] = window.location ? window.location.pathname : null;
+    } catch {
+      /* ignore */
+    }
     try {
       const withAction = el?.closest('[data-action]') as HTMLElement | null;
       const action = withAction?.getAttribute('data-action');
@@ -426,6 +514,13 @@ export class AutoAssistant {
       this.inflight = false;
     }
   }
+}
+
+function normalizePath(p: string): string {
+  let s = String(p || '/').trim();
+  if (!s.startsWith('/')) s = '/' + s;
+  if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1);
+  return s;
 }
 
 // Convert identifiers like cart-count or total_qty to cartCount / totalQty

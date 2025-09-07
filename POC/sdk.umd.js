@@ -306,6 +306,7 @@
             this.cooldownUntil = 0;
             this.trackOn = false;
             this.allow = new Set();
+            this.focus = new Map();
             this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
         }
@@ -314,15 +315,17 @@
         }
         start() {
             return __awaiter(this, void 0, void 0, function* () {
-                var _a, _b;
+                var _a, _b, _c;
                 // 1) Load rules to choose focus vs rich tracking
                 try {
                     const res = (yield this.api.ruleListGet(this.opts.siteId));
                     const rules = ((_a = res === null || res === void 0 ? void 0 : res.rules) !== null && _a !== void 0 ? _a : []);
-                    this.trackOn = rules.some((r) => !!r.tracking);
+                    const tracked = rules.filter((r) => !!r.tracking);
+                    this.trackOn = tracked.length > 0;
                     if (this.trackOn) {
                         const kinds = new Set();
-                        for (const r of rules) {
+                        this.focus.clear();
+                        for (const r of tracked) {
                             const triggers = ((_b = r.triggers) !== null && _b !== void 0 ? _b : []);
                             for (const t of triggers) {
                                 const k = String(t.eventType || '').trim();
@@ -335,6 +338,25 @@
                                         'route_change',
                                     ].includes(k))
                                     kinds.add(k);
+                                const ek = k;
+                                if (!this.focus.has(ek))
+                                    this.focus.set(ek, { paths: new Set(), elementIds: new Set() });
+                                const f = this.focus.get(ek);
+                                if (!f)
+                                    continue;
+                                for (const cond of (_c = t.when) !== null && _c !== void 0 ? _c : []) {
+                                    const field = String(cond.field || '');
+                                    const op = String(cond.op || '').toLowerCase();
+                                    const val = cond.value;
+                                    if (op !== 'equals')
+                                        continue;
+                                    if (field === 'telemetry.attributes.path' &&
+                                        typeof val === 'string')
+                                        f.paths.add(normalizePath(val));
+                                    if (field === 'telemetry.attributes.id' &&
+                                        typeof val === 'string')
+                                        f.elementIds.add(val);
+                                }
                             }
                         }
                         this.allow = kinds.size ? kinds : new Set(['page_load']);
@@ -371,14 +393,21 @@
         setupListenersFocusMode() {
             // page_load
             if (this.allow.has('page_load')) {
-                this.schedule(() => this.handleEvent('page_load', document.body || undefined));
+                this.schedule(() => {
+                    const target = this.pickFocusTarget('page_load') || (document.body || undefined);
+                    if (this.pathMatches('page_load'))
+                        this.handleEvent('page_load', target);
+                });
             }
             // clicks
             const onClick = (e) => {
                 const tgt = e.target;
                 if (!this.allow.has('dom_click'))
                     return;
-                this.schedule(() => this.handleEvent('dom_click', tgt));
+                const focusTgt = this.pickFocusTarget('dom_click') || tgt;
+                if (!this.pathMatches('dom_click'))
+                    return;
+                this.schedule(() => this.handleEvent('dom_click', focusTgt));
             };
             document.addEventListener('click', onClick, true);
             this.detachFns.push(() => document.removeEventListener('click', onClick, true));
@@ -387,7 +416,10 @@
                 const tgt = e.target;
                 if (!this.allow.has('input_change'))
                     return;
-                this.schedule(() => this.handleEvent('input_change', tgt));
+                const focusTgt = this.pickFocusTarget('input_change') || tgt;
+                if (!this.pathMatches('input_change'))
+                    return;
+                this.schedule(() => this.handleEvent('input_change', focusTgt));
             };
             document.addEventListener('input', onChange, true);
             document.addEventListener('change', onChange, true);
@@ -397,7 +429,11 @@
             const onSubmit = (e) => {
                 if (!this.allow.has('submit'))
                     return;
-                this.schedule(() => this.handleEvent('submit', e.target));
+                const tgt = e.target;
+                const focusTgt = this.pickFocusTarget('submit') || tgt;
+                if (!this.pathMatches('submit'))
+                    return;
+                this.schedule(() => this.handleEvent('submit', focusTgt));
             };
             document.addEventListener('submit', onSubmit, true);
             this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
@@ -417,7 +453,10 @@
             const onPop = () => {
                 if (!this.allow.has('route_change'))
                     return;
-                this.schedule(() => this.handleEvent('route_change', undefined));
+                if (!this.pathMatches('route_change'))
+                    return;
+                const target = this.pickFocusTarget('route_change');
+                this.schedule(() => this.handleEvent('route_change', target));
             };
             window.addEventListener('popstate', onPop);
             window.addEventListener('agent-route-change', onPop);
@@ -428,6 +467,55 @@
                 history.replaceState = _replace;
             });
             // No mutation observer in focus mode without selectors
+        }
+        pickFocusTarget(kind) {
+            const f = this.focus.get(kind);
+            if (!f || f.elementIds.size === 0)
+                return undefined;
+            for (const id of f.elementIds) {
+                const el = document.getElementById(id);
+                if (el)
+                    return el;
+            }
+            return undefined;
+        }
+        pathMatches(kind) {
+            const f = this.focus.get(kind);
+            if (!f)
+                return true;
+            if (f.paths.size === 0)
+                return true;
+            try {
+                const cur = normalizePath(window.location.pathname || '/');
+                return f.paths.has(cur);
+            }
+            catch (_a) {
+                return true;
+            }
+        }
+        idMatches(kind, target) {
+            const f = this.focus.get(kind);
+            if (!f)
+                return true;
+            if (f.elementIds.size === 0)
+                return true;
+            if (!target)
+                return false;
+            let el = target;
+            let hops = 0;
+            while (el && hops < 5) {
+                const id = el.id || '';
+                if (id && f.elementIds.has(id))
+                    return true;
+                el = el.parentElement;
+                hops++;
+            }
+            return false;
+        }
+        // Only gate by path in focus mode; for DOM events we will send telemetry anchored
+        // to the focused element (if configured) to satisfy id-based rule conditions.
+        shouldEmit(kind) {
+            return this.pathMatches(kind);
         }
         // TODO: setupListenersRichMode removed. Reintroduce when we support rich tracking heuristics.
         stop() {
@@ -502,7 +590,7 @@
                         el === null || el === void 0 ? void 0 : el.click();
                     },
                     open: (c) => {
-                        const url = (typeof c.url === 'string' && c.url) ? c.url : '';
+                        const url = typeof c.url === 'string' && c.url ? c.url : '';
                         if (url)
                             window.location.href = url;
                     },
@@ -519,6 +607,13 @@
             const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
             const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
             const attributes = el ? attrMap(el) : {};
+            // Always include current path so rules can filter on it
+            try {
+                attributes['path'] = window.location ? window.location.pathname : null;
+            }
+            catch (_a) {
+                /* ignore */
+            }
             try {
                 const withAction = el === null || el === void 0 ? void 0 : el.closest('[data-action]');
                 const action = withAction === null || withAction === void 0 ? void 0 : withAction.getAttribute('data-action');
@@ -526,7 +621,7 @@
                     attributes['action'] = action;
                 }
             }
-            catch (_a) {
+            catch (_b) {
                 /* empty */
             }
             try {
@@ -576,7 +671,7 @@
                     attributes[camel] = String(n);
                 }
             }
-            catch (_b) {
+            catch (_c) {
                 /* best-effort only */
             }
             const css = el ? cssPath(el) : null;
@@ -630,6 +725,14 @@
                 }
             });
         }
+    }
+    function normalizePath(p) {
+        let s = String(p || '/').trim();
+        if (!s.startsWith('/'))
+            s = '/' + s;
+        if (s.length > 1 && s.endsWith('/'))
+            s = s.slice(0, -1);
+        return s;
     }
     // Convert identifiers like cart-count or total_qty to cartCount / totalQty
     function toCamel(key) {
