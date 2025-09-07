@@ -49,6 +49,19 @@ class SuggestGetResponse(BaseModel):
     suggestions: List[RichSuggestion]
 
 # ==============================================================================
+# /suggest/next (branching suggestions by discrete choices)
+# ==============================================================================
+
+class SuggestNextRequest(BaseModel):
+    siteId: str
+    url: str
+    ruleId: str
+    input: Optional[Dict[str, Any]] = None  # choice input map
+
+class SuggestNextResponse(BaseModel):
+    suggestions: List[RichSuggestion]
+
+# ==============================================================================
 # (legacy site,info,atlas,health contracts remain below)
 
 # ==============================================================================

@@ -1,4 +1,4 @@
-import { ClientOptions, RuleCheckRequest, RuleCheckResponse, SuggestGetRequest, SuggestGetResponse, RuleListResponse } from './types';
+import { ClientOptions, RuleCheckRequest, RuleCheckResponse, SuggestGetRequest, SuggestGetResponse, RuleListResponse, SuggestNextRequest, SuggestNextResponse } from './types';
 
 type HeadersLoose = Record<string, string | undefined>;
 
@@ -62,6 +62,13 @@ export function createApi(opts: ClientOptions) {
       postJson<SuggestGetRequest, SuggestGetResponse>(
         baseUrl,
         '/suggest',
+        body,
+        headers()
+      ),
+    suggestNext: (body: SuggestNextRequest) =>
+      postJson<SuggestNextRequest, SuggestNextResponse>(
+        baseUrl,
+        '/suggest/next',
         body,
         headers()
       ),

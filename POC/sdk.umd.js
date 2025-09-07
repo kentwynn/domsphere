@@ -69,6 +69,7 @@
         return {
             ruleCheck: (body) => postJson(baseUrl, '/rule/check', body, headers()),
             suggestGet: (body) => postJson(baseUrl, '/suggest', body, headers()),
+            suggestNext: (body) => postJson(baseUrl, '/suggest/next', body, headers()),
             ruleListGet: (siteId) => getJson(baseUrl, `/rule?siteId=${encodeURIComponent(siteId)}`, headers()),
         };
     }
@@ -199,8 +200,9 @@
             return;
         }
         const frag = document.createDocumentFragment();
-        suggestions.forEach((s) => {
+        suggestions.forEach((s0) => {
             var _a, _b;
+            const s = s0;
             const card = document.createElement('div');
             card.setAttribute('data-testid', 'assistant-card');
             card.style.border = '1px solid #e5e7eb';
@@ -218,9 +220,18 @@
                 desc.style.marginTop = '4px';
                 card.appendChild(desc);
             }
-            // Build primary + secondary actions with de-duplication
-            const primary = s.primaryCta ? [s.primaryCta] : [];
-            const secondary = ((_b = s.actions) !== null && _b !== void 0 ? _b : []).slice();
+            // Build primary + secondary actions with de-duplication.
+            // Support legacy (primaryCta/actions) and new (primaryActions/secondaryActions/secondaryCtas).
+            const primaryFromArray = s.primaryActions;
+            const primary = Array.isArray(primaryFromArray)
+                ? primaryFromArray.slice(0, 3)
+                : s.primaryCta
+                    ? [s.primaryCta]
+                    : [];
+            const secondaryFromSchema = s.secondaryCtas;
+            const secondaryFromNew = s.secondaryActions;
+            const secondaryFallback = (_b = s.actions) !== null && _b !== void 0 ? _b : [];
+            const secondary = (secondaryFromNew || secondaryFromSchema || secondaryFallback).slice(0, 5);
             const sig = (c) => {
                 var _a, _b, _c, _d;
                 const kind = (_a = c.kind) !== null && _a !== void 0 ? _a : '';
@@ -411,6 +422,15 @@
     }
 
     class AutoAssistant {
+        // Local helper types to avoid `any` casting for extended fields not yet in the OpenAPI client
+        sigForCta(c) {
+            var _a, _b, _c, _d;
+            const kind = (_a = c.kind) !== null && _a !== void 0 ? _a : '';
+            const label = (_b = c.label) !== null && _b !== void 0 ? _b : '';
+            const payload = (_c = c.payload) !== null && _c !== void 0 ? _c : null;
+            const url = (_d = c.url) !== null && _d !== void 0 ? _d : '';
+            return `${String(kind)}|${String(label)}|${JSON.stringify(payload) || ''}|${String(url)}`;
+        }
         constructor(options) {
             var _a, _b;
             this.bus = new Emitter();
@@ -423,6 +443,7 @@
             this.lastSuggestions = [];
             this.currentStep = 1;
             this.triggeredRules = new Set();
+            this.choiceInput = {};
             this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
         }
@@ -546,6 +567,8 @@
                     return;
                 // Clear dedupe when route changes
                 this.triggeredRules.clear();
+                // Clear accumulated choice inputs on navigation
+                this.choiceInput = {};
                 const target = this.pickFocusTarget('route_change');
                 this.schedule(() => this.handleEvent('route_change', target));
             };
@@ -706,63 +729,155 @@
             this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
         }
         executeCta(cta) {
-            try {
-                const kind = String(cta.kind || '').toLowerCase();
-                // Prefer app-provided CTA executor to avoid SDK-level hardcoding
-                if (typeof this.opts.ctaExecutor === 'function') {
-                    this.opts.ctaExecutor(cta);
-                    return;
-                }
-                const handlers = {
-                    dom_fill: (c) => {
-                        var _a, _b;
-                        const p = ((_a = c.payload) !== null && _a !== void 0 ? _a : {});
-                        const sel = String(p['selector'] || '');
-                        const val = String((_b = p['value']) !== null && _b !== void 0 ? _b : '');
-                        const el = sel
-                            ? document.querySelector(sel)
-                            : null;
-                        if (!el)
+            return __awaiter(this, void 0, void 0, function* () {
+                try {
+                    const kind = String(cta.kind || '').toLowerCase();
+                    // Prefer app-provided CTA executor to avoid SDK-level hardcoding
+                    if (typeof this.opts.ctaExecutor === 'function') {
+                        this.opts.ctaExecutor(cta);
+                        return;
+                    }
+                    const handlers = {
+                        dom_fill: (c) => {
+                            var _a, _b;
+                            const p = ((_a = c.payload) !== null && _a !== void 0 ? _a : {});
+                            const sel = String(p['selector'] || '');
+                            const val = String((_b = p['value']) !== null && _b !== void 0 ? _b : '');
+                            const el = sel
+                                ? document.querySelector(sel)
+                                : null;
+                            if (!el)
+                                return;
+                            if ('value' in el) {
+                                el.value = val;
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                            else {
+                                el.textContent = val;
+                            }
+                        },
+                        click: (c) => {
+                            var _a;
+                            const p = ((_a = c.payload) !== null && _a !== void 0 ? _a : {});
+                            const sel = String(p['selector'] || '');
+                            const el = sel
+                                ? document.querySelector(sel)
+                                : null;
+                            el === null || el === void 0 ? void 0 : el.click();
+                        },
+                        open: (c) => {
+                            const url = typeof c.url === 'string' && c.url ? c.url : '';
+                            if (url)
+                                window.location.href = url;
+                        },
+                        choose: (c) => __awaiter(this, void 0, void 0, function* () {
+                            var _a, _b;
+                            const p = ((_a = c.payload) !== null && _a !== void 0 ? _a : {});
+                            const name = String(p['name'] || p['key'] || '').trim();
+                            const value = (_b = p['value']) !== null && _b !== void 0 ? _b : null;
+                            if (!name)
+                                return;
+                            try {
+                                // Merge prior choices so the agent sees cumulative input
+                                const input = Object.assign(Object.assign({}, this.choiceInput), { [name]: value });
+                                const body = {
+                                    siteId: this.opts.siteId,
+                                    url: window.location.origin + window.location.pathname,
+                                    ruleId: this.lastRuleId || '',
+                                    input,
+                                };
+                                const res = yield this.api.suggestNext(body);
+                                const suggestions = (res === null || res === void 0 ? void 0 : res.suggestions) || [];
+                                if (Array.isArray(suggestions)) {
+                                    // Persist the selection
+                                    this.choiceInput[name] = value;
+                                    this.renderSuggestions(suggestions);
+                                }
+                            }
+                            catch (err) {
+                                this.bus.emit('error', err);
+                            }
+                        }),
+                    };
+                    const runPipeline = (steps) => __awaiter(this, void 0, void 0, function* () {
+                        if (!Array.isArray(steps) || steps.length === 0)
                             return;
-                        if ('value' in el) {
-                            el.value = val;
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        for (const step of steps) {
+                            const k = String(step.kind || '').toLowerCase();
+                            const fn = handlers[k];
+                            if (fn)
+                                yield Promise.resolve(fn(step));
                         }
-                        else {
-                            el.textContent = val;
+                    });
+                    const getParentSuggestion = () => {
+                        // Find the suggestion that owns this CTA by signature
+                        const targetSig = this.sigForCta(cta);
+                        for (const s0 of this.lastSuggestions) {
+                            const s = s0;
+                            const p = s.primaryCta;
+                            const primArr = s.primaryActions;
+                            const second = (s.secondaryActions ||
+                                s.secondaryCtas ||
+                                s.actions ||
+                                []);
+                            if (p && this.sigForCta(p) === targetSig)
+                                return s;
+                            if (Array.isArray(second) &&
+                                second.some((c) => this.sigForCta(c) === targetSig))
+                                return s;
+                            if (Array.isArray(primArr) &&
+                                primArr.some((c) => this.sigForCta(c) === targetSig))
+                                return s;
                         }
-                    },
-                    click: (c) => {
-                        var _a;
-                        const p = ((_a = c.payload) !== null && _a !== void 0 ? _a : {});
-                        const sel = String(p['selector'] || '');
-                        const el = sel
-                            ? document.querySelector(sel)
-                            : null;
-                        el === null || el === void 0 ? void 0 : el.click();
-                    },
-                    open: (c) => {
-                        const url = typeof c.url === 'string' && c.url ? c.url : '';
-                        if (url)
-                            window.location.href = url;
-                    },
-                };
-                if (handlers[kind])
-                    handlers[kind](cta);
-                // After executing a CTA, advance to the next step if available
-                const allSteps = this.lastSuggestions
-                    .map((s) => { var _a; return Number((_a = (s.meta || {})['step']) !== null && _a !== void 0 ? _a : 1); })
-                    .filter((n) => Number.isFinite(n));
-                const maxStep = allSteps.length ? Math.max(...allSteps) : 1;
-                if (this.currentStep < maxStep) {
-                    this.currentStep += 1;
-                    this.renderStep();
+                        return null;
+                    };
+                    // Work out if this CTA is the suggestion's primaryCta and has a primaryActions pipeline
+                    const parent = getParentSuggestion();
+                    const isPrimaryWithPipeline = (() => {
+                        if (!parent || !parent.primaryCta)
+                            return false;
+                        const prim = parent.primaryCta;
+                        const match = this.sigForCta(prim) === this.sigForCta(cta);
+                        const steps = parent.primaryActions || [];
+                        return match && Array.isArray(steps) && steps.length > 0;
+                    })();
+                    if (isPrimaryWithPipeline && parent) {
+                        // If a primaryActions pipeline is defined, run it INSTEAD of the primaryCta's own handler.
+                        // This lets the pipeline control ordering (e.g., fill then submit).
+                        yield runPipeline(parent.primaryActions || []);
+                    }
+                    else {
+                        // Otherwise, invoke the CTA handler and then any CTA-level run pipeline.
+                        {
+                            const fn = handlers[kind];
+                            if (fn)
+                                yield Promise.resolve(fn(cta));
+                        }
+                        const ctaRun = cta.run;
+                        yield runPipeline(ctaRun);
+                    }
+                    // After executing a CTA, advance based on CTA.advanceTo or default to next step.
+                    const advNum = Number(cta.advanceTo);
+                    if (Number.isFinite(advNum) && advNum > 0) {
+                        this.currentStep = advNum;
+                        this.renderStep();
+                    }
+                    else {
+                        const allSteps = this.lastSuggestions
+                            .map((s) => { var _a; return Number((_a = (s.meta || {})['step']) !== null && _a !== void 0 ? _a : 1); })
+                            .filter((n) => Number.isFinite(n));
+                        const maxStep = allSteps.length ? Math.max(...allSteps) : 1;
+                        if (this.currentStep < maxStep) {
+                            this.currentStep += 1;
+                            this.renderStep();
+                        }
+                    }
                 }
-            }
-            catch (e) {
-                this.bus.emit('error', e);
-            }
+                catch (e) {
+                    this.bus.emit('error', e);
+                }
+            });
         }
         buildTelemetry(target) {
             const el = target && target.nodeType === 1 ? target : null;
@@ -898,6 +1013,10 @@
                     }
                     if (!topRuleId) {
                         return;
+                    }
+                    // Reset choice inputs when switching to a new rule
+                    if (topRuleId !== this.lastRuleId) {
+                        this.choiceInput = {};
                     }
                     const sgReq = {
                         siteId: this.opts.siteId,

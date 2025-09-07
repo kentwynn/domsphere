@@ -6,6 +6,8 @@ export type RuleCheckRequest = components['schemas']['RuleCheckRequest'];
 export type RuleCheckResponse = components['schemas']['RuleCheckResponse'];
 export type SuggestGetRequest = components['schemas']['SuggestGetRequest'];
 export type SuggestGetResponse = components['schemas']['SuggestGetResponse'];
+export type SuggestNextRequest = components['schemas']['SuggestNextRequest'];
+export type SuggestNextResponse = components['schemas']['SuggestNextResponse'];
 export type Suggestion = components['schemas']['Suggestion'];
 export type CtaSpec = components['schemas']['CtaSpec'];
 

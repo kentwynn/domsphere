@@ -1,5 +1,12 @@
 import type { CtaSpec, Suggestion } from './types';
 
+type SuggestionExt = Suggestion & {
+  primaryActions?: CtaSpec[];
+  secondaryActions?: CtaSpec[];
+  secondaryCtas?: CtaSpec[];
+  actions?: CtaSpec[];
+};
+
 export function renderFinalSuggestions(
   container: HTMLElement,
   suggestions: Suggestion[],
@@ -17,7 +24,8 @@ export function renderFinalSuggestions(
 
   const frag = document.createDocumentFragment();
 
-  suggestions.forEach((s) => {
+  suggestions.forEach((s0) => {
+    const s = s0 as SuggestionExt;
     const card = document.createElement('div');
     card.setAttribute('data-testid', 'assistant-card');
     card.style.border = '1px solid #e5e7eb';
@@ -38,11 +46,19 @@ export function renderFinalSuggestions(
       card.appendChild(desc);
     }
 
-    // Build primary + secondary actions with de-duplication
-    const primary: CtaSpec[] = s.primaryCta ? [s.primaryCta as CtaSpec] : [];
-    const secondary: CtaSpec[] = (
-      (s.actions as CtaSpec[] | undefined) ?? []
-    ).slice();
+    // Build primary + secondary actions with de-duplication.
+    // Support legacy (primaryCta/actions) and new (primaryActions/secondaryActions/secondaryCtas).
+    const primaryFromArray = s.primaryActions;
+    const primary: CtaSpec[] = Array.isArray(primaryFromArray)
+      ? primaryFromArray.slice(0, 3)
+      : s.primaryCta
+      ? [s.primaryCta as CtaSpec]
+      : [];
+
+    const secondaryFromSchema = s.secondaryCtas;
+    const secondaryFromNew = s.secondaryActions;
+    const secondaryFallback = s.actions ?? [];
+    const secondary: CtaSpec[] = (secondaryFromNew || secondaryFromSchema || secondaryFallback).slice(0, 5);
     const sig = (c: CtaSpec): string => {
       const kind = c.kind ?? '';
       const label = c.label ?? '';

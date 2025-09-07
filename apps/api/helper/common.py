@@ -82,6 +82,17 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     ],
                 },
                 {
+                    "id": "home_info",
+                    "enabled": True,
+                    "tracking": True,
+                    "llmInstruction": "Show a welcome info on home page",
+                    "triggers": [
+                        {"eventType": "page_load", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/"}
+                        ]}
+                    ],
+                },
+                {
                     "id": "product_abc_10s",
                     "enabled": True,
                     "tracking": True,
@@ -90,6 +101,18 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/product/sku-abc"}
+                        ]}
+                    ],
+                }
+                ,
+                {
+                    "id": "product_def_choice",
+                    "enabled": True,
+                    "tracking": True,
+                    "llmInstruction": "Ask shopper a simple choice then recommend Product ABC",
+                    "triggers": [
+                        {"eventType": "page_load", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/product/sku-def"}
                         ]}
                     ],
                 }

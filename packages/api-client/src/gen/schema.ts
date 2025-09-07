@@ -90,6 +90,23 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/suggest/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suggest Next */
+        post: operations["suggest_next_suggest_next_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/site/register": {
         parameters: {
             query?: never;
@@ -415,6 +432,24 @@ export type components = {
             /** Suggestions */
             suggestions: components["schemas"]["Suggestion"][];
         };
+        /** SuggestNextRequest */
+        SuggestNextRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /** Ruleid */
+            ruleId: string;
+            /** Input */
+            input?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SuggestNextResponse */
+        SuggestNextResponse: {
+            /** Suggestions */
+            suggestions: components["schemas"]["Suggestion"][];
+        };
         /** Suggestion */
         Suggestion: {
             /** Type */
@@ -450,6 +485,10 @@ export type components = {
                 [key: string]: unknown;
             } | null;
             primaryCta?: components["schemas"]["CtaSpec"] | null;
+            /** Primaryactions */
+            primaryActions?: components["schemas"]["CtaSpec"][] | null;
+            /** Secondaryactions */
+            secondaryActions?: components["schemas"]["CtaSpec"][] | null;
             /** Secondaryctas */
             secondaryCtas?: components["schemas"]["CtaSpec"][] | null;
             /** Links */
@@ -689,6 +728,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SuggestGetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_next_suggest_next_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestNextRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestNextResponse"];
                 };
             };
             /** @description Validation Error */

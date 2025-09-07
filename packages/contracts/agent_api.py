@@ -53,6 +53,7 @@ class AgentSuggestNextRequest(BaseModel):
     siteId: str
     url: str
     ruleId: str
+    input: Optional[Dict[str, Any]] = None  # choice input map for next-step branching
 
 class AgentSuggestNextResponse(BaseModel):
     suggestions: List[Suggestion]
