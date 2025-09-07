@@ -6,6 +6,7 @@ from contracts.sdk_api import (
     SiteInfoRequest, SiteInfoResponse,
     SiteAtlasRequest, SiteAtlasResponse,
 )
+from helper.common import SITE_MAP, SITE_INFO, SITE_ATLAS
 
 router = APIRouter(prefix="/site", tags=["site"])
 
@@ -22,8 +23,9 @@ def register_site(payload: SiteRegisterRequest) -> SiteRegisterResponse:
 # ------------------------------------------------------------------------
 @router.get("/map", response_model=SiteMapResponse)
 def get_site_map(siteId: str) -> SiteMapResponse:
-    # return empty sitemap (no mock pages)
-    return SiteMapResponse(siteId=siteId, pages=[])
+    # Return mock sitemap if available; otherwise an empty map
+    sm = SITE_MAP.get(siteId)
+    return sm if sm else SiteMapResponse(siteId=siteId, pages=[])
 
 @router.post("/map", response_model=SiteMapResponse)
 def build_site_map(
@@ -38,7 +40,10 @@ def build_site_map(
 # ------------------------------------------------------------------------
 @router.get("/info", response_model=SiteInfoResponse)
 def get_site_info(siteId: str, url: str) -> SiteInfoResponse:
-    # no mock meta/normalized
+    # Return mock site info entry if available; otherwise minimal info
+    for info in SITE_INFO:
+        if info.siteId == siteId and info.url == url:
+            return info
     return SiteInfoResponse(siteId=siteId, url=url, meta=None, normalized=None)
 
 @router.post("/info", response_model=SiteInfoResponse)
@@ -51,8 +56,9 @@ def drag_site_info(payload: SiteInfoRequest) -> SiteInfoResponse:
 # ------------------------------------------------------------------------
 @router.get("/atlas", response_model=SiteAtlasResponse)
 def get_site_atlas(siteId: str, url: str) -> SiteAtlasResponse:
-    # no mock atlas content
-    return SiteAtlasResponse(siteId=siteId, url=url, atlas=None, queuedPlanRebuild=None)
+    # Return mock atlas snapshot if available; otherwise minimal response
+    sa = SITE_ATLAS.get(url)
+    return sa if sa else SiteAtlasResponse(siteId=siteId, url=url, atlas=None, queuedPlanRebuild=None)
 
 @router.post("/atlas", response_model=SiteAtlasResponse)
 def drag_site_atlas(payload: SiteAtlasRequest) -> SiteAtlasResponse:

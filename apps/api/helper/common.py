@@ -1,30 +1,286 @@
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
-from contracts.sdk_api import RuleCheckRequest
+from contracts.sdk_api import (
+    RuleCheckRequest,
+    SiteMapResponse, SiteMapPage,
+    SiteInfoResponse,
+    SiteAtlasResponse,
+)
+from contracts.common import DomAtlasSnapshot, DomAtlasElement
 
 
 AGENT_URL = os.getenv("AGENT_URL", "http://localhost:5001").rstrip("/")
 AGENT_TIMEOUT = float(os.getenv("AGENT_TIMEOUT_SEC", "5.0"))
 
+# ----------------------------------------------------------------------------
+# Mock: Rules DB used by /api/rule/check (flat eventType + when conditions)
+# ----------------------------------------------------------------------------
+
 RULES_DB: Dict[str, Dict[str, Any]] = {
     "demo-site": {
         "version": "ruleset-001",
-        "rules": [
-            {
-                "id": "cart_gte_3",
-                "enabled": True,
-                # Only canonical server-accepted event types
-                "eventType": ["dom_click"],
-                "when": [
-                    {"field": "telemetry.attributes.action", "op": "equals", "value": "add_to_cart"},
-                    {"field": "telemetry.attributes.cartCount", "op": "gte", "value": 3},
-                ],
-            }
-        ],
+        "rulesJson": {
+            "ruleset": "promo-when-cart-gte-2",
+            "rules": [
+                {
+                    "id": "promo_cart_gte_2",
+                    "enabled": True,
+                    "tracking": True,
+                    "llmInstruction": "Give promo code XXX when cart count >= 2",
+                    "triggers": [
+                        {"eventType": "page_load", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
+                            {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
+                            {"field": "telemetry.elementText", "op": "gte", "value": 2}
+                        ]},
+                        {"eventType": "input_change", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
+                            {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
+                            {"field": "telemetry.elementText", "op": "gte", "value": 2}
+                        ]},
+                    ],
+                },
+                {
+                    "id": "products_birthday_20y",
+                    "enabled": True,
+                    "tracking": True,
+                    "llmInstruction": "happy 20 years birthday show up",
+                    "triggers": [
+                        {"eventType": "page_load", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/products"}
+                        ]}
+                    ],
+                },
+                {
+                    "id": "product_abc_10s",
+                    "enabled": True,
+                    "tracking": True,
+                    "llmInstruction": "",
+                    "ttlSec": 10,
+                    "triggers": [
+                        {"eventType": "page_load", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/product/sku-abc"}
+                        ]}
+                    ],
+                }
+            ],
+        },
     }
 }
+
+# ----------------------------------------------------------------------------
+# Typed mocks that conform to contract interfaces
+# ----------------------------------------------------------------------------
+
+# Site info (list) – use SiteInfoResponse shape
+SITE_INFO: List[SiteInfoResponse] = [
+    SiteInfoResponse(
+        siteId="demo-site",
+        url="http://localhost:3000",
+        meta={
+            "title": "Demo Shop • Home",
+            "description": "Welcome to Demo Shop at localhost:3000.",
+            "category": "retail",
+        },
+        normalized=None,
+    ),
+    SiteInfoResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/products",
+        meta={
+            "title": "All Products",
+            "description": "Browse our product catalog.",
+            "category": "retail",
+        },
+        normalized=None,
+    ),
+    SiteInfoResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/product/sku-abc",
+        meta={
+            "title": "Product • SKU ABC",
+            "description": "Details for product SKU ABC.",
+            "category": "retail",
+        },
+        normalized=None,
+    ),
+    SiteInfoResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/product/sku-def",
+        meta={
+            "title": "Product • SKU DEF",
+            "description": "Details for product SKU DEF.",
+            "category": "retail",
+        },
+        normalized=None,
+    ),
+    SiteInfoResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/cart",
+        meta={
+            "title": "Your Cart",
+            "description": "Items you intend to purchase.",
+            "category": "retail",
+        },
+        normalized=None,
+    ),
+    SiteInfoResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/checkout",
+        meta={
+            "title": "Checkout",
+            "description": "Enter shipping and payment details.",
+            "category": "retail",
+        },
+        normalized=None,
+    ),
+    SiteInfoResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/success",
+        meta={
+            "title": "Order Success",
+            "description": "Thanks for your purchase!",
+            "category": "retail",
+        },
+        normalized=None,
+    ),
+]
+
+# Site map by site – use SiteMapResponse + SiteMapPage
+SITE_MAP: Dict[str, SiteMapResponse] = {
+    "demo-site": SiteMapResponse(
+        siteId="demo-site",
+        pages=[
+            SiteMapPage(url="http://localhost:3000/", meta={"title": "Home"}),
+            SiteMapPage(url="http://localhost:3000/products", meta={"title": "Products"}),
+            SiteMapPage(url="http://localhost:3000/product/:sku", meta={"title": "Product Detail"}),
+            SiteMapPage(url="http://localhost:3000/cart", meta={"title": "Cart"}),
+            SiteMapPage(url="http://localhost:3000/checkout", meta={"title": "Checkout"}),
+            SiteMapPage(url="http://localhost:3000/success", meta={"title": "Order Success"}),
+        ],
+    )
+}
+
+# Site atlas by URL – use SiteAtlasResponse + DomAtlasSnapshot/Element
+SITE_ATLAS: Dict[str, SiteAtlasResponse] = {
+    # Home
+    "http://localhost:3000": SiteAtlasResponse(
+        siteId="demo-site",
+        url="http://localhost:3000",
+        atlas=DomAtlasSnapshot(
+            atlasId="atlas-home",
+            siteId="demo-site",
+            url="http://localhost:3000",
+            domHash="hash-home-1",
+            capturedAt="2025-01-01T00:00:00Z",
+            elementCount=2,
+            elements=[
+                DomAtlasElement(idx=0, tag="main", cssPath="main"),
+                DomAtlasElement(idx=1, tag="a", id="shop-now", textSample="Shop now", cssPath="#shop-now", parentIdx=0),
+            ],
+        ),
+        queuedPlanRebuild=False,
+    ),
+    # Products list
+    "http://localhost:3000/products": SiteAtlasResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/products",
+        atlas=DomAtlasSnapshot(
+            atlasId="atlas-products",
+            siteId="demo-site",
+            url="http://localhost:3000/products",
+            domHash="hash-products-1",
+            capturedAt="2025-01-01T00:00:00Z",
+            elementCount=3,
+            elements=[
+                DomAtlasElement(idx=0, tag="main", cssPath="main"),
+                DomAtlasElement(idx=1, tag="a", classList=["product-link"], dataAttrs={"sku":"sku-abc"}, textSample="View", cssPath="a.product-link", parentIdx=0),
+                DomAtlasElement(idx=2, tag="a", classList=["product-link"], dataAttrs={"sku":"sku-def"}, textSample="View", cssPath="a.product-link:nth-child(2)", parentIdx=0),
+            ],
+        ),
+        queuedPlanRebuild=False,
+    ),
+    # Product detail
+    "http://localhost:3000/product/sku-abc": SiteAtlasResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/product/sku-abc",
+        atlas=DomAtlasSnapshot(
+            atlasId="atlas-product-abc",
+            siteId="demo-site",
+            url="http://localhost:3000/product/sku-abc",
+            domHash="hash-product-1",
+            capturedAt="2025-01-01T00:00:00Z",
+            elementCount=3,
+            elements=[
+                DomAtlasElement(idx=0, tag="main", cssPath="main"),
+                DomAtlasElement(idx=1, tag="div", id="details", cssPath="#details", parentIdx=0),
+                DomAtlasElement(idx=2, tag="button", id="add-to-cart", classList=["btn","primary"], textSample="Add to cart", cssPath="#add-to-cart", parentIdx=1),
+            ],
+        ),
+        queuedPlanRebuild=False,
+    ),
+    # Cart
+    "http://localhost:3000/cart": SiteAtlasResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/cart",
+        atlas=DomAtlasSnapshot(
+            atlasId="atlas-cart",
+            siteId="demo-site",
+            url="http://localhost:3000/cart",
+            domHash="hash-cart-1",
+            capturedAt="2025-01-01T00:00:00Z",
+            elementCount=5,
+            elements=[
+                DomAtlasElement(idx=0, tag="main", cssPath="main"),
+                DomAtlasElement(idx=1, tag="span", id="cart-count", textSample="2", cssPath="#cart-count", parentIdx=0),
+                DomAtlasElement(idx=2, tag="input", id="promo-code", cssPath="#promo-code", parentIdx=0),
+                DomAtlasElement(idx=3, tag="button", id="apply-promo", textSample="Apply", cssPath="#apply-promo", parentIdx=0),
+                DomAtlasElement(idx=4, tag="button", id="checkout", textSample="Checkout", cssPath="#checkout", parentIdx=0),
+            ],
+        ),
+        queuedPlanRebuild=False,
+    ),
+    # Checkout
+    "http://localhost:3000/checkout": SiteAtlasResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/checkout",
+        atlas=DomAtlasSnapshot(
+            atlasId="atlas-checkout",
+            siteId="demo-site",
+            url="http://localhost:3000/checkout",
+            domHash="hash-checkout-1",
+            capturedAt="2025-01-01T00:00:00Z",
+            elementCount=2,
+            elements=[
+                DomAtlasElement(idx=0, tag="main", cssPath="main"),
+                DomAtlasElement(idx=1, tag="button", id="place-order", textSample="Place order", cssPath="#place-order", parentIdx=0),
+            ],
+        ),
+        queuedPlanRebuild=False,
+    ),
+    # Success
+    "http://localhost:3000/success": SiteAtlasResponse(
+        siteId="demo-site",
+        url="http://localhost:3000/success",
+        atlas=DomAtlasSnapshot(
+            atlasId="atlas-success",
+            siteId="demo-site",
+            url="http://localhost:3000/success",
+            domHash="hash-success-1",
+            capturedAt="2025-01-01T00:00:00Z",
+            elementCount=2,
+            elements=[
+                DomAtlasElement(idx=0, tag="main", cssPath="main"),
+                DomAtlasElement(idx=1, tag="span", id="order-id", textSample="#12345", cssPath="#order-id", parentIdx=0),
+            ],
+        ),
+        queuedPlanRebuild=False,
+    ),
+}
+
+# AgentRuleResponse instance not needed; RULES_DB holds agent-style rules JSON
 
 def _get_path(obj: Any, path: str) -> Any:
     cur = obj
@@ -92,3 +348,43 @@ def _fwd_headers(xcv: Optional[str], xrid: Optional[str]) -> Dict[str, str]:
     if xcv: h["X-Contract-Version"] = xcv
     if xrid: h["X-Request-Id"] = xrid
     return h
+
+
+# ----------------------------------------------------------------------------
+# Rule helpers used by routes
+# ----------------------------------------------------------------------------
+
+def update_rule_fields(
+    site_id: str,
+    rule_id: str,
+    *,
+    enabled: Optional[bool] = None,
+    tracking: Optional[bool] = None,
+    llmInstruction: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Update allowed fields for a rule in RULES_DB and mirror enabled to flat rules.
+
+    Returns the updated rich rule dict from rulesJson.rules, or None if not found.
+    """
+    site = RULES_DB.get(site_id)
+    if not site:
+        return None
+    updated: Optional[Dict[str, Any]] = None
+    rich_rules = (site.get("rulesJson") or {}).get("rules") or []
+    for r in rich_rules:
+        if r.get("id") == rule_id:
+            if enabled is not None:
+                r["enabled"] = enabled
+            if tracking is not None:
+                r["tracking"] = tracking
+            if llmInstruction is not None:
+                r["llmInstruction"] = llmInstruction
+            updated = r
+            break
+    # Mirror enabled to flat rules if present
+    if updated and enabled is not None and isinstance(site.get("rules"), list):
+        for fr in site["rules"]:
+            if fr.get("id") == rule_id:
+                fr["enabled"] = enabled
+                break
+    return updated

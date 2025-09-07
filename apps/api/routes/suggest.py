@@ -1,5 +1,4 @@
 from __future__ import annotations
-import os
 from typing import Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException
@@ -8,9 +7,6 @@ from helper.common import AGENT_TIMEOUT, AGENT_URL, _fwd_headers
 from contracts.sdk_api import SuggestGetRequest, SuggestGetResponse, Turn
 
 router = APIRouter(prefix="/suggest", tags=["suggest"])
-
-AGENT_BASE_URL = os.getenv("AGENT_BASE_URL", "http://localhost:5001")
-
 
 @router.post("/get", response_model=SuggestGetResponse)
 def suggest_get(
