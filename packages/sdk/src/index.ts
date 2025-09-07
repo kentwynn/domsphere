@@ -1,11 +1,11 @@
 export * from './types';
 export { createApi } from './api';
 export { AutoAssistant } from './assistant';
-export { renderAskTurn, renderFinalSuggestions } from './render';
+export { renderFinalSuggestions } from './render';
 
 import { createApi } from './api';
 import { AutoAssistant } from './assistant';
-import { renderAskTurn, renderFinalSuggestions } from './render';
+import { renderFinalSuggestions } from './render';
 
 declare global {
   interface Window {
@@ -17,7 +17,6 @@ declare global {
 if (typeof window !== 'undefined') {
   window.AgentSDK = {
     AutoAssistant,
-    renderAskTurn,
     renderFinalSuggestions,
     createApi,
   } as unknown as Window['AgentSDK'];

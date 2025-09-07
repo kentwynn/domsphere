@@ -1,6 +1,6 @@
 import { createApi } from './api';
 import { Emitter, type Listener } from './emitter';
-import { renderAskTurn, renderFinalSuggestions } from './render';
+import { renderFinalSuggestions } from './render';
 import {
   ancestorBrief,
   attrMap,
@@ -11,14 +11,15 @@ import {
   xPath,
 } from './telemetry';
 import {
-  type Action,
   type ClientOptions,
+  type CtaSpec,
   type EventSchema,
   type RuleCheckRequest,
-  type RuleTrackProfile,
+  type RuleListItem,
+  type RuleListResponse,
   type SuggestGetRequest,
   type SuggestGetResponse,
-  type Turn,
+  type Suggestion,
 } from './types';
 
 export type AutoAssistantOptions = ClientOptions & {
@@ -28,6 +29,7 @@ export type AutoAssistantOptions = ClientOptions & {
   debounceMs?: number; // default 150
   finalCooldownMs?: number; // default 30000
   baseContext?: Record<string, unknown>;
+  ctaExecutor?: (cta: CtaSpec) => void;
 };
 
 type EventKind =
@@ -51,18 +53,8 @@ export class AutoAssistant {
   private detachFns: Array<() => void> = [];
   private debTimer?: number;
   private inflight = false;
-  private lastContext = {
-    matchedRules: [] as string[],
-    eventType: 'page_load' as string,
-  };
-  private activeTurn?: Turn;
   private cooldownUntil = 0;
-
-  private trackProfile?: RuleTrackProfile;
   private trackOn = false;
-  private selClick: string[] = [];
-  private selInput: string[] = [];
-  private selMutation: string[] = [];
   private allow: Set<EventKind> = new Set();
 
   constructor(options: AutoAssistantOptions) {
@@ -75,53 +67,52 @@ export class AutoAssistant {
   }
 
   on(
-    evt:
-      | 'rule:checked'
-      | 'turn:ask'
-      | 'turn:final'
-      | 'turn:cleared'
-      | 'suggest:ready'
-      | 'error',
+    evt: 'rule:ready' | 'rule:checked' | 'suggest:ready' | 'error',
     fn: Listener
   ) {
     return this.bus.on(evt, fn);
   }
 
-  private matchesAny(
-    target: Element | undefined,
-    selectors: string[]
-  ): boolean {
-    if (!target) return false;
-    for (const sel of selectors) {
-      try {
-        if (target.closest(sel)) return true;
-      } catch {
-        /* invalid selector */
-      }
-    }
-    return false;
-  }
-
   async start() {
-    // 1) Load tracking profile to decide operating mode
+    // 1) Load rules to choose focus vs rich tracking
     try {
-      const prof = await this.api.ruleTrackGet();
-      this.trackProfile = prof;
-      this.trackOn = prof?.status === 'on';
-      const ev = (prof?.events || {}) as Record<string, unknown>;
-      // Allowed event kinds when focused tracking is ON
-      this.allow = new Set(Object.keys(ev) as EventKind[]);
-      this.selClick = Array.isArray(ev['dom_click'])
-        ? (ev['dom_click'] as string[])
-        : [];
-      this.selInput = Array.isArray(ev['input_change'])
-        ? (ev['input_change'] as string[])
-        : [];
-      this.selMutation = Array.isArray(ev['mutation'])
-        ? (ev['mutation'] as string[])
-        : [];
-    } catch {
-      this.trackOn = false; // rich mode fallback
+      const res = (await this.api.ruleListGet(
+        this.opts.siteId
+      )) as RuleListResponse;
+      const rules = (res?.rules ?? []) as RuleListItem[];
+      this.trackOn = rules.some((r) => !!r.tracking);
+      if (this.trackOn) {
+        const kinds = new Set<EventKind>();
+        for (const r of rules) {
+          const triggers = (r.triggers ?? []) as Array<{ eventType?: string }>;
+          for (const t of triggers) {
+            const k = String(t.eventType || '').trim();
+            if (
+              k &&
+              [
+                'dom_click',
+                'input_change',
+                'submit',
+                'page_load',
+                'route_change',
+              ].includes(k)
+            )
+              kinds.add(k as EventKind);
+          }
+        }
+        this.allow = kinds.size ? kinds : new Set<EventKind>(['page_load']);
+      } else {
+        this.allow = new Set<EventKind>([
+          'dom_click',
+          'input_change',
+          'submit',
+          'page_load',
+          'route_change',
+        ]);
+      }
+      this.bus.emit('rule:ready');
+    } catch (e) {
+      this.trackOn = false;
       this.allow = new Set<EventKind>([
         'dom_click',
         'input_change',
@@ -129,15 +120,15 @@ export class AutoAssistant {
         'page_load',
         'route_change',
       ]);
-      this.selClick = [];
-      this.selInput = [];
-      this.selMutation = [];
+      this.bus.emit('error', e);
     }
-    // 2) Register listeners in a clear on/off branch for readability
+    // 2) Register listeners
     if (this.trackOn) {
       this.setupListenersFocusMode();
     } else {
-      this.setupListenersRichMode();
+      // TODO: Rich mode (tracking off) is currently disabled to avoid guessing.
+      // When enabled, this branch should register broad listeners (page_load, clicks, inputs)
+      // and derive telemetry heuristics safely.
     }
   }
 
@@ -154,7 +145,6 @@ export class AutoAssistant {
     const onClick = (e: Event) => {
       const tgt = e.target as Element | undefined;
       if (!this.allow.has('dom_click')) return;
-      if (!this.matchesAny(tgt, this.selClick)) return;
       this.schedule(() => this.handleEvent('dom_click', tgt));
     };
     document.addEventListener('click', onClick, true);
@@ -166,7 +156,6 @@ export class AutoAssistant {
     const onChange = (e: Event) => {
       const tgt = e.target as Element | undefined;
       if (!this.allow.has('input_change')) return;
-      if (!this.matchesAny(tgt, this.selInput)) return;
       this.schedule(() => this.handleEvent('input_change', tgt));
     };
     document.addEventListener('input', onChange, true);
@@ -226,139 +215,10 @@ export class AutoAssistant {
       history.replaceState = _replace;
     });
 
-    // mutation
-    try {
-      if (this.allow.has('mutation' as EventKind)) {
-        const pickTarget = (n?: Node | null): Element | undefined => {
-          if (!n) return undefined;
-          if (n.nodeType === Node.ELEMENT_NODE) return n as Element;
-          if (n.nodeType === Node.TEXT_NODE)
-            return (n.parentElement || undefined) as Element | undefined;
-          return undefined;
-        };
-        const mutObserver = new MutationObserver((muts) => {
-          const raw = muts[0]?.target as Node | undefined;
-          const tgt = pickTarget(raw);
-          if (!this.matchesAny(tgt, this.selMutation)) return;
-          this.schedule(() => this.handleEvent('dom_click', tgt));
-        });
-        mutObserver.observe(document.body, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-        });
-        this.detachFns.push(() => mutObserver.disconnect());
-      }
-    } catch {
-      /* ignore */
-    }
+    // No mutation observer in focus mode without selectors
   }
 
-  // Rich mode (tracking off): emit all core events
-  private setupListenersRichMode() {
-    // page_load
-    this.schedule(() =>
-      this.handleEvent('page_load', document.body || undefined)
-    );
-
-    // clicks
-    const onClick = (e: Event) => {
-      this.schedule(() =>
-        this.handleEvent('dom_click', e.target as Element | undefined)
-      );
-    };
-    document.addEventListener('click', onClick, true);
-    this.detachFns.push(() =>
-      document.removeEventListener('click', onClick, true)
-    );
-
-    // input/change
-    const onChange = (e: Event) => {
-      this.schedule(() =>
-        this.handleEvent('input_change', e.target as Element | undefined)
-      );
-    };
-    document.addEventListener('input', onChange, true);
-    document.addEventListener('change', onChange, true);
-    this.detachFns.push(() =>
-      document.removeEventListener('input', onChange, true)
-    );
-    this.detachFns.push(() =>
-      document.removeEventListener('change', onChange, true)
-    );
-
-    // submit
-    const onSubmit = (e: Event) => {
-      this.schedule(() =>
-        this.handleEvent('submit', e.target as Element | undefined)
-      );
-    };
-    document.addEventListener('submit', onSubmit, true);
-    this.detachFns.push(() =>
-      document.removeEventListener('submit', onSubmit, true)
-    );
-
-    // route change
-    const _push = history.pushState;
-    const _replace = history.replaceState;
-    history.pushState = function (
-      this: History,
-      data: unknown,
-      unused: string,
-      url?: string | URL | null
-    ) {
-      const r = _push.apply(this, [data, unused, url]);
-      window.dispatchEvent(new Event('agent-route-change'));
-      return r;
-    };
-    history.replaceState = function (
-      this: History,
-      data: unknown,
-      unused: string,
-      url?: string | URL | null
-    ) {
-      const r = _replace.apply(this, [data, unused, url]);
-      window.dispatchEvent(new Event('agent-route-change'));
-      return r;
-    };
-    const onPop = () => {
-      this.schedule(() => this.handleEvent('route_change', undefined));
-    };
-    window.addEventListener('popstate', onPop);
-    window.addEventListener('agent-route-change', onPop as EventListener);
-    this.detachFns.push(() => {
-      window.removeEventListener('popstate', onPop);
-      window.removeEventListener('agent-route-change', onPop as EventListener);
-      history.pushState = _push;
-      history.replaceState = _replace;
-    });
-
-    // mutation
-    try {
-      const pickTarget = (n?: Node | null): Element | undefined => {
-        if (!n) return undefined;
-        if (n.nodeType === Node.ELEMENT_NODE) return n as Element;
-        if (n.nodeType === Node.TEXT_NODE)
-          return (n.parentElement || undefined) as Element | undefined;
-        return undefined;
-      };
-      const mutObserver = new MutationObserver((muts) => {
-        const raw = muts[0]?.target as Node | undefined;
-        const tgt = pickTarget(raw);
-        this.schedule(() => this.handleEvent('dom_click', tgt));
-      });
-      mutObserver.observe(document.body, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-        attributes: true,
-      });
-      this.detachFns.push(() => mutObserver.disconnect());
-    } catch {
-      /* ignore */
-    }
-  }
+  // TODO: setupListenersRichMode removed. Reintroduce when we support rich tracking heuristics.
 
   stop() {
     this.detachFns.forEach((f) => {
@@ -372,70 +232,14 @@ export class AutoAssistant {
     if (this.debTimer) window.clearTimeout(this.debTimer);
   }
 
-  async answerAsk(
-    turn: Turn,
-    action: Action | { id: string; label?: string; value?: unknown }
-  ) {
-    try {
-      const { siteId, sessionId, baseContext } = this.opts;
-      const req: SuggestGetRequest = {
-        siteId,
-        sessionId,
-        prevTurnId: turn.turnId,
-        answers: {
-          choice: action.id,
-          value: isActionWithValue(action)
-            ? (action.value as string | number | boolean | null | undefined)
-            : undefined,
-        },
-        context: { ...(baseContext ?? {}) },
-      };
-      const { turn: next } = await this.api.suggestGet(req);
-      this.setActiveTurn(next);
-    } catch (e) {
-      this.bus.emit('error', e);
-    }
-  }
-
-  private async answerForm(turn: Turn, formData: FormData) {
-    try {
-      const { siteId, sessionId, baseContext } = this.opts;
-      const answers: Record<string, unknown> = {};
-      const keys: string[] = [];
-      formData.forEach((_, key) => {
-        if (!keys.includes(key)) keys.push(key);
-      });
-      for (const key of keys) {
-        const values = formData.getAll(key);
-        answers[key] =
-          values.length === 1
-            ? values[0] instanceof File
-              ? values[0].name
-              : values[0]
-            : values.map((v) => (v instanceof File ? v.name : v));
-      }
-      const req: SuggestGetRequest = {
-        siteId,
-        sessionId,
-        prevTurnId: turn.turnId,
-        answers,
-        context: { ...(baseContext ?? {}) },
-      };
-      const { turn: next } = await this.api.suggestGet(req);
-      this.setActiveTurn(next);
-    } catch (e) {
-      this.bus.emit('error', e);
-    }
-  }
+  // No ask/form flows in stateless mode
 
   private schedule(fn: () => void) {
     if (this.debTimer) window.clearTimeout(this.debTimer);
     this.debTimer = window.setTimeout(fn, this.opts.debounceMs);
   }
 
-  private canOpenConversation(): boolean {
-    if (!this.activeTurn) return Date.now() >= this.cooldownUntil;
-    if (this.activeTurn.status === 'ask') return false;
+  private canOpenPanel(): boolean {
     return Date.now() >= this.cooldownUntil;
   }
 
@@ -443,41 +247,58 @@ export class AutoAssistant {
     const sel = this.opts.panelSelector;
     return sel ? (document.querySelector(sel) as HTMLElement | null) : null;
   }
-
-  private setActiveTurn(turn?: Turn) {
-    this.activeTurn = turn;
+  private renderSuggestions(suggestions: Suggestion[]) {
     const panel = this.panelEl();
-    if (!panel) {
-      if (turn?.status === 'ask') this.bus.emit('turn:ask', turn);
-      else if (turn?.status === 'final') {
-        this.bus.emit('suggest:ready', turn.suggestions ?? [], turn);
-        this.bus.emit('turn:final', turn);
-        this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
-      } else {
-        this.bus.emit('turn:cleared');
+    if (!panel) return;
+    renderFinalSuggestions(panel, suggestions, (cta) => this.executeCta(cta));
+    this.bus.emit('suggest:ready', suggestions);
+    this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+  }
+
+  private executeCta(cta: CtaSpec) {
+    try {
+      const kind = String(cta.kind || '').toLowerCase();
+      // Prefer app-provided CTA executor to avoid SDK-level hardcoding
+      if (typeof this.opts.ctaExecutor === 'function') {
+        this.opts.ctaExecutor(cta);
+        return;
       }
-      return;
-    }
-
-    if (!turn) {
-      panel.innerHTML = '';
-      this.bus.emit('turn:cleared');
-      return;
-    }
-
-    if (turn.status === 'ask') {
-      renderAskTurn(
-        panel,
-        turn,
-        (a) => this.answerAsk(turn, a),
-        (fd) => this.answerForm(turn, fd as FormData)
-      );
-      this.bus.emit('turn:ask', turn);
-    } else {
-      renderFinalSuggestions(panel, turn.suggestions ?? [], () => undefined);
-      this.bus.emit('suggest:ready', turn.suggestions ?? [], turn);
-      this.bus.emit('turn:final', turn);
-      this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+      const handlers: Record<string, (c: CtaSpec) => void> = {
+        dom_fill: (c) => {
+          const p = (c.payload ?? {}) as Record<string, unknown>;
+          const sel = String((p as Record<string, unknown>)['selector'] || '');
+          const val = String((p as Record<string, unknown>)['value'] ?? '');
+          const el = sel
+            ? (document.querySelector(sel) as
+                | HTMLInputElement
+                | HTMLElement
+                | null)
+            : null;
+          if (!el) return;
+          if ('value' in (el as HTMLInputElement)) {
+            (el as HTMLInputElement).value = val;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          } else {
+            el.textContent = val;
+          }
+        },
+        click: (c) => {
+          const p = (c.payload ?? {}) as Record<string, unknown>;
+          const sel = String((p as Record<string, unknown>)['selector'] || '');
+          const el = sel
+            ? (document.querySelector(sel) as HTMLElement | null)
+            : null;
+          el?.click();
+        },
+        open: (c) => {
+          const url = (typeof c.url === 'string' && c.url) ? c.url : '';
+          if (url) window.location.href = url as string;
+        },
+      };
+      if (handlers[kind]) handlers[kind](cta);
+    } catch (e) {
+      this.bus.emit('error', e);
     }
   }
 
@@ -496,29 +317,9 @@ export class AutoAssistant {
       /* empty */
     }
     try {
-      // Candidate elements and optional selector-derived keys
+      // Candidate elements (start with event target and ancestors)
       const candidates: Element[] = [];
-      const keyFromSelector = new Map<Element, string>();
-
-      if (this.trackOn) {
-        // In focus mode, rely on server-provided selectors for structure
-        const want = this.selMutation as string[] | undefined;
-        if (Array.isArray(want) && want.length) {
-          for (const sel of want) {
-            try {
-              document.querySelectorAll(sel).forEach((node) => {
-                if (node instanceof Element) {
-                  candidates.push(node);
-                  if (!keyFromSelector.has(node))
-                    keyFromSelector.set(node, selectorToKey(sel));
-                }
-              });
-            } catch {
-              /* invalid selector from server; ignore */
-            }
-          }
-        }
-      } else if (el) {
+      if (el) {
         // In rich mode, consider target and ancestors (heuristic)
         candidates.push(el);
         let p: Element | null = el.parentElement;
@@ -555,9 +356,7 @@ export class AutoAssistant {
         const txt = (cand.textContent || '').trim();
         const n = firstInt(txt);
         if (n == null) continue;
-        const key = this.trackOn
-          ? keyFromSelector.get(cand) ?? null
-          : pickKey(cand);
+        const key = pickKey(cand);
         if (!key) continue;
         const camel = toCamel(key);
         attributes[camel] = String(n);
@@ -608,28 +407,19 @@ export class AutoAssistant {
       const rcRes = await this.api.ruleCheck(rcReq);
       this.bus.emit('rule:checked', rcRes);
 
-      this.lastContext = {
-        matchedRules: rcRes.matchedRules,
-        eventType: rcRes.eventType,
-      };
-
-      if (!rcRes.shouldProceed || !this.canOpenConversation()) {
-        if (!rcRes.shouldProceed) this.setActiveTurn(undefined);
+      if (!rcRes.shouldProceed || !this.canOpenPanel()) {
         return;
       }
 
       const sgReq: SuggestGetRequest = {
         siteId: this.opts.siteId,
-        sessionId: this.opts.sessionId,
-        context: {
-          matchedRules: rcRes.matchedRules,
-          eventType: rcRes.eventType,
-          ...(this.opts.baseContext ?? {}),
-        },
+        url: window.location.origin + window.location.pathname,
+        ruleId: rcRes.matchedRules[0],
       };
-
-      const { turn } = (await this.api.suggestGet(sgReq)) as SuggestGetResponse;
-      this.setActiveTurn(turn);
+      const { suggestions } = (await this.api.suggestGet(
+        sgReq
+      )) as SuggestGetResponse;
+      this.renderSuggestions(suggestions);
     } catch (e) {
       this.bus.emit('error', e);
     } finally {
@@ -638,32 +428,9 @@ export class AutoAssistant {
   }
 }
 
-function isActionWithValue(
-  a: Action | { id: string; label?: string; value?: unknown }
-): a is { id: string; label?: string; value?: unknown } {
-  return typeof (a as { value?: unknown }).value !== 'undefined';
-}
-
 // Convert identifiers like cart-count or total_qty to cartCount / totalQty
 function toCamel(key: string): string {
   return key
     .replace(/[^a-zA-Z0-9]+(.)/g, (_, c: string) => (c ? c.toUpperCase() : ''))
     .replace(/^(.)/, (m) => m.toLowerCase());
-}
-
-// Derive a stable key name from a CSS selector provided by the server profile
-function selectorToKey(sel: string): string {
-  const s = sel.trim();
-  const last = s.split(/\s*[>+~\s]\s*/).pop() || s;
-  const data = last.match(/\[\s*data-([a-zA-Z0-9_-]+)/);
-  if (data) return toCamel(data[1]);
-  const id = last.match(/#([a-zA-Z0-9_-]+)/);
-  if (id) return toCamel(id[1]);
-  const cls = last.match(/\.([a-zA-Z0-9_-]+)/);
-  if (cls) return toCamel(cls[1]);
-  const nameAttr = last.match(/\[\s*name="?([a-zA-Z0-9_-]+)/);
-  if (nameAttr) return toCamel(nameAttr[1]);
-  const tag = last.match(/^([a-zA-Z0-9_-]+)/);
-  if (tag) return toCamel(tag[1]);
-  return toCamel(last.replace(/[^a-zA-Z0-9]+/g, '-'));
 }

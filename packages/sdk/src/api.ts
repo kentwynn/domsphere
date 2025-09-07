@@ -1,4 +1,4 @@
-import { RuleTrackProfile, ClientOptions, RuleCheckRequest, RuleCheckResponse, SuggestGetRequest, SuggestGetResponse } from './types';
+import { ClientOptions, RuleCheckRequest, RuleCheckResponse, SuggestGetRequest, SuggestGetResponse, RuleListResponse } from './types';
 
 type HeadersLoose = Record<string, string | undefined>;
 
@@ -61,11 +61,10 @@ export function createApi(opts: ClientOptions) {
     suggestGet: (body: SuggestGetRequest) =>
       postJson<SuggestGetRequest, SuggestGetResponse>(
         baseUrl,
-        '/suggest/get',
+        '/suggest',
         body,
         headers()
       ),
-    ruleTrackGet: () => getJson<RuleTrackProfile>(baseUrl, '/rule/track', headers()),
+    ruleListGet: (siteId: string) => getJson<RuleListResponse>(baseUrl, `/rule?siteId=${encodeURIComponent(siteId)}`, headers()),
   };
 }
-

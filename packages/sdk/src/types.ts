@@ -6,11 +6,8 @@ export type RuleCheckRequest = components['schemas']['RuleCheckRequest'];
 export type RuleCheckResponse = components['schemas']['RuleCheckResponse'];
 export type SuggestGetRequest = components['schemas']['SuggestGetRequest'];
 export type SuggestGetResponse = components['schemas']['SuggestGetResponse'];
-export type Turn = components['schemas']['Turn'];
 export type Suggestion = components['schemas']['Suggestion'];
-export type Action = components['schemas']['Action'];
-export type FormSpec = components['schemas']['FormSpec'];
-export type UIHint = components['schemas']['UIHint'];
+export type CtaSpec = components['schemas']['CtaSpec'];
 
 // Minimal type for the rule-track profile
 // Use the OpenAPI contract type for rule tracking (request shape is compatible for our read usage)
@@ -29,3 +26,17 @@ export type ClientOptions = {
   requestIdFactory?: () => string; // -> X-Request-Id
   fetchHeaders?: Record<string, string>;
 };
+
+// Rule list payload (API /rule)
+export type RuleTrigger = {
+  eventType?: string;
+  when?: Array<Record<string, unknown>>;
+};
+export type RuleListItem = {
+  id: string;
+  enabled?: boolean;
+  tracking?: boolean;
+  triggers?: RuleTrigger[];
+  [k: string]: unknown;
+};
+export type RuleListResponse = { siteId: string; rules: RuleListItem[] };

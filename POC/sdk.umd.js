@@ -68,8 +68,8 @@
         const headers = () => (Object.assign({ 'X-Contract-Version': contractVersion !== null && contractVersion !== void 0 ? contractVersion : undefined, 'X-Request-Id': requestIdFactory === null || requestIdFactory === void 0 ? void 0 : requestIdFactory() }, fetchHeaders));
         return {
             ruleCheck: (body) => postJson(baseUrl, '/rule/check', body, headers()),
-            suggestGet: (body) => postJson(baseUrl, '/suggest/get', body, headers()),
-            ruleTrackGet: () => getJson(baseUrl, '/rule/track', headers()),
+            suggestGet: (body) => postJson(baseUrl, '/suggest', body, headers()),
+            ruleListGet: (siteId) => getJson(baseUrl, `/rule?siteId=${encodeURIComponent(siteId)}`, headers()),
         };
     }
 
@@ -104,124 +104,7 @@
         }
     }
 
-    function renderAskTurn(container, turn, onAction, onSubmitForm) {
-        var _a, _b, _c, _d;
-        container.innerHTML = '';
-        const panel = document.createElement('div');
-        panel.style.border = '1px solid #e5e7eb';
-        panel.style.borderRadius = '12px';
-        panel.style.padding = '12px';
-        panel.style.margin = '8px 0';
-        if (turn.message) {
-            const msg = document.createElement('div');
-            msg.textContent = turn.message;
-            msg.style.fontWeight = '600';
-            panel.appendChild(msg);
-        }
-        if ((_a = turn.actions) === null || _a === void 0 ? void 0 : _a.length) {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            row.style.flexWrap = 'wrap';
-            row.style.gap = '8px';
-            row.style.marginTop = '10px';
-            turn.actions.forEach((a) => {
-                const btn = document.createElement('button');
-                btn.textContent = a.label;
-                btn.onclick = () => onAction(a);
-                btn.style.padding = '6px 10px';
-                btn.style.borderRadius = '8px';
-                btn.style.border = '1px solid #d1d5db';
-                row.appendChild(btn);
-            });
-            panel.appendChild(row);
-        }
-        if ((_c = (_b = turn.form) === null || _b === void 0 ? void 0 : _b.fields) === null || _c === void 0 ? void 0 : _c.length) {
-            const form = document.createElement('form');
-            form.style.marginTop = '12px';
-            if (turn.form.title) {
-                const title = document.createElement('div');
-                title.textContent = turn.form.title;
-                title.style.fontWeight = '600';
-                form.appendChild(title);
-            }
-            turn.form.fields.forEach((f) => {
-                var _a, _b;
-                const wrap = document.createElement('div');
-                wrap.style.marginTop = '8px';
-                const label = document.createElement('label');
-                label.textContent = f.label + (f.required ? ' *' : '');
-                label.style.display = 'block';
-                label.style.marginBottom = '4px';
-                wrap.appendChild(label);
-                let input;
-                switch (f.type) {
-                    case 'textarea': {
-                        const el = document.createElement('textarea');
-                        el.name = f.key;
-                        el.required = !!f.required;
-                        // Placeholder not part of strict spec; omit to keep types safe
-                        input = el;
-                        break;
-                    }
-                    case 'select': {
-                        const el = document.createElement('select');
-                        el.name = f.key;
-                        el.required = !!f.required;
-                        ((_a = f.options) !== null && _a !== void 0 ? _a : []).forEach((opt) => {
-                            var _a;
-                            const o = document.createElement('option');
-                            o.value = String(opt.value);
-                            o.textContent = (_a = opt.label) !== null && _a !== void 0 ? _a : String(opt.value);
-                            el.appendChild(o);
-                        });
-                        input = el;
-                        break;
-                    }
-                    case 'radio': {
-                        const group = document.createElement('div');
-                        ((_b = f.options) !== null && _b !== void 0 ? _b : []).forEach((opt) => {
-                            var _a;
-                            const wrapRadio = document.createElement('label');
-                            wrapRadio.style.marginRight = '8px';
-                            const r = document.createElement('input');
-                            r.type = 'radio';
-                            r.name = f.key;
-                            r.value = String(opt.value);
-                            wrapRadio.appendChild(r);
-                            wrapRadio.appendChild(document.createTextNode((_a = opt.label) !== null && _a !== void 0 ? _a : String(opt.value)));
-                            group.appendChild(wrapRadio);
-                        });
-                        input = group;
-                        break;
-                    }
-                    default: {
-                        const el = document.createElement('input');
-                        el.type = 'text';
-                        el.name = f.key;
-                        input = el;
-                    }
-                }
-                wrap.appendChild(input);
-                form.appendChild(wrap);
-            });
-            const submit = document.createElement('button');
-            submit.type = 'submit';
-            submit.textContent = (_d = turn.form.submitLabel) !== null && _d !== void 0 ? _d : 'Continue';
-            submit.style.marginTop = '10px';
-            submit.style.padding = '6px 10px';
-            submit.style.borderRadius = '8px';
-            submit.style.border = '1px solid #d1d5db';
-            form.appendChild(submit);
-            form.onsubmit = (e) => {
-                e.preventDefault();
-                const fd = new FormData(form);
-                onSubmitForm === null || onSubmitForm === void 0 ? void 0 : onSubmitForm(fd);
-            };
-            panel.appendChild(form);
-        }
-        container.appendChild(panel);
-    }
-    function renderFinalSuggestions(container, suggestions, onCta, _turn) {
+    function renderFinalSuggestions(container, suggestions, onCta) {
         container.innerHTML = '';
         if (!(suggestions === null || suggestions === void 0 ? void 0 : suggestions.length)) {
             container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;
@@ -420,15 +303,8 @@
             this.bus = new Emitter();
             this.detachFns = [];
             this.inflight = false;
-            this.lastContext = {
-                matchedRules: [],
-                eventType: 'page_load',
-            };
             this.cooldownUntil = 0;
             this.trackOn = false;
-            this.selClick = [];
-            this.selInput = [];
-            this.selMutation = [];
             this.allow = new Set();
             this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
@@ -436,42 +312,46 @@
         on(evt, fn) {
             return this.bus.on(evt, fn);
         }
-        matchesAny(target, selectors) {
-            if (!target)
-                return false;
-            for (const sel of selectors) {
-                try {
-                    if (target.closest(sel))
-                        return true;
-                }
-                catch (_a) {
-                    /* invalid selector */
-                }
-            }
-            return false;
-        }
         start() {
             return __awaiter(this, void 0, void 0, function* () {
-                // 1) Load tracking profile to decide operating mode
+                var _a, _b;
+                // 1) Load rules to choose focus vs rich tracking
                 try {
-                    const prof = yield this.api.ruleTrackGet();
-                    this.trackProfile = prof;
-                    this.trackOn = (prof === null || prof === void 0 ? void 0 : prof.status) === 'on';
-                    const ev = ((prof === null || prof === void 0 ? void 0 : prof.events) || {});
-                    // Allowed event kinds when focused tracking is ON
-                    this.allow = new Set(Object.keys(ev));
-                    this.selClick = Array.isArray(ev['dom_click'])
-                        ? ev['dom_click']
-                        : [];
-                    this.selInput = Array.isArray(ev['input_change'])
-                        ? ev['input_change']
-                        : [];
-                    this.selMutation = Array.isArray(ev['mutation'])
-                        ? ev['mutation']
-                        : [];
+                    const res = (yield this.api.ruleListGet(this.opts.siteId));
+                    const rules = ((_a = res === null || res === void 0 ? void 0 : res.rules) !== null && _a !== void 0 ? _a : []);
+                    this.trackOn = rules.some((r) => !!r.tracking);
+                    if (this.trackOn) {
+                        const kinds = new Set();
+                        for (const r of rules) {
+                            const triggers = ((_b = r.triggers) !== null && _b !== void 0 ? _b : []);
+                            for (const t of triggers) {
+                                const k = String(t.eventType || '').trim();
+                                if (k &&
+                                    [
+                                        'dom_click',
+                                        'input_change',
+                                        'submit',
+                                        'page_load',
+                                        'route_change',
+                                    ].includes(k))
+                                    kinds.add(k);
+                            }
+                        }
+                        this.allow = kinds.size ? kinds : new Set(['page_load']);
+                    }
+                    else {
+                        this.allow = new Set([
+                            'dom_click',
+                            'input_change',
+                            'submit',
+                            'page_load',
+                            'route_change',
+                        ]);
+                    }
+                    this.bus.emit('rule:ready');
                 }
-                catch (_a) {
-                    this.trackOn = false; // rich mode fallback
+                catch (e) {
+                    this.trackOn = false;
                     this.allow = new Set([
                         'dom_click',
                         'input_change',
@@ -479,16 +359,11 @@
                         'page_load',
                         'route_change',
                     ]);
-                    this.selClick = [];
-                    this.selInput = [];
-                    this.selMutation = [];
+                    this.bus.emit('error', e);
                 }
-                // 2) Register listeners in a clear on/off branch for readability
+                // 2) Register listeners
                 if (this.trackOn) {
                     this.setupListenersFocusMode();
-                }
-                else {
-                    this.setupListenersRichMode();
                 }
             });
         }
@@ -503,8 +378,6 @@
                 const tgt = e.target;
                 if (!this.allow.has('dom_click'))
                     return;
-                if (!this.matchesAny(tgt, this.selClick))
-                    return;
                 this.schedule(() => this.handleEvent('dom_click', tgt));
             };
             document.addEventListener('click', onClick, true);
@@ -513,8 +386,6 @@
             const onChange = (e) => {
                 const tgt = e.target;
                 if (!this.allow.has('input_change'))
-                    return;
-                if (!this.matchesAny(tgt, this.selInput))
                     return;
                 this.schedule(() => this.handleEvent('input_change', tgt));
             };
@@ -556,116 +427,9 @@
                 history.pushState = _push;
                 history.replaceState = _replace;
             });
-            // mutation
-            try {
-                if (this.allow.has('mutation')) {
-                    const pickTarget = (n) => {
-                        if (!n)
-                            return undefined;
-                        if (n.nodeType === Node.ELEMENT_NODE)
-                            return n;
-                        if (n.nodeType === Node.TEXT_NODE)
-                            return (n.parentElement || undefined);
-                        return undefined;
-                    };
-                    const mutObserver = new MutationObserver((muts) => {
-                        var _a;
-                        const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
-                        const tgt = pickTarget(raw);
-                        if (!this.matchesAny(tgt, this.selMutation))
-                            return;
-                        this.schedule(() => this.handleEvent('dom_click', tgt));
-                    });
-                    mutObserver.observe(document.body, {
-                        childList: true,
-                        subtree: true,
-                        characterData: true,
-                        attributes: true,
-                    });
-                    this.detachFns.push(() => mutObserver.disconnect());
-                }
-            }
-            catch (_a) {
-                /* ignore */
-            }
+            // No mutation observer in focus mode without selectors
         }
-        // Rich mode (tracking off): emit all core events
-        setupListenersRichMode() {
-            // page_load
-            this.schedule(() => this.handleEvent('page_load', document.body || undefined));
-            // clicks
-            const onClick = (e) => {
-                this.schedule(() => this.handleEvent('dom_click', e.target));
-            };
-            document.addEventListener('click', onClick, true);
-            this.detachFns.push(() => document.removeEventListener('click', onClick, true));
-            // input/change
-            const onChange = (e) => {
-                this.schedule(() => this.handleEvent('input_change', e.target));
-            };
-            document.addEventListener('input', onChange, true);
-            document.addEventListener('change', onChange, true);
-            this.detachFns.push(() => document.removeEventListener('input', onChange, true));
-            this.detachFns.push(() => document.removeEventListener('change', onChange, true));
-            // submit
-            const onSubmit = (e) => {
-                this.schedule(() => this.handleEvent('submit', e.target));
-            };
-            document.addEventListener('submit', onSubmit, true);
-            this.detachFns.push(() => document.removeEventListener('submit', onSubmit, true));
-            // route change
-            const _push = history.pushState;
-            const _replace = history.replaceState;
-            history.pushState = function (data, unused, url) {
-                const r = _push.apply(this, [data, unused, url]);
-                window.dispatchEvent(new Event('agent-route-change'));
-                return r;
-            };
-            history.replaceState = function (data, unused, url) {
-                const r = _replace.apply(this, [data, unused, url]);
-                window.dispatchEvent(new Event('agent-route-change'));
-                return r;
-            };
-            const onPop = () => {
-                this.schedule(() => this.handleEvent('route_change', undefined));
-            };
-            window.addEventListener('popstate', onPop);
-            window.addEventListener('agent-route-change', onPop);
-            this.detachFns.push(() => {
-                window.removeEventListener('popstate', onPop);
-                window.removeEventListener('agent-route-change', onPop);
-                history.pushState = _push;
-                history.replaceState = _replace;
-            });
-            // mutation
-            try {
-                const pickTarget = (n) => {
-                    if (!n)
-                        return undefined;
-                    if (n.nodeType === Node.ELEMENT_NODE)
-                        return n;
-                    if (n.nodeType === Node.TEXT_NODE)
-                        return (n.parentElement || undefined);
-                    return undefined;
-                };
-                const mutObserver = new MutationObserver((muts) => {
-                    var _a;
-                    const raw = (_a = muts[0]) === null || _a === void 0 ? void 0 : _a.target;
-                    const tgt = pickTarget(raw);
-                    this.schedule(() => this.handleEvent('dom_click', tgt));
-                });
-                mutObserver.observe(document.body, {
-                    childList: true,
-                    subtree: true,
-                    characterData: true,
-                    attributes: true,
-                });
-                this.detachFns.push(() => mutObserver.disconnect());
-            }
-            catch (_a) {
-                /* ignore */
-            }
-        }
+        // TODO: setupListenersRichMode removed. Reintroduce when we support rich tracking heuristics.
         stop() {
             this.detachFns.forEach((f) => {
                 try {
@@ -679,115 +443,78 @@
             if (this.debTimer)
                 window.clearTimeout(this.debTimer);
         }
-        answerAsk(turn, action) {
-            return __awaiter(this, void 0, void 0, function* () {
-                try {
-                    const { siteId, sessionId, baseContext } = this.opts;
-                    const req = {
-                        siteId,
-                        sessionId,
-                        prevTurnId: turn.turnId,
-                        answers: {
-                            choice: action.id,
-                            value: isActionWithValue(action)
-                                ? action.value
-                                : undefined,
-                        },
-                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
-                    };
-                    const { turn: next } = yield this.api.suggestGet(req);
-                    this.setActiveTurn(next);
-                }
-                catch (e) {
-                    this.bus.emit('error', e);
-                }
-            });
-        }
-        answerForm(turn, formData) {
-            return __awaiter(this, void 0, void 0, function* () {
-                try {
-                    const { siteId, sessionId, baseContext } = this.opts;
-                    const answers = {};
-                    const keys = [];
-                    formData.forEach((_, key) => {
-                        if (!keys.includes(key))
-                            keys.push(key);
-                    });
-                    for (const key of keys) {
-                        const values = formData.getAll(key);
-                        answers[key] =
-                            values.length === 1
-                                ? values[0] instanceof File
-                                    ? values[0].name
-                                    : values[0]
-                                : values.map((v) => (v instanceof File ? v.name : v));
-                    }
-                    const req = {
-                        siteId,
-                        sessionId,
-                        prevTurnId: turn.turnId,
-                        answers,
-                        context: Object.assign({}, (baseContext !== null && baseContext !== void 0 ? baseContext : {})),
-                    };
-                    const { turn: next } = yield this.api.suggestGet(req);
-                    this.setActiveTurn(next);
-                }
-                catch (e) {
-                    this.bus.emit('error', e);
-                }
-            });
-        }
+        // No ask/form flows in stateless mode
         schedule(fn) {
             if (this.debTimer)
                 window.clearTimeout(this.debTimer);
             this.debTimer = window.setTimeout(fn, this.opts.debounceMs);
         }
-        canOpenConversation() {
-            if (!this.activeTurn)
-                return Date.now() >= this.cooldownUntil;
-            if (this.activeTurn.status === 'ask')
-                return false;
+        canOpenPanel() {
             return Date.now() >= this.cooldownUntil;
         }
         panelEl() {
             const sel = this.opts.panelSelector;
             return sel ? document.querySelector(sel) : null;
         }
-        setActiveTurn(turn) {
-            var _a, _b, _c;
-            this.activeTurn = turn;
+        renderSuggestions(suggestions) {
             const panel = this.panelEl();
-            if (!panel) {
-                if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'ask')
-                    this.bus.emit('turn:ask', turn);
-                else if ((turn === null || turn === void 0 ? void 0 : turn.status) === 'final') {
-                    this.bus.emit('suggest:ready', (_a = turn.suggestions) !== null && _a !== void 0 ? _a : [], turn);
-                    this.bus.emit('turn:final', turn);
-                    this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
-                }
-                else {
-                    this.bus.emit('turn:cleared');
-                }
+            if (!panel)
                 return;
+            renderFinalSuggestions(panel, suggestions, (cta) => this.executeCta(cta));
+            this.bus.emit('suggest:ready', suggestions);
+            this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+        }
+        executeCta(cta) {
+            try {
+                const kind = String(cta.kind || '').toLowerCase();
+                // Prefer app-provided CTA executor to avoid SDK-level hardcoding
+                if (typeof this.opts.ctaExecutor === 'function') {
+                    this.opts.ctaExecutor(cta);
+                    return;
+                }
+                const handlers = {
+                    dom_fill: (c) => {
+                        var _a, _b;
+                        const p = ((_a = c.payload) !== null && _a !== void 0 ? _a : {});
+                        const sel = String(p['selector'] || '');
+                        const val = String((_b = p['value']) !== null && _b !== void 0 ? _b : '');
+                        const el = sel
+                            ? document.querySelector(sel)
+                            : null;
+                        if (!el)
+                            return;
+                        if ('value' in el) {
+                            el.value = val;
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        else {
+                            el.textContent = val;
+                        }
+                    },
+                    click: (c) => {
+                        var _a;
+                        const p = ((_a = c.payload) !== null && _a !== void 0 ? _a : {});
+                        const sel = String(p['selector'] || '');
+                        const el = sel
+                            ? document.querySelector(sel)
+                            : null;
+                        el === null || el === void 0 ? void 0 : el.click();
+                    },
+                    open: (c) => {
+                        const url = (typeof c.url === 'string' && c.url) ? c.url : '';
+                        if (url)
+                            window.location.href = url;
+                    },
+                };
+                if (handlers[kind])
+                    handlers[kind](cta);
             }
-            if (!turn) {
-                panel.innerHTML = '';
-                this.bus.emit('turn:cleared');
-                return;
-            }
-            if (turn.status === 'ask') {
-                renderAskTurn(panel, turn, (a) => this.answerAsk(turn, a), (fd) => this.answerForm(turn, fd));
-                this.bus.emit('turn:ask', turn);
-            }
-            else {
-                renderFinalSuggestions(panel, (_b = turn.suggestions) !== null && _b !== void 0 ? _b : [], () => undefined);
-                this.bus.emit('suggest:ready', (_c = turn.suggestions) !== null && _c !== void 0 ? _c : [], turn);
-                this.bus.emit('turn:final', turn);
-                this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+            catch (e) {
+                this.bus.emit('error', e);
             }
         }
         buildTelemetry(target) {
-            var _a;
             const el = target && target.nodeType === 1 ? target : null;
             const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
             const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
@@ -799,34 +526,13 @@
                     attributes['action'] = action;
                 }
             }
-            catch (_b) {
+            catch (_a) {
                 /* empty */
             }
             try {
-                // Candidate elements and optional selector-derived keys
+                // Candidate elements (start with event target and ancestors)
                 const candidates = [];
-                const keyFromSelector = new Map();
-                if (this.trackOn) {
-                    // In focus mode, rely on server-provided selectors for structure
-                    const want = this.selMutation;
-                    if (Array.isArray(want) && want.length) {
-                        for (const sel of want) {
-                            try {
-                                document.querySelectorAll(sel).forEach((node) => {
-                                    if (node instanceof Element) {
-                                        candidates.push(node);
-                                        if (!keyFromSelector.has(node))
-                                            keyFromSelector.set(node, selectorToKey(sel));
-                                    }
-                                });
-                            }
-                            catch (_c) {
-                                /* invalid selector from server; ignore */
-                            }
-                        }
-                    }
-                }
-                else if (el) {
+                if (el) {
                     // In rich mode, consider target and ancestors (heuristic)
                     candidates.push(el);
                     let p = el.parentElement;
@@ -863,16 +569,14 @@
                     const n = firstInt(txt);
                     if (n == null)
                         continue;
-                    const key = this.trackOn
-                        ? (_a = keyFromSelector.get(cand)) !== null && _a !== void 0 ? _a : null
-                        : pickKey(cand);
+                    const key = pickKey(cand);
                     if (!key)
                         continue;
                     const camel = toCamel(key);
                     attributes[camel] = String(n);
                 }
             }
-            catch (_d) {
+            catch (_b) {
                 /* best-effort only */
             }
             const css = el ? cssPath(el) : null;
@@ -892,7 +596,6 @@
         }
         handleEvent(kind, target) {
             return __awaiter(this, void 0, void 0, function* () {
-                var _a;
                 if (this.inflight)
                     return;
                 this.inflight = true;
@@ -908,22 +611,16 @@
                     };
                     const rcRes = yield this.api.ruleCheck(rcReq);
                     this.bus.emit('rule:checked', rcRes);
-                    this.lastContext = {
-                        matchedRules: rcRes.matchedRules,
-                        eventType: rcRes.eventType,
-                    };
-                    if (!rcRes.shouldProceed || !this.canOpenConversation()) {
-                        if (!rcRes.shouldProceed)
-                            this.setActiveTurn(undefined);
+                    if (!rcRes.shouldProceed || !this.canOpenPanel()) {
                         return;
                     }
                     const sgReq = {
                         siteId: this.opts.siteId,
-                        sessionId: this.opts.sessionId,
-                        context: Object.assign({ matchedRules: rcRes.matchedRules, eventType: rcRes.eventType }, ((_a = this.opts.baseContext) !== null && _a !== void 0 ? _a : {})),
+                        url: window.location.origin + window.location.pathname,
+                        ruleId: rcRes.matchedRules[0],
                     };
-                    const { turn } = (yield this.api.suggestGet(sgReq));
-                    this.setActiveTurn(turn);
+                    const { suggestions } = (yield this.api.suggestGet(sgReq));
+                    this.renderSuggestions(suggestions);
                 }
                 catch (e) {
                     this.bus.emit('error', e);
@@ -934,42 +631,17 @@
             });
         }
     }
-    function isActionWithValue(a) {
-        return typeof a.value !== 'undefined';
-    }
     // Convert identifiers like cart-count or total_qty to cartCount / totalQty
     function toCamel(key) {
         return key
             .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
             .replace(/^(.)/, (m) => m.toLowerCase());
     }
-    // Derive a stable key name from a CSS selector provided by the server profile
-    function selectorToKey(sel) {
-        const s = sel.trim();
-        const last = s.split(/\s*[>+~\s]\s*/).pop() || s;
-        const data = last.match(/\[\s*data-([a-zA-Z0-9_-]+)/);
-        if (data)
-            return toCamel(data[1]);
-        const id = last.match(/#([a-zA-Z0-9_-]+)/);
-        if (id)
-            return toCamel(id[1]);
-        const cls = last.match(/\.([a-zA-Z0-9_-]+)/);
-        if (cls)
-            return toCamel(cls[1]);
-        const nameAttr = last.match(/\[\s*name="?([a-zA-Z0-9_-]+)/);
-        if (nameAttr)
-            return toCamel(nameAttr[1]);
-        const tag = last.match(/^([a-zA-Z0-9_-]+)/);
-        if (tag)
-            return toCamel(tag[1]);
-        return toCamel(last.replace(/[^a-zA-Z0-9]+/g, '-'));
-    }
 
     // Attach a simple UMD-style global for convenience when used via <script>
     if (typeof window !== 'undefined') {
         window.AgentSDK = {
             AutoAssistant,
-            renderAskTurn,
             renderFinalSuggestions,
             createApi,
         };
@@ -977,7 +649,6 @@
 
     exports.AutoAssistant = AutoAssistant;
     exports.createApi = createApi;
-    exports.renderAskTurn = renderAskTurn;
     exports.renderFinalSuggestions = renderFinalSuggestions;
 
 }));
