@@ -307,6 +307,8 @@
             this.trackOn = false;
             this.allow = new Set();
             this.focus = new Map();
+            this.lastSuggestions = [];
+            this.currentStep = 1;
             this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
         }
@@ -407,6 +409,10 @@
                 const focusTgt = this.pickFocusTarget('dom_click') || tgt;
                 if (!this.pathMatches('dom_click'))
                     return;
+                // In focus mode, only emit when the actual event target (or its ancestors)
+                // matches a configured element id, if any ids are specified.
+                if (!this.idMatches('dom_click', tgt))
+                    return;
                 this.schedule(() => this.handleEvent('dom_click', focusTgt));
             };
             document.addEventListener('click', onClick, true);
@@ -418,6 +424,8 @@
                     return;
                 const focusTgt = this.pickFocusTarget('input_change') || tgt;
                 if (!this.pathMatches('input_change'))
+                    return;
+                if (!this.idMatches('input_change', tgt))
                     return;
                 this.schedule(() => this.handleEvent('input_change', focusTgt));
             };
@@ -432,6 +440,8 @@
                 const tgt = e.target;
                 const focusTgt = this.pickFocusTarget('submit') || tgt;
                 if (!this.pathMatches('submit'))
+                    return;
+                if (!this.idMatches('submit', tgt))
                     return;
                 this.schedule(() => this.handleEvent('submit', focusTgt));
             };
@@ -548,8 +558,31 @@
             const panel = this.panelEl();
             if (!panel)
                 return;
-            renderFinalSuggestions(panel, suggestions, (cta) => this.executeCta(cta));
-            this.bus.emit('suggest:ready', suggestions);
+            this.lastSuggestions = suggestions;
+            // Determine the initial step to render
+            const steps = suggestions
+                .map((s) => {
+                var _a;
+                const m = (s.meta || {});
+                const step = Number((_a = m['step']) !== null && _a !== void 0 ? _a : 1);
+                return Number.isFinite(step) ? step : 1;
+            })
+                .filter((n) => n > 0);
+            this.currentStep = steps.length ? Math.min(...steps) : 1;
+            this.renderStep();
+        }
+        renderStep() {
+            const panel = this.panelEl();
+            if (!panel)
+                return;
+            const toShow = this.lastSuggestions.filter((s) => {
+                var _a;
+                const m = (s.meta || {});
+                const step = Number((_a = m['step']) !== null && _a !== void 0 ? _a : 1);
+                return (Number.isFinite(step) ? step : 1) === this.currentStep;
+            });
+            renderFinalSuggestions(panel, toShow, (cta) => this.executeCta(cta));
+            this.bus.emit('suggest:ready', toShow);
             this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
         }
         executeCta(cta) {
@@ -597,6 +630,15 @@
                 };
                 if (handlers[kind])
                     handlers[kind](cta);
+                // After executing a CTA, advance to the next step if available
+                const allSteps = this.lastSuggestions
+                    .map((s) => { var _a; return Number((_a = (s.meta || {})['step']) !== null && _a !== void 0 ? _a : 1); })
+                    .filter((n) => Number.isFinite(n));
+                const maxStep = allSteps.length ? Math.max(...allSteps) : 1;
+                if (this.currentStep < maxStep) {
+                    this.currentStep += 1;
+                    this.renderStep();
+                }
             }
             catch (e) {
                 this.bus.emit('error', e);
@@ -609,7 +651,8 @@
             const attributes = el ? attrMap(el) : {};
             // Always include current path so rules can filter on it
             try {
-                attributes['path'] = window.location ? window.location.pathname : null;
+                const p = window.location ? window.location.pathname : '/';
+                attributes['path'] = normalizePath(p);
             }
             catch (_a) {
                 /* ignore */

@@ -60,6 +60,8 @@ export class AutoAssistant {
     EventKind,
     { paths: Set<string>; elementIds: Set<string> }
   > = new Map();
+  private lastSuggestions: Suggestion[] = [];
+  private currentStep = 1;
 
   constructor(options: AutoAssistantOptions) {
     this.opts = {
@@ -178,6 +180,9 @@ export class AutoAssistant {
       if (!this.allow.has('dom_click')) return;
       const focusTgt = this.pickFocusTarget('dom_click') || tgt;
       if (!this.pathMatches('dom_click')) return;
+      // In focus mode, only emit when the actual event target (or its ancestors)
+      // matches a configured element id, if any ids are specified.
+      if (!this.idMatches('dom_click', tgt)) return;
       this.schedule(() => this.handleEvent('dom_click', focusTgt));
     };
     document.addEventListener('click', onClick, true);
@@ -191,6 +196,7 @@ export class AutoAssistant {
       if (!this.allow.has('input_change')) return;
       const focusTgt = this.pickFocusTarget('input_change') || tgt;
       if (!this.pathMatches('input_change')) return;
+      if (!this.idMatches('input_change', tgt)) return;
       this.schedule(() => this.handleEvent('input_change', focusTgt));
     };
     document.addEventListener('input', onChange, true);
@@ -208,6 +214,7 @@ export class AutoAssistant {
       const tgt = e.target as Element | undefined;
       const focusTgt = this.pickFocusTarget('submit') || tgt;
       if (!this.pathMatches('submit')) return;
+      if (!this.idMatches('submit', tgt)) return;
       this.schedule(() => this.handleEvent('submit', focusTgt));
     };
     document.addEventListener('submit', onSubmit, true);
@@ -332,8 +339,29 @@ export class AutoAssistant {
   private renderSuggestions(suggestions: Suggestion[]) {
     const panel = this.panelEl();
     if (!panel) return;
-    renderFinalSuggestions(panel, suggestions, (cta) => this.executeCta(cta));
-    this.bus.emit('suggest:ready', suggestions);
+    this.lastSuggestions = suggestions;
+    // Determine the initial step to render
+    const steps = suggestions
+      .map((s) => {
+        const m = (s.meta || {}) as Record<string, unknown>;
+        const step = Number(m['step'] ?? 1);
+        return Number.isFinite(step) ? (step as number) : 1;
+      })
+      .filter((n) => n > 0);
+    this.currentStep = steps.length ? Math.min(...steps) : 1;
+    this.renderStep();
+  }
+
+  private renderStep() {
+    const panel = this.panelEl();
+    if (!panel) return;
+    const toShow = this.lastSuggestions.filter((s) => {
+      const m = (s.meta || {}) as Record<string, unknown>;
+      const step = Number(m['step'] ?? 1);
+      return (Number.isFinite(step) ? (step as number) : 1) === this.currentStep;
+    });
+    renderFinalSuggestions(panel, toShow, (cta) => this.executeCta(cta));
+    this.bus.emit('suggest:ready', toShow);
     this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
   }
 
@@ -379,6 +407,15 @@ export class AutoAssistant {
         },
       };
       if (handlers[kind]) handlers[kind](cta);
+      // After executing a CTA, advance to the next step if available
+      const allSteps = this.lastSuggestions
+        .map((s) => Number(((s.meta || {}) as Record<string, unknown>)['step'] ?? 1))
+        .filter((n) => Number.isFinite(n)) as number[];
+      const maxStep = allSteps.length ? Math.max(...allSteps) : 1;
+      if (this.currentStep < maxStep) {
+        this.currentStep += 1;
+        this.renderStep();
+      }
     } catch (e) {
       this.bus.emit('error', e);
     }
@@ -391,7 +428,8 @@ export class AutoAssistant {
     const attributes: Record<string, string | null> = el ? attrMap(el) : {};
     // Always include current path so rules can filter on it
     try {
-      attributes['path'] = window.location ? window.location.pathname : null;
+      const p = window.location ? window.location.pathname : '/';
+      attributes['path'] = normalizePath(p);
     } catch {
       /* ignore */
     }

@@ -17,7 +17,7 @@ def suggest(
     url = (payload.url or "").strip()
 
     # CART promo rule: fill promo code and click apply
-    if rid == "promo_cart_gte_2" and url.endswith("/cart"):
+    if rid == "promo_cart_gte_2":
         s = Suggestion(
             type="coupon",
             id=f"coupon-{rid}",
@@ -46,7 +46,7 @@ def suggest(
         return AgentSuggestNextResponse(suggestions=[s, s2])
 
     # CART special promo for 5+ items
-    if rid == "promo_cart_gte_5" and url.endswith("/cart"):
+    if rid == "promo_cart_gte_5":
         s = Suggestion(
             type="coupon",
             id=f"coupon-{rid}",
