@@ -1,4 +1,4 @@
-import type { Suggestion } from './types';
+import type { CtaSpec, Suggestion } from './types';
 
 export function renderFinalSuggestions(
   container: HTMLElement,
@@ -8,7 +8,7 @@ export function renderFinalSuggestions(
       | NonNullable<Suggestion['actions']>[number]
       | NonNullable<Suggestion['primaryCta']>
   ) => void
-) {
+): void {
   container.innerHTML = '';
   if (!suggestions?.length) {
     container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;
@@ -38,20 +38,45 @@ export function renderFinalSuggestions(
       card.appendChild(desc);
     }
 
-    const actions = [
-      ...(s.actions ?? []),
-      ...(s.primaryCta ? [s.primaryCta] : []),
-    ].filter(Boolean) as Array<
-      NonNullable<typeof s.actions>[number] | NonNullable<typeof s.primaryCta>
-    >;
+    // Build primary + secondary actions with de-duplication
+    const primary: CtaSpec[] = s.primaryCta ? [s.primaryCta as CtaSpec] : [];
+    const secondary: CtaSpec[] = (
+      (s.actions as CtaSpec[] | undefined) ?? []
+    ).slice();
+    const sig = (c: CtaSpec): string => {
+      const kind = c.kind ?? '';
+      const label = c.label ?? '';
+      const payload = c.payload ?? null;
+      const url = c.url ?? '';
+      return `${kind}|${label}|${JSON.stringify(payload) || ''}|${url}`;
+    };
+    const primarySig = primary.length ? sig(primary[0]) : null;
+    const dedupedSecondary = secondary.filter((c) => sig(c) !== primarySig);
 
-    if (actions.length) {
+    if (primary.length || dedupedSecondary.length) {
       const row = document.createElement('div');
       row.style.display = 'flex';
       row.style.flexWrap = 'wrap';
       row.style.gap = '8px';
       row.style.marginTop = '10px';
-      actions.forEach((cta, idx) => {
+
+      // Render primary CTA with emphasized styling
+      if (primary.length) {
+        const p = primary[0];
+        const btn = document.createElement('button');
+        btn.textContent = p.label;
+        btn.setAttribute('data-cta-kind', String(p.kind || ''));
+        btn.onclick = () => onCta(p);
+        btn.style.padding = '8px 12px';
+        btn.style.borderRadius = '8px';
+        btn.style.border = '1px solid #2563eb';
+        btn.style.background = '#2563eb';
+        btn.style.color = '#fff';
+        row.appendChild(btn);
+      }
+
+      // Render secondary actions
+      dedupedSecondary.forEach((cta, idx) => {
         const btn = document.createElement('button');
         btn.textContent = cta.label;
         btn.setAttribute('data-cta-idx', String(idx));
@@ -59,8 +84,10 @@ export function renderFinalSuggestions(
         btn.style.padding = '6px 10px';
         btn.style.borderRadius = '8px';
         btn.style.border = '1px solid #d1d5db';
+        btn.style.background = 'transparent';
         row.appendChild(btn);
       });
+
       card.appendChild(row);
     }
 
