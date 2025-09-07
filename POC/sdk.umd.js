@@ -221,13 +221,8 @@
                 card.appendChild(desc);
             }
             // Build primary + secondary actions with de-duplication.
-            // Support legacy (primaryCta/actions) and new (primaryActions/secondaryActions/secondaryCtas).
-            const primaryFromArray = s.primaryActions;
-            const primary = Array.isArray(primaryFromArray)
-                ? primaryFromArray.slice(0, 3)
-                : s.primaryCta
-                    ? [s.primaryCta]
-                    : [];
+            // Display the primaryCta as the main action; primaryActions is a hidden pipeline run by the SDK.
+            const primary = s.primaryCta ? [s.primaryCta] : [];
             const secondaryFromSchema = s.secondaryCtas;
             const secondaryFromNew = s.secondaryActions;
             const secondaryFallback = (_b = s.actions) !== null && _b !== void 0 ? _b : [];
@@ -697,6 +692,11 @@
             const sel = this.opts.panelSelector;
             return sel ? document.querySelector(sel) : null;
         }
+        closePanel() {
+            const panel = this.panelEl();
+            if (panel)
+                panel.innerHTML = '';
+        }
         renderSuggestions(suggestions) {
             const panel = this.panelEl();
             if (!panel)
@@ -730,6 +730,10 @@
         }
         executeCta(cta) {
             return __awaiter(this, void 0, void 0, function* () {
+                var _a, _b;
+                // Suppress rule checks during CTA execution to avoid racing renders
+                const prevInflight = this.inflight;
+                this.inflight = true;
                 try {
                     const kind = String(cta.kind || '').toLowerCase();
                     // Prefer app-provided CTA executor to avoid SDK-level hardcoding
@@ -780,7 +784,9 @@
                                 return;
                             try {
                                 // Merge prior choices so the agent sees cumulative input
-                                const input = Object.assign(Object.assign({}, this.choiceInput), { [name]: value });
+                                const extra = c
+                                    .nextInput || {};
+                                const input = Object.assign(Object.assign(Object.assign({}, this.choiceInput), { [name]: value }), extra);
                                 const body = {
                                     siteId: this.opts.siteId,
                                     url: window.location.origin + window.location.pathname,
@@ -857,25 +863,33 @@
                         const ctaRun = cta.run;
                         yield runPipeline(ctaRun);
                     }
-                    // After executing a CTA, advance based on CTA.advanceTo or default to next step.
-                    const advNum = Number(cta.advanceTo);
+                    // After executing a CTA, advance based on explicit next* navigation or fallbacks.
+                    const nav = cta;
+                    if (nav.nextClose) {
+                        this.closePanel();
+                        return;
+                    }
+                    if (nav.nextId) {
+                        const target = this.lastSuggestions.find((s) => s.id === nav.nextId);
+                        const metaObj = ((target === null || target === void 0 ? void 0 : target.meta) || {});
+                        const step = Number((_a = metaObj['step']) !== null && _a !== void 0 ? _a : 0);
+                        if (Number.isFinite(step) && step > 0) {
+                            this.currentStep = step;
+                            this.renderStep();
+                            return;
+                        }
+                    }
+                    const advNum = Number((_b = nav.nextStep) !== null && _b !== void 0 ? _b : nav.advanceTo);
                     if (Number.isFinite(advNum) && advNum > 0) {
                         this.currentStep = advNum;
                         this.renderStep();
                     }
-                    else {
-                        const allSteps = this.lastSuggestions
-                            .map((s) => { var _a; return Number((_a = (s.meta || {})['step']) !== null && _a !== void 0 ? _a : 1); })
-                            .filter((n) => Number.isFinite(n));
-                        const maxStep = allSteps.length ? Math.max(...allSteps) : 1;
-                        if (this.currentStep < maxStep) {
-                            this.currentStep += 1;
-                            this.renderStep();
-                        }
-                    }
                 }
                 catch (e) {
                     this.bus.emit('error', e);
+                }
+                finally {
+                    this.inflight = prevInflight;
                 }
             });
         }

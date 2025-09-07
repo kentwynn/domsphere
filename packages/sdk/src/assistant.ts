@@ -360,6 +360,10 @@ export class AutoAssistant {
     const sel = this.opts.panelSelector;
     return sel ? (document.querySelector(sel) as HTMLElement | null) : null;
   }
+  private closePanel() {
+    const panel = this.panelEl();
+    if (panel) panel.innerHTML = '';
+  }
   private renderSuggestions(suggestions: Suggestion[]) {
     const panel = this.panelEl();
     if (!panel) return;
@@ -392,6 +396,9 @@ export class AutoAssistant {
   }
 
   private async executeCta(cta: CtaSpec) {
+    // Suppress rule checks during CTA execution to avoid racing renders
+    const prevInflight = this.inflight;
+    this.inflight = true;
     try {
       const kind = String(cta.kind || '').toLowerCase();
       // Prefer app-provided CTA executor to avoid SDK-level hardcoding
@@ -440,10 +447,13 @@ export class AutoAssistant {
           if (!name) return;
           try {
             // Merge prior choices so the agent sees cumulative input
-            const input = { ...this.choiceInput, [name]: value } as Record<
-              string,
-              unknown
-            >;
+            const extra = (c as CtaSpec & { nextInput?: Record<string, unknown> })
+              .nextInput || {};
+            const input = {
+              ...this.choiceInput,
+              [name]: value,
+              ...extra,
+            } as Record<string, unknown>;
             const body: SuggestNextRequest = {
               siteId: this.opts.siteId,
               url: window.location.origin + window.location.pathname,
@@ -465,7 +475,9 @@ export class AutoAssistant {
       const runPipeline = async (steps: CtaSpec[] | undefined) => {
         if (!Array.isArray(steps) || steps.length === 0) return;
         for (const step of steps) {
-          const k = String(step.kind || '').toLowerCase() as keyof typeof handlers | string;
+          const k = String(step.kind || '').toLowerCase() as
+            | keyof typeof handlers
+            | string;
           const fn = handlers[k as keyof typeof handlers];
           if (fn) await Promise.resolve(fn(step));
         }
@@ -526,27 +538,39 @@ export class AutoAssistant {
         const ctaRun = (cta as CtaSpec & { run?: CtaSpec[] }).run;
         await runPipeline(ctaRun);
       }
-      // After executing a CTA, advance based on CTA.advanceTo or default to next step.
-      const advNum = Number(
-        (cta as CtaSpec & { advanceTo?: number }).advanceTo
-      );
+      // After executing a CTA, advance based on explicit next* navigation or fallbacks.
+      const nav = cta as CtaSpec & {
+        advanceTo?: number;
+        nextStep?: number;
+        nextId?: string;
+        nextClose?: boolean;
+        nextMode?: string;
+      };
+      if (nav.nextClose) {
+        this.closePanel();
+        return;
+      }
+      if (nav.nextId) {
+        const target = this.lastSuggestions.find(
+          (s) => (s as SuggestionExt).id === nav.nextId
+        ) as SuggestionExt | undefined;
+        const metaObj = (target?.meta || {}) as Record<string, unknown>;
+        const step = Number(metaObj['step'] ?? 0);
+        if (Number.isFinite(step) && step > 0) {
+          this.currentStep = step;
+          this.renderStep();
+          return;
+        }
+      }
+      const advNum = Number(nav.nextStep ?? nav.advanceTo);
       if (Number.isFinite(advNum) && advNum > 0) {
         this.currentStep = advNum as number;
         this.renderStep();
-      } else {
-        const allSteps = this.lastSuggestions
-          .map((s) =>
-            Number(((s.meta || {}) as Record<string, unknown>)['step'] ?? 1)
-          )
-          .filter((n) => Number.isFinite(n)) as number[];
-        const maxStep = allSteps.length ? Math.max(...allSteps) : 1;
-        if (this.currentStep < maxStep) {
-          this.currentStep += 1;
-          this.renderStep();
-        }
       }
     } catch (e) {
       this.bus.emit('error', e);
+    } finally {
+      this.inflight = prevInflight;
     }
   }
 

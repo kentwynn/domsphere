@@ -47,13 +47,8 @@ export function renderFinalSuggestions(
     }
 
     // Build primary + secondary actions with de-duplication.
-    // Support legacy (primaryCta/actions) and new (primaryActions/secondaryActions/secondaryCtas).
-    const primaryFromArray = s.primaryActions;
-    const primary: CtaSpec[] = Array.isArray(primaryFromArray)
-      ? primaryFromArray.slice(0, 3)
-      : s.primaryCta
-      ? [s.primaryCta as CtaSpec]
-      : [];
+    // Display the primaryCta as the main action; primaryActions is a hidden pipeline run by the SDK.
+    const primary: CtaSpec[] = s.primaryCta ? [s.primaryCta as CtaSpec] : [];
 
     const secondaryFromSchema = s.secondaryCtas;
     const secondaryFromNew = s.secondaryActions;

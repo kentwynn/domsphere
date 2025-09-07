@@ -30,6 +30,12 @@ class CtaSpec(BaseModel):
     target: Optional[str] = None     # "_self","_blank",...
     confirm: Optional[bool] = None
     meta: Optional[Dict[str, Any]] = None
+    # Navigation (post-action) – explicit control of what happens next
+    nextStep: Optional[int] = None              # jump to an explicit step number
+    nextId: Optional[str] = None                # jump to a suggestion by id (uses its meta.step)
+    nextClose: Optional[bool] = None            # close panel after action
+    nextMode: Optional[Literal['replace','append']] = None  # how to display next (default: replace)
+    nextInput: Optional[Dict[str, Any]] = None  # extra input to merge for /suggest/next
 
 # ==============================================================================
 # Form specs (for collecting structured inputs from shopper)

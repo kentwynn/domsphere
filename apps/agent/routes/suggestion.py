@@ -25,12 +25,12 @@ def suggest(
             title="Apply coupon?",
             description="We found a coupon code for your cart.",
             # Primary is a label-only CTA; pipeline below performs the actual steps
-            primaryCta=CtaSpec(label="Apply", kind="noop"),
+            primaryCta=CtaSpec(label="Apply", kind="noop", nextStep=2),
             primaryActions=[
                 CtaSpec(label="Fill Code", kind="dom_fill", payload={"selector": "#promo-code", "value": "SAVE10"}),
                 CtaSpec(label="Submit", kind="click", payload={"selector": "#apply-promo"}),
             ],
-            secondaryCtas=[CtaSpec(label="Cancel", kind="noop")],
+            secondaryCtas=[CtaSpec(label="Cancel", kind="noop", nextClose=True)],
             meta={"code": "SAVE10", "step": 1},
         )
         s2 = Suggestion(
@@ -52,12 +52,12 @@ def suggest(
             title="Special offer!",
             description="You qualify for a special promo.",
             # Primary is a label-only CTA; pipeline below performs the actual steps
-            primaryCta=CtaSpec(label="Apply YYY", kind="noop"),
+            primaryCta=CtaSpec(label="Apply YYY", kind="noop", nextStep=2),
             primaryActions=[
                 CtaSpec(label="Fill YYY", kind="dom_fill", payload={"selector": "#promo-code", "value": "YYY"}),
                 CtaSpec(label="Submit", kind="click", payload={"selector": "#apply-promo"}),
             ],
-            secondaryCtas=[CtaSpec(label="Cancel", kind="noop")],
+            secondaryCtas=[CtaSpec(label="Cancel", kind="noop", nextClose=True)],
             meta={"code": "YYY", "step": 1},
         )
         s2 = Suggestion(
