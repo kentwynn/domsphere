@@ -1,95 +1,77 @@
 from typing import Optional
 from fastapi import APIRouter, Header
 from contracts.agent_api import AgentSuggestNextRequest, AgentSuggestNextResponse
-from contracts.suggestion import Action, CtaSpec, Turn, Suggestion, UIHint
+from contracts.suggestion import CtaSpec, Suggestion
 
 router = APIRouter(prefix="/agent", tags=["suggestion"])
 
-@router.post("/suggest/next", response_model=AgentSuggestNextResponse)
-def suggest_next(
+
+@router.post("/suggest", response_model=AgentSuggestNextResponse)
+def suggest(
     payload: AgentSuggestNextRequest,
     x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
     x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> AgentSuggestNextResponse:
-    answers = payload.answers or {}
-    choice = str(answers.get("choice", "")).strip().lower()
+    """Stateless mock suggestions based on ruleId, aligned with common.py data."""
+    rid = (payload.ruleId or "").strip()
+    url = (payload.url or "").strip()
 
-    # Start a fresh micro-convo with an ASK turn if no previous turn
-    if not payload.prevTurnId:
-        ask = Turn(
-            intentId=payload.intentId or "suggest-bundle",
-            turnId="t-ask-1",
-            status="ask",
-            message="Want to see bundle suggestions?",
+    # CART promo rule: fill promo code and click apply
+    if rid == "promo_cart_gte_2" and url.endswith("/cart"):
+        s = Suggestion(
+            type="coupon",
+            id=f"coupon-{rid}",
+            title="Apply coupon?",
+            description="We found a coupon code for your cart.",
+            primaryCta=CtaSpec(
+                label="Apply",
+                kind="dom_fill",
+                payload={"selector": "#promo-code", "value": "SAVE10"},
+            ),
             actions=[
-                Action(id="yes", label="Yes"),
-                Action(id="no", label="No"),
+                CtaSpec(label="Fill Code", kind="dom_fill", payload={"selector": "#promo-code", "value": "SAVE10"}),
+                CtaSpec(label="Submit", kind="click", payload={"selector": "#apply-promo"}),
             ],
-            ui=UIHint(render="panel"),
-            ttlSec=30,
+            meta={"code": "SAVE10", "step": 1},
         )
-        return AgentSuggestNextResponse(turn=ask)
-
-    # If user accepted, return FINAL with non-empty suggestions
-    if choice in {"yes", "y"}:
-        final = Turn(
-            intentId=payload.intentId or "suggest-bundle",
-            turnId="t-final-1",
-            status="final",
-            message="Here are my picks",
-            suggestions=[
-                Suggestion(
-                    type="bundle",
-                    id="s-1",
-                    score=0.82,
-                    title="Buy 2 save 10%",
-                    subtitle="P1 + P2",
-                    price=44.8,
-                    currency="USD",
-                    primaryCta=CtaSpec(
-                        label="Add bundle",
-                        kind="add_to_cart",
-                        payload={"skus": ["p1", "p2"]},
-                    ),
-                    meta={"original": 49.8, "tags": ["bundle", "similar"]},
-                ),
-                Suggestion(
-                    type="upsell",
-                    id="s-2",
-                    title="Add P3 for free ship",
-                    price=19.9,
-                    currency="USD",
-                    primaryCta=CtaSpec(
-                        label="Add P3",
-                        kind="add_to_cart",
-                        payload={"skus": ["p3"]},
-                    ),
-                ),
-            ],
-            ui=UIHint(render="grid", columns=2),
+        s2 = Suggestion(
+            type="checkout",
+            id=f"checkout-{rid}",
+            title="Proceed to checkout?",
+            description="You're all set. Continue to checkout.",
+            primaryCta=CtaSpec(label="Checkout", kind="click", payload={"selector": "#checkout"}),
+            actions=[CtaSpec(label="Checkout", kind="click", payload={"selector": "#checkout"})],
+            meta={"step": 2},
         )
-        return AgentSuggestNextResponse(turn=final)
+        return AgentSuggestNextResponse(suggestions=[s, s2])
 
-    # Otherwise, FINAL with at least 1 suggestion to satisfy contract
-    final_polite = Turn(
-        intentId=payload.intentId or "suggest-bundle",
-        turnId="t-final-2",
-        status="final",
-        message="No worries — here’s a popular pick if you change your mind.",
-        suggestions=[
-            Suggestion(
-                type="popular",
-                id="s-3",
-                title="Top pick: P1",
-                price=19.9,
-                currency="USD",
-                primaryCta=CtaSpec(
-                    label="Add P1",
-                    kind="add_to_cart",
-                    payload={"skus": ["p1"]},
-                ),
-            )
-        ],
-        ui=UIHint(render="list"),
+    # PRODUCTS page: celebratory banner/CTA
+    if rid == "products_birthday_20y" and url.endswith("/products"):
+        s = Suggestion(
+            type="banner",
+            id=f"birthday-{rid}",
+            title="Happy 20th Anniversary!",
+            description="Enjoy free shipping today only.",
+            primaryCta=CtaSpec(label="Shop now", kind="open", url="/products"),
+        )
+        return AgentSuggestNextResponse(suggestions=[s])
+
+    # PRODUCT detail (sku-abc): prompt add-to-cart
+    if rid == "product_abc_10s" and "/product/sku-abc" in url:
+        s = Suggestion(
+            type="upsell",
+            id=f"upsell-{rid}",
+            title="Add this to your cart",
+            description="Popular pick with great reviews.",
+            primaryCta=CtaSpec(label="Add to cart", kind="click", payload={"selector": "#add-to-cart"}),
+        )
+        return AgentSuggestNextResponse(suggestions=[s])
+
+    # Fallback generic suggestion
+    s = Suggestion(
+        type="recommendation",
+        id=f"rec-{rid or 'default'}",
+        title="Check our latest deals",
+        primaryCta=CtaSpec(label="View deals", kind="open", url="/products"),
     )
-    return AgentSuggestNextResponse(turn=final_polite)
+    return AgentSuggestNextResponse(suggestions=[s])

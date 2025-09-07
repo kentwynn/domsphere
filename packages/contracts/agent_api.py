@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import Optional, Dict, Any, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel
 from .common import HealthResponse
-from .suggestion import Turn  # <- agent-driven ask|final turns
+from .suggestion import Suggestion
 
 # ==============================================================================
 # /agent/rule  (compile NL rules -> deterministic RuleSet JSON)
@@ -46,19 +46,16 @@ class AgentStepCheckResponse(BaseModel):
     nextStepId: Optional[str] = None
 
 # ==============================================================================
-# /agent/suggest/next  (agent owns the micro-conversation; returns Turn)
+# /agent/suggest  (stateless full suggestions; model names kept for continuity)
 # ==============================================================================
 
 class AgentSuggestNextRequest(BaseModel):
     siteId: str
-    sessionId: str
-    intentId: Optional[str] = None
-    prevTurnId: Optional[str] = None
-    answers: Optional[Dict[str, Any]] = None
-    context: Dict[str, Any]  # e.g., { matchedRules:[], eventType:"add_to_cart", url:"...", productIds:[] }
+    url: str
+    ruleId: str
 
 class AgentSuggestNextResponse(BaseModel):
-    turn: Turn  # status="ask" (needs actions/form) or status="final" (has suggestions)
+    suggestions: List[Suggestion]
 
 # ==============================================================================
 # /agent/health
@@ -76,7 +73,7 @@ __all__ = [
     "AgentStepCheckRequest",
     "StepState",
     "AgentStepCheckResponse",
-    # suggest (turn-based)
+    # suggest (stateless)
     "AgentSuggestNextRequest",
     "AgentSuggestNextResponse",
     # health
