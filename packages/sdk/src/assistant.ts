@@ -2,7 +2,6 @@ import { createApi } from './api';
 import { Emitter, type Listener } from './emitter';
 import {
   collectFocusFromRules,
-  cssMatches as cssMatchHelper,
   idMatches as idMatchHelper,
   targetMatches as targetMatchHelper,
   type EventKind,
@@ -61,6 +60,9 @@ export class AutoAssistant {
   private focus: FocusMap = new Map();
   private lastSuggestions: Suggestion[] = [];
   private currentStep = 1;
+  private lastRuleId?: string;
+  private lastMatchSig?: string;
+  private triggeredRules = new Set<string>();
 
   constructor(options: AutoAssistantOptions) {
     this.opts = {
@@ -209,6 +211,8 @@ export class AutoAssistant {
     const onPop = () => {
       if (!this.allow.has('route_change')) return;
       if (!this.pathMatches('route_change')) return;
+      // Clear dedupe when route changes
+      this.triggeredRules.clear();
       const target = this.pickFocusTarget('route_change');
       this.schedule(() => this.handleEvent('route_change', target));
     };
@@ -221,15 +225,10 @@ export class AutoAssistant {
       history.replaceState = _replace;
     });
 
-    // Observe text changes on configured elements (id or cssPath) to synthesize input_change
+    // Observe text/value changes on configured elements (id-only) to synthesize input_change
     if (this.allow.has('input_change')) {
       const f = this.focus.get('input_change');
-      if (
-        f &&
-        (f.elementIds.size > 0 ||
-          f.cssPaths.size > 0 ||
-          f.cssPatterns.length > 0)
-      ) {
+      if (f && f.elementIds.size > 0) {
         try {
           const observer = new MutationObserver((mutations) => {
             if (!this.pathMatches('input_change')) return;
@@ -246,22 +245,7 @@ export class AutoAssistant {
               while (el && hops < 5) {
                 const id = (el as HTMLElement).id || '';
                 const matchId = id && f.elementIds.has(id);
-                let matchCss = false;
-                try {
-                  const cp = cssPath(el) || '';
-                  if (f.cssPaths.has(cp)) matchCss = true;
-                  if (!matchCss) {
-                    for (const re of f.cssPatterns) {
-                      if (re.test(cp)) {
-                        matchCss = true;
-                        break;
-                      }
-                    }
-                  }
-                } catch {
-                  /* ignore */
-                }
-                if (matchId || matchCss) {
+                if (matchId) {
                   seen.add(el);
                   break;
                 }
@@ -285,28 +269,7 @@ export class AutoAssistant {
                 characterData: true,
               });
           });
-          // Observe specific cssPath elements
-          f.cssPaths.forEach((sel) => {
-            try {
-              const el = document.querySelector(sel);
-              if (el)
-                observer.observe(el, {
-                  subtree: true,
-                  childList: true,
-                  characterData: true,
-                });
-            } catch {
-              /* ignore */
-            }
-          });
-          // If regex present, observe document body and filter
-          if (f.cssPatterns.length > 0 && document.body) {
-            observer.observe(document.body, {
-              subtree: true,
-              childList: true,
-              characterData: true,
-            });
-          }
+          // No cssPath-based observation to avoid oversensitivity
 
           this.detachFns.push(() => observer.disconnect());
         } catch {
@@ -322,17 +285,6 @@ export class AutoAssistant {
     for (const id of f.elementIds) {
       const el = document.getElementById(id);
       if (el) return el;
-    }
-    // Fallback: try a configured cssPath selector
-    if (f.cssPaths.size > 0) {
-      for (const sel of f.cssPaths) {
-        try {
-          const el = document.querySelector(sel);
-          if (el) return el as Element;
-        } catch {
-          /* ignore invalid selector */
-        }
-      }
     }
     return undefined;
   }
@@ -351,10 +303,6 @@ export class AutoAssistant {
 
   private idMatches(kind: EventKind, target?: Element): boolean {
     return idMatchHelper(this.focus, kind, target);
-  }
-
-  private cssMatches(kind: EventKind, target?: Element): boolean {
-    return cssMatchHelper(this.focus, kind, target);
   }
 
   private targetMatches(kind: EventKind, target?: Element): boolean {
@@ -607,18 +555,36 @@ export class AutoAssistant {
       const rcRes = await this.api.ruleCheck(rcReq);
       this.bus.emit('rule:checked', rcRes);
 
-      if (!rcRes.shouldProceed || !this.canOpenPanel()) {
+      const matched = Array.isArray(rcRes.matchedRules)
+        ? (rcRes.matchedRules as string[])
+        : [];
+      const topRuleId = matched.length
+        ? matched[matched.length - 1]
+        : undefined;
+      const sig = matched.join('|');
+      const isNewMatch = !!sig && sig !== this.lastMatchSig;
+      // Skip if this rule already triggered in this session (until route change)
+      if (topRuleId && this.triggeredRules.has(topRuleId)) {
+        return;
+      }
+      if (!rcRes.shouldProceed || (!this.canOpenPanel() && !isNewMatch)) {
         return;
       }
 
+      if (!topRuleId) {
+        return;
+      }
       const sgReq: SuggestGetRequest = {
         siteId: this.opts.siteId,
         url: window.location.origin + window.location.pathname,
-        ruleId: rcRes.matchedRules[0],
+        ruleId: topRuleId,
       };
       const { suggestions } = (await this.api.suggestGet(
         sgReq
       )) as SuggestGetResponse;
+      this.lastRuleId = topRuleId;
+      this.lastMatchSig = sig;
+      if (topRuleId) this.triggeredRules.add(topRuleId);
       this.renderSuggestions(suggestions);
     } catch (e) {
       this.bus.emit('error', e);
@@ -627,5 +593,3 @@ export class AutoAssistant {
     }
   }
 }
-
-// normalizePath and toCamel moved to ./utils

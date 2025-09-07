@@ -104,6 +104,147 @@
         }
     }
 
+    function normalizePath(p) {
+        let s = String(p || '/').trim();
+        if (!s.startsWith('/'))
+            s = '/' + s;
+        if (s.length > 1 && s.endsWith('/'))
+            s = s.slice(0, -1);
+        return s;
+    }
+    // Convert identifiers like cart-count or total_qty to cartCount / totalQty
+    function toCamel(key) {
+        return key
+            .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
+            .replace(/^(.)/, (m) => m.toLowerCase());
+    }
+
+    function ensureBucket(focus, kind) {
+        if (!focus.has(kind))
+            focus.set(kind, {
+                paths: new Set(),
+                elementIds: new Set(),
+                cssPaths: new Set(),
+                cssPatterns: [],
+            });
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        return focus.get(kind);
+    }
+    function collectFocusFromRules(rules) {
+        var _a, _b;
+        const kinds = new Set();
+        const focus = new Map();
+        for (const r of rules) {
+            const triggers = ((_a = r.triggers) !== null && _a !== void 0 ? _a : []);
+            for (const t of triggers) {
+                const k = String(t.eventType || '').trim();
+                if (k &&
+                    ['dom_click', 'input_change', 'submit', 'page_load', 'route_change'].includes(k))
+                    kinds.add(k);
+                const ek = k;
+                const bucket = ensureBucket(focus, ek);
+                // equals filters
+                for (const cond of (_b = t.when) !== null && _b !== void 0 ? _b : []) {
+                    const field = String(cond.field || '');
+                    const op = String(cond.op || '').toLowerCase();
+                    const val = cond.value;
+                    if (op !== 'equals')
+                        continue;
+                    if (field === 'telemetry.attributes.path' && typeof val === 'string') {
+                        bucket.paths.add(normalizePath(val));
+                    }
+                    if (field === 'telemetry.attributes.id' && typeof val === 'string') {
+                        bucket.elementIds.add(val);
+                    }
+                    // cssPath focus is intentionally ignored to reduce sensitivity
+                }
+                // regex cssPath ignored
+            }
+        }
+        return { focus, kinds };
+    }
+    function idMatches(focus, kind, target) {
+        const f = focus.get(kind);
+        if (!f)
+            return true;
+        if (f.elementIds.size === 0)
+            return true;
+        if (!target)
+            return false;
+        let el = target;
+        let hops = 0;
+        while (el && hops < 5) {
+            const id = el.id || '';
+            if (id && f.elementIds.has(id))
+                return true;
+            el = el.parentElement;
+            hops++;
+        }
+        return false;
+    }
+    function targetMatches(focus, kind, target) {
+        const f = focus.get(kind);
+        if (!f)
+            return true;
+        const hasAny = f.elementIds.size > 0;
+        if (!hasAny)
+            return true;
+        return idMatches(focus, kind, target);
+    }
+
+    function renderFinalSuggestions(container, suggestions, onCta) {
+        container.innerHTML = '';
+        if (!(suggestions === null || suggestions === void 0 ? void 0 : suggestions.length)) {
+            container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        suggestions.forEach((s) => {
+            var _a, _b;
+            const card = document.createElement('div');
+            card.setAttribute('data-testid', 'assistant-card');
+            card.style.border = '1px solid #e5e7eb';
+            card.style.borderRadius = '12px';
+            card.style.padding = '12px';
+            card.style.margin = '8px 0';
+            const title = document.createElement('div');
+            title.textContent = (_a = s.title) !== null && _a !== void 0 ? _a : s.type;
+            title.style.fontWeight = '600';
+            card.appendChild(title);
+            if (s.description) {
+                const desc = document.createElement('div');
+                desc.textContent = s.description;
+                desc.style.opacity = '0.9';
+                desc.style.marginTop = '4px';
+                card.appendChild(desc);
+            }
+            const actions = [
+                ...((_b = s.actions) !== null && _b !== void 0 ? _b : []),
+                ...(s.primaryCta ? [s.primaryCta] : []),
+            ].filter(Boolean);
+            if (actions.length) {
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.flexWrap = 'wrap';
+                row.style.gap = '8px';
+                row.style.marginTop = '10px';
+                actions.forEach((cta, idx) => {
+                    const btn = document.createElement('button');
+                    btn.textContent = cta.label;
+                    btn.setAttribute('data-cta-idx', String(idx));
+                    btn.onclick = () => onCta(cta);
+                    btn.style.padding = '6px 10px';
+                    btn.style.borderRadius = '8px';
+                    btn.style.border = '1px solid #d1d5db';
+                    row.appendChild(btn);
+                });
+                card.appendChild(row);
+            }
+            frag.appendChild(card);
+        });
+        container.appendChild(frag);
+    }
+
     function safeStr(v) {
         if (v == null)
             return null;
@@ -244,202 +385,6 @@
         return Number.isFinite(n) ? n : null;
     }
 
-    function normalizePath(p) {
-        let s = String(p || '/').trim();
-        if (!s.startsWith('/'))
-            s = '/' + s;
-        if (s.length > 1 && s.endsWith('/'))
-            s = s.slice(0, -1);
-        return s;
-    }
-    // Convert identifiers like cart-count or total_qty to cartCount / totalQty
-    function toCamel(key) {
-        return key
-            .replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => (c ? c.toUpperCase() : ''))
-            .replace(/^(.)/, (m) => m.toLowerCase());
-    }
-
-    function ensureBucket(focus, kind) {
-        if (!focus.has(kind))
-            focus.set(kind, {
-                paths: new Set(),
-                elementIds: new Set(),
-                cssPaths: new Set(),
-                cssPatterns: [],
-            });
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        return focus.get(kind);
-    }
-    function collectFocusFromRules(rules) {
-        var _a, _b, _c;
-        const kinds = new Set();
-        const focus = new Map();
-        for (const r of rules) {
-            const triggers = ((_a = r.triggers) !== null && _a !== void 0 ? _a : []);
-            for (const t of triggers) {
-                const k = String(t.eventType || '').trim();
-                if (k &&
-                    ['dom_click', 'input_change', 'submit', 'page_load', 'route_change'].includes(k))
-                    kinds.add(k);
-                const ek = k;
-                const bucket = ensureBucket(focus, ek);
-                // equals filters
-                for (const cond of (_b = t.when) !== null && _b !== void 0 ? _b : []) {
-                    const field = String(cond.field || '');
-                    const op = String(cond.op || '').toLowerCase();
-                    const val = cond.value;
-                    if (op !== 'equals')
-                        continue;
-                    if (field === 'telemetry.attributes.path' && typeof val === 'string') {
-                        bucket.paths.add(normalizePath(val));
-                    }
-                    if (field === 'telemetry.attributes.id' && typeof val === 'string') {
-                        bucket.elementIds.add(val);
-                    }
-                    if (field === 'telemetry.cssPath' && typeof val === 'string') {
-                        bucket.cssPaths.add(val);
-                    }
-                }
-                // regex cssPath
-                for (const cond of (_c = t.when) !== null && _c !== void 0 ? _c : []) {
-                    const field = String(cond.field || '');
-                    const op = String(cond.op || '').toLowerCase();
-                    const val = cond.value;
-                    if (field === 'telemetry.cssPath' && op === 'regex' && typeof val === 'string') {
-                        try {
-                            bucket.cssPatterns.push(new RegExp(val));
-                        }
-                        catch (_d) {
-                            /* ignore */
-                        }
-                    }
-                }
-            }
-        }
-        return { focus, kinds };
-    }
-    function idMatches(focus, kind, target) {
-        const f = focus.get(kind);
-        if (!f)
-            return true;
-        if (f.elementIds.size === 0)
-            return true;
-        if (!target)
-            return false;
-        let el = target;
-        let hops = 0;
-        while (el && hops < 5) {
-            const id = el.id || '';
-            if (id && f.elementIds.has(id))
-                return true;
-            el = el.parentElement;
-            hops++;
-        }
-        return false;
-    }
-    function cssMatches(focus, kind, target) {
-        const f = focus.get(kind);
-        if (!f)
-            return true;
-        const hasCss = f.cssPaths.size > 0 || f.cssPatterns.length > 0;
-        if (!hasCss)
-            return true;
-        if (!target)
-            return false;
-        const candidates = [target];
-        let el = target.parentElement;
-        let hops = 0;
-        while (el && hops < 5) {
-            candidates.push(el);
-            el = el.parentElement;
-            hops++;
-        }
-        for (const c of candidates) {
-            try {
-                const cp = cssPath(c) || '';
-                if (!cp)
-                    continue;
-                if (f.cssPaths.has(cp))
-                    return true;
-                for (const re of f.cssPatterns) {
-                    try {
-                        if (re.test(cp))
-                            return true;
-                    }
-                    catch (_a) {
-                        /* ignore */
-                    }
-                }
-            }
-            catch (_b) {
-                /* ignore */
-            }
-        }
-        return false;
-    }
-    function targetMatches(focus, kind, target) {
-        const f = focus.get(kind);
-        if (!f)
-            return true;
-        const hasAny = f.elementIds.size > 0 || f.cssPaths.size > 0 || f.cssPatterns.length > 0;
-        if (!hasAny)
-            return true;
-        return idMatches(focus, kind, target) || cssMatches(focus, kind, target);
-    }
-
-    function renderFinalSuggestions(container, suggestions, onCta) {
-        container.innerHTML = '';
-        if (!(suggestions === null || suggestions === void 0 ? void 0 : suggestions.length)) {
-            container.innerHTML = `<div data-testid="assistant-empty">No suggestions</div>`;
-            return;
-        }
-        const frag = document.createDocumentFragment();
-        suggestions.forEach((s) => {
-            var _a, _b;
-            const card = document.createElement('div');
-            card.setAttribute('data-testid', 'assistant-card');
-            card.style.border = '1px solid #e5e7eb';
-            card.style.borderRadius = '12px';
-            card.style.padding = '12px';
-            card.style.margin = '8px 0';
-            const title = document.createElement('div');
-            title.textContent = (_a = s.title) !== null && _a !== void 0 ? _a : s.type;
-            title.style.fontWeight = '600';
-            card.appendChild(title);
-            if (s.description) {
-                const desc = document.createElement('div');
-                desc.textContent = s.description;
-                desc.style.opacity = '0.9';
-                desc.style.marginTop = '4px';
-                card.appendChild(desc);
-            }
-            const actions = [
-                ...((_b = s.actions) !== null && _b !== void 0 ? _b : []),
-                ...(s.primaryCta ? [s.primaryCta] : []),
-            ].filter(Boolean);
-            if (actions.length) {
-                const row = document.createElement('div');
-                row.style.display = 'flex';
-                row.style.flexWrap = 'wrap';
-                row.style.gap = '8px';
-                row.style.marginTop = '10px';
-                actions.forEach((cta, idx) => {
-                    const btn = document.createElement('button');
-                    btn.textContent = cta.label;
-                    btn.setAttribute('data-cta-idx', String(idx));
-                    btn.onclick = () => onCta(cta);
-                    btn.style.padding = '6px 10px';
-                    btn.style.borderRadius = '8px';
-                    btn.style.border = '1px solid #d1d5db';
-                    row.appendChild(btn);
-                });
-                card.appendChild(row);
-            }
-            frag.appendChild(card);
-        });
-        container.appendChild(frag);
-    }
-
     class AutoAssistant {
         constructor(options) {
             var _a, _b;
@@ -452,6 +397,7 @@
             this.focus = new Map();
             this.lastSuggestions = [];
             this.currentStep = 1;
+            this.triggeredRules = new Set();
             this.opts = Object.assign({ debounceMs: (_a = options.debounceMs) !== null && _a !== void 0 ? _a : 150, finalCooldownMs: (_b = options.finalCooldownMs) !== null && _b !== void 0 ? _b : 30000 }, options);
             this.api = createApi(options);
         }
@@ -573,6 +519,8 @@
                     return;
                 if (!this.pathMatches('route_change'))
                     return;
+                // Clear dedupe when route changes
+                this.triggeredRules.clear();
                 const target = this.pickFocusTarget('route_change');
                 this.schedule(() => this.handleEvent('route_change', target));
             };
@@ -584,13 +532,10 @@
                 history.pushState = _push;
                 history.replaceState = _replace;
             });
-            // Observe text changes on configured elements (id or cssPath) to synthesize input_change
+            // Observe text/value changes on configured elements (id-only) to synthesize input_change
             if (this.allow.has('input_change')) {
                 const f = this.focus.get('input_change');
-                if (f &&
-                    (f.elementIds.size > 0 ||
-                        f.cssPaths.size > 0 ||
-                        f.cssPatterns.length > 0)) {
+                if (f && f.elementIds.size > 0) {
                     try {
                         const observer = new MutationObserver((mutations) => {
                             if (!this.pathMatches('input_change'))
@@ -608,24 +553,7 @@
                                 while (el && hops < 5) {
                                     const id = el.id || '';
                                     const matchId = id && f.elementIds.has(id);
-                                    let matchCss = false;
-                                    try {
-                                        const cp = cssPath(el) || '';
-                                        if (f.cssPaths.has(cp))
-                                            matchCss = true;
-                                        if (!matchCss) {
-                                            for (const re of f.cssPatterns) {
-                                                if (re.test(cp)) {
-                                                    matchCss = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    catch (_a) {
-                                        /* ignore */
-                                    }
-                                    if (matchId || matchCss) {
+                                    if (matchId) {
                                         seen.add(el);
                                         break;
                                     }
@@ -649,29 +577,7 @@
                                     characterData: true,
                                 });
                         });
-                        // Observe specific cssPath elements
-                        f.cssPaths.forEach((sel) => {
-                            try {
-                                const el = document.querySelector(sel);
-                                if (el)
-                                    observer.observe(el, {
-                                        subtree: true,
-                                        childList: true,
-                                        characterData: true,
-                                    });
-                            }
-                            catch (_a) {
-                                /* ignore */
-                            }
-                        });
-                        // If regex present, observe document body and filter
-                        if (f.cssPatterns.length > 0 && document.body) {
-                            observer.observe(document.body, {
-                                subtree: true,
-                                childList: true,
-                                characterData: true,
-                            });
-                        }
+                        // No cssPath-based observation to avoid oversensitivity
                         this.detachFns.push(() => observer.disconnect());
                     }
                     catch (_a) {
@@ -688,19 +594,6 @@
                 const el = document.getElementById(id);
                 if (el)
                     return el;
-            }
-            // Fallback: try a configured cssPath selector
-            if (f.cssPaths.size > 0) {
-                for (const sel of f.cssPaths) {
-                    try {
-                        const el = document.querySelector(sel);
-                        if (el)
-                            return el;
-                    }
-                    catch (_a) {
-                        /* ignore invalid selector */
-                    }
-                }
             }
             return undefined;
         }
@@ -720,9 +613,6 @@
         }
         idMatches(kind, target) {
             return idMatches(this.focus, kind, target);
-        }
-        cssMatches(kind, target) {
-            return cssMatches(this.focus, kind, target);
         }
         targetMatches(kind, target) {
             return targetMatches(this.focus, kind, target);
@@ -966,15 +856,34 @@
                     };
                     const rcRes = yield this.api.ruleCheck(rcReq);
                     this.bus.emit('rule:checked', rcRes);
-                    if (!rcRes.shouldProceed || !this.canOpenPanel()) {
+                    const matched = Array.isArray(rcRes.matchedRules)
+                        ? rcRes.matchedRules
+                        : [];
+                    const topRuleId = matched.length
+                        ? matched[matched.length - 1]
+                        : undefined;
+                    const sig = matched.join('|');
+                    const isNewMatch = !!sig && sig !== this.lastMatchSig;
+                    // Skip if this rule already triggered in this session (until route change)
+                    if (topRuleId && this.triggeredRules.has(topRuleId)) {
+                        return;
+                    }
+                    if (!rcRes.shouldProceed || (!this.canOpenPanel() && !isNewMatch)) {
+                        return;
+                    }
+                    if (!topRuleId) {
                         return;
                     }
                     const sgReq = {
                         siteId: this.opts.siteId,
                         url: window.location.origin + window.location.pathname,
-                        ruleId: rcRes.matchedRules[0],
+                        ruleId: topRuleId,
                     };
                     const { suggestions } = (yield this.api.suggestGet(sgReq));
+                    this.lastRuleId = topRuleId;
+                    this.lastMatchSig = sig;
+                    if (topRuleId)
+                        this.triggeredRules.add(topRuleId);
                     this.renderSuggestions(suggestions);
                 }
                 catch (e) {
@@ -986,7 +895,6 @@
             });
         }
     }
-    // normalizePath and toCamel moved to ./utils
 
     // Attach a simple UMD-style global for convenience when used via <script>
     if (typeof window !== 'undefined') {

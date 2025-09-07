@@ -1,4 +1,3 @@
-import { cssPath } from './telemetry';
 import { normalizePath } from './utils';
 import type { RuleListItem } from './types';
 
@@ -62,23 +61,9 @@ export function collectFocusFromRules(rules: RuleListItem[]): {
         if (field === 'telemetry.attributes.id' && typeof val === 'string') {
           bucket.elementIds.add(val);
         }
-        if (field === 'telemetry.cssPath' && typeof val === 'string') {
-          bucket.cssPaths.add(val);
-        }
+        // cssPath focus is intentionally ignored to reduce sensitivity
       }
-      // regex cssPath
-      for (const cond of t.when ?? []) {
-        const field = String(cond.field || '');
-        const op = String(cond.op || '').toLowerCase();
-        const val = cond.value;
-        if (field === 'telemetry.cssPath' && op === 'regex' && typeof val === 'string') {
-          try {
-            bucket.cssPatterns.push(new RegExp(val));
-          } catch {
-            /* ignore */
-          }
-        }
-      }
+      // regex cssPath ignored
     }
   }
   return { focus, kinds };
@@ -90,14 +75,6 @@ export function pickFocusTarget(focus: FocusMap, kind: EventKind): Element | und
   for (const id of f.elementIds) {
     const el = document.getElementById(id);
     if (el) return el;
-  }
-  for (const sel of f.cssPaths) {
-    try {
-      const el = document.querySelector(sel);
-      if (el) return el as Element;
-    } catch {
-      /* ignore invalid selector */
-    }
   }
   return undefined;
 }
@@ -118,39 +95,6 @@ export function idMatches(focus: FocusMap, kind: EventKind, target?: Element): b
   return false;
 }
 
-export function cssMatches(focus: FocusMap, kind: EventKind, target?: Element): boolean {
-  const f = focus.get(kind);
-  if (!f) return true;
-  const hasCss = f.cssPaths.size > 0 || f.cssPatterns.length > 0;
-  if (!hasCss) return true;
-  if (!target) return false;
-  const candidates: Element[] = [target];
-  let el: Element | null = target.parentElement;
-  let hops = 0;
-  while (el && hops < 5) {
-    candidates.push(el);
-    el = el.parentElement;
-    hops++;
-  }
-  for (const c of candidates) {
-    try {
-      const cp = cssPath(c) || '';
-      if (!cp) continue;
-      if (f.cssPaths.has(cp)) return true;
-      for (const re of f.cssPatterns) {
-        try {
-          if (re.test(cp)) return true;
-        } catch {
-          /* ignore */
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return false;
-}
-
 export function targetMatches(
   focus: FocusMap,
   kind: EventKind,
@@ -158,8 +102,7 @@ export function targetMatches(
 ): boolean {
   const f = focus.get(kind);
   if (!f) return true;
-  const hasAny = f.elementIds.size > 0 || f.cssPaths.size > 0 || f.cssPatterns.length > 0;
+  const hasAny = f.elementIds.size > 0;
   if (!hasAny) return true;
-  return idMatches(focus, kind, target) || cssMatches(focus, kind, target);
+  return idMatches(focus, kind, target);
 }
-
