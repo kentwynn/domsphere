@@ -5,17 +5,36 @@
     <title>Your Cart</title>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <style>
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-      h1 { margin-top: 0; }
-      a { color: #2563eb; }
-      .row { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
-      input, button { padding: 8px 10px; border-radius: 8px; border: 1px solid #d1d5db; }
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 2rem;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      a {
+        color: #2563eb;
+      }
+      .row {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      input,
+      button {
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+      }
     </style>
   </head>
   <body>
     <h1>Your Cart</h1>
-    <nav style="margin-bottom:12px; display:flex; gap:10px;">
+    <nav style="margin-bottom: 12px; display: flex; gap: 10px">
       <a href="../">Home</a>
       <a href="../products/">Products</a>
       <a href="./">Cart</a>
@@ -24,14 +43,27 @@
     <section>
       <div>
         Items:
-        <input id="cart-count" type="number" min="0" value="2" style="width: 70px" />
+        <input
+          id="cart-count"
+          type="number"
+          min="0"
+          value="2"
+          style="width: 70px"
+        />
         <button id="dec">-</button>
         <button id="inc">+</button>
       </div>
       <div class="row">
         <input id="promo-code" placeholder="Promo code" />
         <button id="apply-promo">Apply</button>
+        <button id="promo-try-another" style="display: none">
+          Try another code
+        </button>
       </div>
+      <div
+        id="promo-msg"
+        style="margin-top: 6px; font-size: 14px; color: #065f46; display: none"
+      ></div>
       <div class="row">
         <button id="checkout">Checkout</button>
       </div>
@@ -41,15 +73,23 @@
     <script>
       // Simple counter controls to trigger rules dynamically
       window.addEventListener('DOMContentLoaded', () => {
+        const key = 'demoCartCount';
         const countInput = document.getElementById('cart-count');
         const inc = document.getElementById('inc');
         const dec = document.getElementById('dec');
         const checkoutBtn = document.getElementById('checkout');
+        const applyBtn = document.getElementById('apply-promo');
+        const tryAnotherBtn = document.getElementById('promo-try-another');
+        const promoInput = document.getElementById('promo-code');
+        const promoMsg = document.getElementById('promo-msg');
         const clamp = (n) => (n < 0 ? 0 : n);
         const setCount = (n) => {
           if (!(countInput instanceof HTMLInputElement)) return;
           const v = String(clamp(n));
           countInput.value = v;
+          try {
+            localStorage.setItem(key, v);
+          } catch {}
           // Fire input/change so SDK rules listening for input_change will pick it up
           countInput.dispatchEvent(new Event('input', { bubbles: true }));
           countInput.dispatchEvent(new Event('change', { bubbles: true }));
@@ -59,6 +99,11 @@
           const n = parseInt(countInput.value || '0', 10);
           return Number.isFinite(n) ? n : 0;
         };
+        // Initialize from storage
+        try {
+          const stored = parseInt(localStorage.getItem(key) || '0', 10);
+          if (Number.isFinite(stored)) setCount(stored);
+        } catch {}
         inc?.addEventListener('click', () => setCount(getCount() + 1));
         dec?.addEventListener('click', () => setCount(getCount() - 1));
         // Clamp negatives entered manually
@@ -71,11 +116,49 @@
         checkoutBtn?.addEventListener('click', () => {
           window.location.href = '../checkout/';
         });
+
+        // Apply promo UI feedback
+        applyBtn?.addEventListener('click', () => {
+          let code = '';
+          if (promoInput instanceof HTMLInputElement)
+            code = (promoInput.value || '').trim();
+          if (!(promoMsg instanceof HTMLElement)) return;
+          if (!code) {
+            promoMsg.textContent = 'Please enter a promo code.';
+            promoMsg.style.color = '#b91c1c';
+            promoMsg.style.display = 'block';
+            return;
+          }
+          // Success state: show message, hide input/apply, show try-another
+          promoMsg.textContent = `Promo code ${code} has been applied.`;
+          promoMsg.style.color = '#065f46';
+          promoMsg.style.display = 'block';
+          if (promoInput instanceof HTMLInputElement) {
+            promoInput.style.display = 'none';
+          }
+          if (applyBtn instanceof HTMLElement) applyBtn.style.display = 'none';
+          if (tryAnotherBtn instanceof HTMLElement)
+            tryAnotherBtn.style.display = 'inline-block';
+        });
+
+        tryAnotherBtn?.addEventListener('click', () => {
+          if (promoInput instanceof HTMLInputElement) {
+            promoInput.style.display = '';
+            promoInput.value = '';
+            promoInput.focus();
+          }
+          if (applyBtn instanceof HTMLElement) applyBtn.style.display = '';
+          if (tryAnotherBtn instanceof HTMLElement)
+            tryAnotherBtn.style.display = 'none';
+          if (promoMsg instanceof HTMLElement) promoMsg.style.display = 'none';
+        });
       });
     </script>
     <script>
       window.addEventListener('DOMContentLoaded', () => {
-        const AutoAssistant = (window.AgentSDK && window.AgentSDK.AutoAssistant) || window.AutoAssistant;
+        const AutoAssistant =
+          (window.AgentSDK && window.AgentSDK.AutoAssistant) ||
+          window.AutoAssistant;
         if (!AutoAssistant) {
           console.error('[demo] AutoAssistant not found.');
           return;
@@ -90,10 +173,12 @@
         });
         sdk.on('rule:ready', () => console.debug('[rule:ready]'));
         sdk.on('rule:checked', (r) => console.debug('[rule:check]', r));
-        sdk.on('suggest:ready', (sugs) => console.debug('[suggest:ready]', sugs));
+        sdk.on('suggest:ready', (sugs) =>
+          console.debug('[suggest:ready]', sugs)
+        );
         sdk.on('error', (e) => console.error('[sdk:error]', e));
         sdk.start();
       });
     </script>
   </body>
-  </html>
+</html>

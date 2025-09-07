@@ -15,10 +15,13 @@
   </head>
   <body>
     <h1>All Products</h1>
-    <nav style="margin-bottom:12px; display:flex; gap:10px;">
+    <nav style="margin-bottom:12px; display:flex; gap:10px; align-items:center;">
       <a href="../">Home</a>
       <a href="./">Products</a>
-      <a href="../cart/">Cart</a>
+      <a href="../cart/" style="position:relative" id="nav-cart">
+        Cart
+        <span id="nav-cart-count" style="display:inline-block; min-width:18px; padding:2px 6px; margin-left:6px; font-size:12px; line-height:1; border-radius:10px; background:#111827; color:#fff; text-align:center;">0</span>
+      </a>
     </nav>
     <section>
       <div class="grid">
@@ -27,7 +30,33 @@
       </div>
     </section>
     <div id="assistant-panel"></div>
+    <div id="cart-toast" style="position:fixed; top:12px; right:12px; background:#111827; color:#fff; padding:10px 12px; border-radius:8px; display:none; z-index:1000; box-shadow:0 4px 12px rgba(0,0,0,0.15)">Added to cart</div>
     <script src="../sdk.umd.min.js"></script>
+    <script>
+      (function() {
+        const key = 'demoCartCount';
+        const getCount = () => parseInt(localStorage.getItem(key) || '0', 10) || 0;
+        const setCount = (n) => { localStorage.setItem(key, String(n)); renderBadge(); };
+        const renderBadge = () => {
+          const el = document.getElementById('nav-cart-count');
+          if (el) el.textContent = String(getCount());
+        };
+        const toast = (msg) => {
+          const t = document.getElementById('cart-toast');
+          if (!t) return;
+          t.textContent = msg;
+          t.style.display = 'block';
+          setTimeout(() => { t.style.display = 'none'; }, 1500);
+        };
+        window.addEventListener('DOMContentLoaded', () => {
+          renderBadge();
+          // optional: enable quick add via query or future buttons
+          document.querySelectorAll('[data-quick-add]')?.forEach((el)=>{
+            el.addEventListener('click', (e)=>{ e.preventDefault(); setCount(getCount()+1); toast('Added 1 item to cart'); });
+          });
+        });
+      })();
+    </script>
     <script>
       window.addEventListener('DOMContentLoaded', () => {
         const AutoAssistant = (window.AgentSDK && window.AgentSDK.AutoAssistant) || window.AutoAssistant;
