@@ -15,113 +15,27 @@
       h1 {
         margin-top: 0;
       }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(160px, 1fr));
-        gap: 12px;
+      a {
+        color: #2563eb;
       }
-      .product {
-        border: 1px solid #d1d5db;
-        padding: 12px;
-        border-radius: 10px;
+      nav {
+        margin-bottom: 12px;
         display: flex;
-        gap: 8px;
-        align-items: center;
-        justify-content: space-between;
-      }
-      .product button {
-        padding: 6px 10px;
-        border-radius: 8px;
-        border: 1px solid #cbd5e1;
-        background: #f8fafc;
-        cursor: pointer;
-        color: black;
-      }
-      #cart {
-        margin: 12px 0 20px;
-        font-weight: 600;
-      }
-      #suggestions {
-        margin-top: 16px;
-        max-width: 720px;
+        gap: 10px;
       }
     </style>
   </head>
   <body>
-    <h1>Demo Shop</h1>
-
-    <div class="grid">
-      <div class="product">
-        <span>Product A</span>
-        <button
-          data-testid="add_to_cart"
-          data-action="add_to_cart"
-          aria-label="add_to_cart"
-        >
-          Add to cart
-        </button>
-      </div>
-      <div class="product">
-        <span>Product B</span>
-        <button
-          data-testid="add_to_cart"
-          data-action="add_to_cart"
-          aria-label="add_to_cart"
-        >
-          Add to cart
-        </button>
-      </div>
-      <div class="product">
-        <span>Product C</span>
-        <button
-          data-testid="add_to_cart"
-          data-action="add_to_cart"
-          aria-label="add_to_cart"
-        >
-          Add to cart
-        </button>
-      </div>
-    </div>
-
-    <div id="cart">Cart count: <span id="cart-count">0</span></div>
-
-    <!-- Assistant render panel (targeted by SDK via panelSelector) -->
+    <h1>Demo Shop • Home</h1>
+    <p>Welcome to Demo Shop at localhost:3000.</p>
+    <p><a id="shop-now" href="/products/">Shop now</a></p>
     <div id="assistant-panel"></div>
-
-    <!-- The SDK will render its own UI here (ask/final), but this page does NOT touch it -->
-    <div id="suggestions"></div>
-
-    <!-- Site logic ONLY: add-to-cart & cart counter -->
-    <script>
-      (function () {
-        let cartCount = 0;
-        const countEl = document.getElementById('cart-count');
-
-        document.addEventListener(
-          'click',
-          (e) => {
-            const btn =
-              e.target &&
-              e.target.closest(
-                "button[data-testid='add_to_cart'],button[data-action='add_to_cart']"
-              );
-            if (!btn) return;
-            cartCount += 1;
-            countEl.textContent = String(cartCount);
-            // That’s it. No API calls and no SDK wiring here.
-          },
-          { capture: true }
-        );
-      })();
-    </script>
 
     <!-- SDK: expected to auto-init and observe DOM; no manual wiring here -->
     <!-- Update the path if you serve this file differently -->
     <script src="./sdk.umd.min.js"></script>
     <script>
-      // Defer until DOM is ready to ensure containers exist
       window.addEventListener('DOMContentLoaded', () => {
-        // The UMD build exposes AgentSDK.{ AutoAssistant, ... }
         const AutoAssistant =
           (window.AgentSDK && window.AgentSDK.AutoAssistant) ||
           window.AutoAssistant;
@@ -131,7 +45,6 @@
           );
           return;
         }
-
         const sdk = new AutoAssistant({
           baseUrl: 'http://localhost:4000',
           siteId: 'demo-site',
@@ -140,13 +53,12 @@
           debounceMs: 150,
           finalCooldownMs: 30000,
         });
-
-        // Optional debug logs
-        sdk.on('rule:checked', (r) => console.debug('[rule:checked]', r));
-        sdk.on('turn:ask', (t) => console.debug('[turn:ask]', t));
-        sdk.on('turn:final', (t) => console.debug('[turn:final]', t));
+        sdk.on('rule:ready', () => console.debug('[rule:ready]'));
+        sdk.on('rule:checked', (r) => console.debug('[rule:check]', r));
+        sdk.on('suggest:ready', (sugs) =>
+          console.debug('[suggest:ready]', sugs)
+        );
         sdk.on('error', (e) => console.error('[sdk:error]', e));
-
         sdk.start();
       });
     </script>

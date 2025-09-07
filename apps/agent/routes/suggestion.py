@@ -45,6 +45,34 @@ def suggest(
         )
         return AgentSuggestNextResponse(suggestions=[s, s2])
 
+    # CART special promo for 5+ items
+    if rid == "promo_cart_gte_5" and url.endswith("/cart"):
+        s = Suggestion(
+            type="coupon",
+            id=f"coupon-{rid}",
+            title="Special offer!",
+            description="You qualify for a special promo.",
+            primaryCta=CtaSpec(
+                label="Apply YYY",
+                kind="dom_fill",
+                payload={"selector": "#promo-code", "value": "YYY"},
+            ),
+            actions=[
+                CtaSpec(label="Fill YYY", kind="dom_fill", payload={"selector": "#promo-code", "value": "YYY"}),
+                CtaSpec(label="Submit", kind="click", payload={"selector": "#apply-promo"}),
+            ],
+            meta={"code": "YYY", "step": 1},
+        )
+        s2 = Suggestion(
+            type="checkout",
+            id=f"checkout-{rid}",
+            title="Proceed to checkout?",
+            primaryCta=CtaSpec(label="Checkout", kind="click", payload={"selector": "#checkout"}),
+            actions=[CtaSpec(label="Checkout", kind="click", payload={"selector": "#checkout"})],
+            meta={"step": 2},
+        )
+        return AgentSuggestNextResponse(suggestions=[s, s2])
+
     # PRODUCTS page: celebratory banner/CTA
     if rid == "products_birthday_20y" and url.endswith("/products"):
         s = Suggestion(

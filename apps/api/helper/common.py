@@ -40,6 +40,34 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                             {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
                             {"field": "telemetry.elementText", "op": "gte", "value": 2}
                         ]},
+                        {"eventType": "dom_click", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
+                            {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
+                            {"field": "telemetry.elementText", "op": "gte", "value": 2}
+                        ]},
+                    ],
+                },
+                {
+                    "id": "promo_cart_gte_5",
+                    "enabled": True,
+                    "tracking": True,
+                    "llmInstruction": "Give special promo code YYY when cart count >= 5",
+                    "triggers": [
+                        {"eventType": "page_load", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
+                            {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
+                            {"field": "telemetry.elementText", "op": "gte", "value": 5}
+                        ]},
+                        {"eventType": "input_change", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
+                            {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
+                            {"field": "telemetry.elementText", "op": "gte", "value": 5}
+                        ]},
+                        {"eventType": "dom_click", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
+                            {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
+                            {"field": "telemetry.elementText", "op": "gte", "value": 5}
+                        ]},
                     ],
                 },
                 {
