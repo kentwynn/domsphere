@@ -487,7 +487,17 @@ export class AutoAssistant {
 
   private buildTelemetry(target?: Element): EventSchema['telemetry'] {
     const el = target && target.nodeType === 1 ? (target as Element) : null;
-    const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
+    let elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
+    // For form controls (e.g., input/textarea), prefer their value when textContent is empty
+    try {
+      if (el && (!elementText || elementText.length === 0)) {
+        const anyEl = el as unknown as { value?: unknown };
+        const v = anyEl && typeof anyEl.value === 'string' ? anyEl.value : null;
+        if (v != null) elementText = String(v).slice(0, 400);
+      }
+    } catch {
+      /* ignore */
+    }
     const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
     const attributes: Record<string, string | null> = el ? attrMap(el) : {};
     // Always include current path so rules can filter on it

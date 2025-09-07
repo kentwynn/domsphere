@@ -851,7 +851,19 @@
         }
         buildTelemetry(target) {
             const el = target && target.nodeType === 1 ? target : null;
-            const elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
+            let elementText = el ? (el.textContent || '').trim().slice(0, 400) : null;
+            // For form controls (e.g., input/textarea), prefer their value when textContent is empty
+            try {
+                if (el && (!elementText || elementText.length === 0)) {
+                    const anyEl = el;
+                    const v = anyEl && typeof anyEl.value === 'string' ? anyEl.value : null;
+                    if (v != null)
+                        elementText = String(v).slice(0, 400);
+                }
+            }
+            catch (_a) {
+                /* ignore */
+            }
             const elementHtml = el ? el.outerHTML.slice(0, 4000) : null; // cap size
             const attributes = el ? attrMap(el) : {};
             // Always include current path so rules can filter on it
@@ -859,7 +871,7 @@
                 const p = window.location ? window.location.pathname : '/';
                 attributes['path'] = normalizePath(p);
             }
-            catch (_a) {
+            catch (_b) {
                 /* ignore */
             }
             try {
@@ -869,7 +881,7 @@
                     attributes['action'] = action;
                 }
             }
-            catch (_b) {
+            catch (_c) {
                 /* empty */
             }
             try {
@@ -919,7 +931,7 @@
                     attributes[camel] = String(n);
                 }
             }
-            catch (_c) {
+            catch (_d) {
                 /* best-effort only */
             }
             const css = el ? cssPath(el) : null;
