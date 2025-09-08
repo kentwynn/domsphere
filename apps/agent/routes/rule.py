@@ -18,7 +18,6 @@ def compile_rule(
         triggers = agent.generate_triggers(
             site_id=payload.siteId,
             rule_instruction=payload.ruleInstruction,
-            output_instruction=getattr(payload, "outputInstruction", None),
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"TRIGGER_GENERATION_FAILED: {e}")

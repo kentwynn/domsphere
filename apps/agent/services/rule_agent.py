@@ -1,7 +1,8 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import os
 import json
+from click import Tuple
 import httpx
 from contracts.common import DOM_EVENT_TYPES, CONDITION_OPS
 
@@ -27,12 +28,6 @@ class RuleAgent:
             data = r.json() or {}
             return data.get("pages", [])
 
-    def tool_get_site_info(self, site_id: str, url: str) -> Dict[str, Any]:
-        with httpx.Client(timeout=self.timeout) as client:
-            r = client.get(f"{self.api_url}/site/info", params={"siteId": site_id, "url": url})
-            r.raise_for_status()
-            return r.json() or {}
-
     def tool_get_site_atlas(self, site_id: str, url: str) -> Dict[str, Any]:
         with httpx.Client(timeout=self.timeout) as client:
             r = client.get(f"{self.api_url}/site/atlas", params={"siteId": site_id, "url": url})
@@ -40,7 +35,7 @@ class RuleAgent:
             return r.json() or {}
 
     # --- LLM path --------------------------------------------------------------------
-    def _llm_generate(self, site_id: str, rule_instruction: str, output_instruction: Optional[str]) -> Optional[List[Dict[str, Any]]]:
+    def _llm_generate(self, site_id: str, rule_instruction: str) -> Optional[List[Dict[str, Any]]]:
         try:
             from langchain_openai import ChatOpenAI
             from langchain_core.tools import tool
@@ -62,11 +57,6 @@ class RuleAgent:
             """Fetch the site's sitemap pages array for the given siteId."""
             return agent_self.tool_get_sitemap(siteId)
 
-        @tool("get_site_info", return_direct=False)
-        def get_site_info(siteId: str, url: str) -> Dict[str, Any]:  # type: ignore[override]
-            """Fetch site info metadata for a specific URL."""
-            return agent_self.tool_get_site_info(siteId, url)
-
         @tool("get_site_atlas", return_direct=False)
         def get_site_atlas(siteId: str, url: str) -> Dict[str, Any]:  # type: ignore[override]
             """Fetch DOM atlas snapshot for a specific URL."""
@@ -74,13 +64,30 @@ class RuleAgent:
 
         model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # small+cheap default
         llm = ChatOpenAI(api_key=self.openai_token, model=model_name, temperature=0)
-        llm_tools = [get_sitemap, get_site_info, get_site_atlas]
+        llm_tools = [get_sitemap, get_site_atlas]
         llm = llm.bind_tools(llm_tools)
 
         sys = SystemMessage(
             content=(
-                "You are Rule Trigger Agent. Use the available tools to inspect the site map, site info, and DOM atlas. "
-                "Derive concrete triggers for the rule instruction. Always output a compact JSON object with key 'triggers' only."
+                "You are Rule Trigger Agent.\n"
+                "Goal: Given a ruleInstruction and a siteId, generate 'triggers' based strictly on real DOM data.\n\n"
+                "Step-by-step:\n"
+                "1. Call get_sitemap(siteId) to get list of pages.\n"
+                "2. Identify candidate page(s) based on ruleInstruction (e.g. keywords like 'cart', 'checkout').\n"
+                "3. Call get_site_atlas(siteId, url) for each relevant page to get real DOM elements.\n"
+                "4. From those elements, find ones with matching id/class/text relevant to ruleInstruction.\n\n"
+                "Use these fields in trigger conditions:\n"
+                "- telemetry.attributes.path (equals)\n"
+                "- telemetry.attributes.id or .class (equals only)\n"
+                "- telemetry.elementText or .attributes.value (for numeric or text comparison)\n\n"
+                "Rules:\n"
+                "- Do NOT invent IDs or paths. Only use values seen in tool results.\n"
+                "- Use 'gte', 'gt', 'lte', 'lt' only on numeric fields like telemetry.elementText.\n"
+                "- Bind each trigger to a specific element if possible (via id/class).\n"
+                "- Always include telemetry.attributes.path equals <path> from sitemap.\n"
+                "- Always return JSON with key 'triggers', and nothing else.\n\n"
+                "Example output:\n"
+                "{ \"triggers\": [ {\"eventType\": \"page_load\", \"when\": [ ... ]} ] }"
             )
         )
         preferred_events = DOM_EVENT_TYPES
@@ -89,49 +96,44 @@ class RuleAgent:
             content=json.dumps({
                 "siteId": site_id,
                 "ruleInstruction": rule_instruction,
-                "outputInstruction": output_instruction,
                 "requirements": {
                     "eventTypes": preferred_events,
                     "ops": CONDITION_OPS,
                     "fieldExamples": [
-                        "telemetry.attributes.path", "telemetry.attributes.id", "telemetry.elementText"
+                        "telemetry.attributes.path", "telemetry.attributes.id", "telemetry.attributes.class", "telemetry.cssPath", "telemetry.elementText"
                     ],
                 },
-                "format": {"triggers": [
-                    {"eventType": "page_load", "when": [
-                        {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
-                        {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},
-                        {"field": "telemetry.elementText", "op": "gte", "value": 2}
-                    ]}
-                ]}
+                "outputSchema": {
+                    "triggers": [
+                        {"eventType": "<one of eventTypes>", "when": [
+                            {"field": "<fieldExamples entry>", "op": "<ops entry>", "value": "<value from tools>"}
+                        ]}
+                    ]
+                }
             })
         )
 
         messages = [sys, human]
-        for turn in range(4):  # small loop to resolve tool calls
+        for turn in range(6):  # allow a couple revision cycles
             ai = llm.invoke(messages)
             tool_calls = getattr(ai, "tool_calls", None) or []
             if not tool_calls:
                 # expect final JSON content
                 try:
-                    if getattr(self, "debug", False):
+                    if self.debug:
                         print(f"[RuleAgent] Final AI content (no tool calls, turn={turn}): {ai.content}")
-                    data = self._extract_json(ai.content)
+                    data = _parse_json(ai.content)
                     trig = data.get("triggers")
-                    if isinstance(trig, list):
+                    # Lightweight shape check: triggers is a list of dicts
+                    if isinstance(trig, list) and all(isinstance(x, dict) for x in trig):
                         return trig
                 except Exception:
-                    # fall through to return [] below
                     pass
-                # If we reach here, content wasn't usable JSON
                 return []
-            # Append the assistant message that contains tool_calls
             messages.append(ai)
-            # Execute tools and append their outputs as ToolMessage responses
             for tc in tool_calls:
                 name = tc["name"] if isinstance(tc, dict) else getattr(tc, "name", None)
                 args = tc["args"] if isinstance(tc, dict) else getattr(tc, "args", {})
-                # Normalize args: LangChain generally parses to dict, but sometimes a JSON string slips through.
                 if isinstance(args, str):
                     try:
                         parsed = json.loads(args)
@@ -139,20 +141,18 @@ class RuleAgent:
                             args = parsed
                     except Exception:
                         pass
-                if getattr(self, "debug", False):
+                if self.debug:
                     print(f"[RuleAgent] Tool call -> name={name}, args={args}")
                 try:
                     if name == "get_sitemap":
                         result = get_sitemap.invoke(args)
-                    elif name == "get_site_info":
-                        result = get_site_info.invoke(args)
                     elif name == "get_site_atlas":
                         result = get_site_atlas.invoke(args)
                     else:
                         result = {"error": f"unknown tool {name}"}
                 except Exception as e:
                     result = {"error": str(e)}
-                if getattr(self, "debug", False):
+                if self.debug:
                     preview = result if isinstance(result, (dict, list)) else str(result)
                     print(f"[RuleAgent] Tool result for {name}: {str(preview)[:200]}")
                 messages.append(
@@ -161,42 +161,28 @@ class RuleAgent:
                         tool_call_id=(tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", "tool")),
                     )
                 )
-        # Exceeded tool resolution turns without a usable final; return empty
         return []
 
     # --- Public API ------------------------------------------------------------------
-    def generate_triggers(self, site_id: str, rule_instruction: str, output_instruction: Optional[str] = None) -> List[Dict[str, Any]]:
-        # LLM path only; if not available or no output, return empty list (no 502)
-        trig = self._llm_generate(site_id, rule_instruction, output_instruction)
-        print(f"Generated triggers: {trig}")
+    def generate_triggers(self, site_id: str, rule_instruction: str) -> List[Dict[str, Any]]:
+        """Public API: Generate triggers for a rule instruction using LLM/tool-calling.
+        Returns a list of triggers or an empty list if generation failed.
+        """
+        trig = self._llm_generate(site_id, rule_instruction)
+        if self.debug:
+            print(f"Generated triggers: {trig}")
         if isinstance(trig, list) and trig:
             return trig
         return []
 
     # --- Helpers --------------------------------------------------------------------
-    @staticmethod
-    def _extract_json(text: str) -> Dict[str, Any]:
-        """Attempt to parse a JSON object from model text.
+def _parse_json(text: str) -> Dict[str, Any]:
+    """Parse a JSON object from a string, or return empty dict on failure."""
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    return {}
 
-        Tries direct json.loads; if that fails, extracts the first balanced-looking
-        object using the outermost braces.
-        """
-        try:
-            obj = json.loads(text)
-            if isinstance(obj, dict):
-                return obj
-        except Exception:
-            pass
-        # Fallback: grab substring between first '{' and last '}'
-        try:
-            start = text.find('{')
-            end = text.rfind('}')
-            if start != -1 and end != -1 and end > start:
-                snippet = text[start:end + 1]
-                obj2 = json.loads(snippet)
-                if isinstance(obj2, dict):
-                    return obj2
-        except Exception:
-            pass
-        # Last resort: empty object
-        return {}
