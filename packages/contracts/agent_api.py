@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel
-from .common import HealthResponse
+from .common import HealthResponse, ConditionOp
 from .suggestion import Suggestion
 
 # ==============================================================================
@@ -21,7 +21,7 @@ class AgentRuleResponse(BaseModel):
 
 class StepCondition(BaseModel):
     field: str  # e.g., "eventType", "session.cartItems", "context.lastEventTs"
-    op: Literal["equals", "in", "gte", "lte", "contains", "between", "regex"]
+    op: ConditionOp
     value: Any
 
 class RuleStep(BaseModel):

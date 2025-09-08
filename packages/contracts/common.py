@@ -5,6 +5,11 @@ from pydantic import BaseModel, Field
 # ----- Enums / aliases --------------------------------------------------------
 
 DomEventType = Literal["dom_click", "input_change", "page_load", "submit", "route_change"]
+# Export runtime lists for agents and validators
+DOM_EVENT_TYPES: list[str] = ["dom_click", "input_change", "page_load", "submit", "route_change"]
+# Common condition operator enum used across rule checks and agents
+ConditionOp = Literal["equals", "in", "gte", "lte", "contains", "between", "regex"]
+CONDITION_OPS: list[str] = ["equals", "in", "gte", "lte", "contains", "between", "regex"]
 NoActionReason = Literal["no_trigger", "debounced", "budget_exceeded", "plan_missing", "unknown_selector", None]
 
 # ----- Event & DOM telemetry --------------------------------------------------

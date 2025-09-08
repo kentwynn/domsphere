@@ -1,6 +1,7 @@
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
 from contracts.agent_api import AgentRuleRequest, AgentRuleResponse
+from services.rule_agent import RuleAgent
 
 router = APIRouter(prefix="/agent", tags=["rule"])
 
@@ -10,19 +11,15 @@ def compile_rule(
     x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
     x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> AgentRuleResponse:
-    instr = (payload.ruleInstruction or "").lower()
-    path = "/"
-    if "cart" in instr:
-        path = "/cart"
-    elif "product" in instr:
-        path = "/products"
-
-    triggers: List[Dict[str, Any]] = [
-        {
-            "eventType": "page_load",
-            "when": [
-                {"field": "telemetry.attributes.path", "op": "equals", "value": path}
-            ],
-        }
-    ]
+    if not payload.ruleInstruction:
+        raise HTTPException(status_code=400, detail="RULE_INSTRUCTION_REQUIRED")
+    agent = RuleAgent()
+    try:
+        triggers = agent.generate_triggers(
+            site_id=payload.siteId,
+            rule_instruction=payload.ruleInstruction,
+            output_instruction=getattr(payload, "outputInstruction", None),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"TRIGGER_GENERATION_FAILED: {e}")
     return AgentRuleResponse(triggers=triggers)

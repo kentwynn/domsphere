@@ -17,6 +17,7 @@ node_modules
 .settings/
 *.sublime-workspace
 .env
+.env.secret
 
 # VS Code (keep these specific files)
 .vscode/*
