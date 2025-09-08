@@ -143,9 +143,9 @@ class RuleAgent:
 
     # --- Public API ------------------------------------------------------------------
     def generate_triggers(self, site_id: str, rule_instruction: str, output_instruction: Optional[str] = None) -> List[Dict[str, Any]]:
-        # Only LLM agent path; no heuristic fallback
+        # LLM path only; if not available or no output, return empty list (no 502)
         trig = self._llm_generate(site_id, rule_instruction, output_instruction)
         print(f"Generated triggers: {trig}")
         if isinstance(trig, list) and trig:
             return trig
-        raise RuntimeError("AGENT_TRIGGER_GENERATION_FAILED")
+        return []
