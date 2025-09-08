@@ -26,6 +26,12 @@
     <script src="../sdk.umd.min.js"></script>
     <script>
       window.addEventListener('DOMContentLoaded', () => {
+        // Link the place-order button to the success page
+        const placeBtn = document.getElementById('place-order');
+        placeBtn?.addEventListener('click', () => {
+          window.location.href = '../success/';
+        });
+
         const AutoAssistant = (window.AgentSDK && window.AgentSDK.AutoAssistant) || window.AutoAssistant;
         if (!AutoAssistant) {
           console.error('[demo] AutoAssistant not found.');
