@@ -2,7 +2,7 @@ import os
 import re
 from typing import Any, Dict, Optional, List
 
-from contracts.sdk_api import (
+from contracts.client_api import (
     RuleCheckRequest,
     SiteMapResponse, SiteMapPage,
     SiteInfoResponse,
@@ -439,3 +439,73 @@ def update_rule_fields(
                 fr["enabled"] = enabled
                 break
     return updated
+
+
+def list_rules(siteId: str) -> List[Dict[str, Any]]:
+    """Return rules in a normalized list, prioritizing rich rulesJson.rules."""
+    site = RULES_DB.get(siteId) or {}
+    rj = site.get("rulesJson") or {}
+    rich = rj.get("rules") or []
+    if rich:
+        return rich
+    # fallback to flat rules; project minimal fields
+    flat = site.get("rules") or []
+    out: List[Dict[str, Any]] = []
+    for r in flat:
+        out.append({
+            "id": r.get("id"),
+            "enabled": r.get("enabled", True),
+            "tracking": r.get("tracking", False),
+            "llmInstruction": r.get("llmInstruction"),
+        })
+    return out
+
+
+def _ensure_site(site_id: str) -> Dict[str, Any]:
+    site = RULES_DB.get(site_id)
+    if not site:
+        site = {"version": "ruleset-local", "rulesJson": {"ruleset": "local", "rules": []}}
+        RULES_DB[site_id] = site
+    if "rulesJson" not in site or not isinstance(site["rulesJson"], dict):
+        site["rulesJson"] = {"rules": []}
+    if "rules" not in site["rulesJson"] or not isinstance(site["rulesJson"]["rules"], list):
+        site["rulesJson"]["rules"] = []
+    return site
+
+
+def _slugify(text: str) -> str:
+    s = re.sub(r"[^a-zA-Z0-9]+", "_", text.strip().lower()).strip("_")
+    return s or "rule"
+
+
+def create_rule(site_id: str, llm_instruction: str) -> Dict[str, Any]:
+    site = _ensure_site(site_id)
+    base_id = _slugify(llm_instruction)[:24]
+    rid = base_id or "rule"
+    existing_ids = {r.get("id") for r in site["rulesJson"]["rules"]}
+    idx = 1
+    cand = rid
+    while cand in existing_ids:
+        idx += 1
+        cand = f"{rid}_{idx}"
+    rule = {
+        "id": cand,
+        "enabled": True,
+        "tracking": True,
+        "llmInstruction": llm_instruction,
+        "triggers": [],
+    }
+    site["rulesJson"]["rules"].append(rule)
+    return rule
+
+
+def update_rule_triggers(site_id: str, rule_id: str, triggers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    site = RULES_DB.get(site_id)
+    if not site:
+        return None
+    rich_rules = (site.get("rulesJson") or {}).get("rules") or []
+    for r in rich_rules:
+        if r.get("id") == rule_id:
+            r["triggers"] = triggers or []
+            return r
+    return None

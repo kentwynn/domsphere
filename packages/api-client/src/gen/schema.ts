@@ -48,7 +48,8 @@ export type paths = {
         /** Get Rules */
         get: operations["get_rules_rule_get"];
         put?: never;
-        post?: never;
+        /** Create Rule Route */
+        post: operations["create_rule_route_rule_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -67,6 +68,23 @@ export type paths = {
         /** Update Rule */
         put: operations["update_rule_rule__ruleId__put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rule/{ruleId}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Rule Triggers */
+        post: operations["generate_rule_triggers_rule__ruleId__generate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -211,6 +229,18 @@ export type components = {
             meta?: {
                 [key: string]: unknown;
             } | null;
+            /** Nextstep */
+            nextStep?: number | null;
+            /** Nextid */
+            nextId?: string | null;
+            /** Nextclose */
+            nextClose?: boolean | null;
+            /** Nextmode */
+            nextMode?: ("replace" | "append") | null;
+            /** Nextinput */
+            nextInput?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * DomAtlasElement
@@ -302,6 +332,11 @@ export type components = {
             shouldProceed: boolean;
             /** Reason */
             reason?: string | null;
+        };
+        /** RuleCreatePayload */
+        RuleCreatePayload: {
+            /** Llminstruction */
+            llmInstruction: string;
         };
         /** RuleUpdatePayload */
         RuleUpdatePayload: {
@@ -631,6 +666,43 @@ export interface operations {
             };
         };
     };
+    create_rule_route_rule_post: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleCreatePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_rule_rule__ruleId__get: {
         parameters: {
             query?: {
@@ -682,6 +754,44 @@ export interface operations {
                 "application/json": components["schemas"]["RuleUpdatePayload"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_rule_triggers_rule__ruleId__generate_post: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

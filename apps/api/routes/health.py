@@ -1,6 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter
-from contracts.sdk_api import APIHealthResponse
+from contracts.client_api import APIHealthResponse
 
 router = APIRouter(tags=["health"])
 

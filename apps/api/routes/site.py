@@ -1,6 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter, Header
-from contracts.sdk_api import (
+from contracts.client_api import (
     SiteMapRequest, SiteRegisterRequest, SiteRegisterResponse,
     SiteMapResponse, SiteMapPage,
     SiteInfoRequest, SiteInfoResponse,

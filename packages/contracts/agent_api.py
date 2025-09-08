@@ -10,11 +10,10 @@ from .suggestion import Suggestion
 
 class AgentRuleRequest(BaseModel):
     siteId: str
-    nlRules: str  # owner-provided natural language
+    llmInstruction: str
 
 class AgentRuleResponse(BaseModel):
-    rulesJson: Dict[str, Any]  # compiled checkpoint JSON (DSL)
-    rulesVersion: str
+    triggers: List[Dict[str, Any]]
 
 # ==============================================================================
 # /agent/step/check  (reason about multi-step rule flows)

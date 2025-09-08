@@ -4,7 +4,7 @@ import httpx
 from fastapi import APIRouter, Header, HTTPException
 
 from helper.common import AGENT_TIMEOUT, AGENT_URL, _fwd_headers
-from contracts.sdk_api import (
+from contracts.client_api import (
     SuggestGetRequest,
     SuggestGetResponse,
     SuggestNextRequest,
