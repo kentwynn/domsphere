@@ -62,7 +62,7 @@ class RuleAgent:
             """Fetch DOM atlas snapshot for a specific URL."""
             return agent_self.tool_get_site_atlas(siteId, url)
 
-        model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # small+cheap default
+        model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")  # small+cheap default
         llm = ChatOpenAI(api_key=self.openai_token, model=model_name, temperature=0)
         llm_tools = [get_sitemap, get_site_atlas]
         llm = llm.bind_tools(llm_tools)
