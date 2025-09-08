@@ -21,20 +21,20 @@ class RuleAgent:
     # --- Tools (sitemap, info, atlas) -------------------------------------------------
     def tool_get_sitemap(self, site_id: str) -> List[Dict[str, Any]]:
         with httpx.Client(timeout=self.timeout) as client:
-            r = client.get(f"{self.api_url}/api/site/map", params={"siteId": site_id})
+            r = client.get(f"{self.api_url}/site/map", params={"siteId": site_id})
             r.raise_for_status()
             data = r.json() or {}
             return data.get("pages", [])
 
     def tool_get_site_info(self, site_id: str, url: str) -> Dict[str, Any]:
         with httpx.Client(timeout=self.timeout) as client:
-            r = client.get(f"{self.api_url}/api/site/info", params={"siteId": site_id, "url": url})
+            r = client.get(f"{self.api_url}/site/info", params={"siteId": site_id, "url": url})
             r.raise_for_status()
             return r.json() or {}
 
     def tool_get_site_atlas(self, site_id: str, url: str) -> Dict[str, Any]:
         with httpx.Client(timeout=self.timeout) as client:
-            r = client.get(f"{self.api_url}/api/site/atlas", params={"siteId": site_id, "url": url})
+            r = client.get(f"{self.api_url}/site/atlas", params={"siteId": site_id, "url": url})
             r.raise_for_status()
             return r.json() or {}
 
@@ -116,7 +116,9 @@ class RuleAgent:
                 except Exception:
                     return None
                 return None
-            # Execute tools
+            # Append the assistant message that contains tool_calls
+            messages.append(ai)
+            # Execute tools and append their outputs as ToolMessage responses
             for tc in tool_calls:
                 name = tc["name"] if isinstance(tc, dict) else getattr(tc, "name", None)
                 args = tc["args"] if isinstance(tc, dict) else getattr(tc, "args", {})
@@ -131,7 +133,12 @@ class RuleAgent:
                         result = {"error": f"unknown tool {name}"}
                 except Exception as e:
                     result = {"error": str(e)}
-                messages.append(ToolMessage(content=json.dumps(result)[:4000], tool_call_id=(tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", "tool"))))
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps(result)[:4000],
+                        tool_call_id=(tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", "tool")),
+                    )
+                )
         return None
 
     # --- Public API ------------------------------------------------------------------
