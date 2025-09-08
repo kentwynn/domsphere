@@ -16,6 +16,8 @@ def _env_suffix() -> str:
 def _load_env() -> None:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
     load_dotenv(os.path.join(repo_root, f".env.build.{_env_suffix()}"))
+    # Optionally load secrets to override defaults
+    load_dotenv(os.path.join(repo_root, ".env.secret"), override=True)
 
 _load_env()
 

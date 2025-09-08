@@ -14,9 +14,8 @@ class RuleAgent:
     """
 
     def __init__(self, api_url: Optional[str] = None, timeout_sec: float = 5.0) -> None:
-        self.api_url = (api_url or os.getenv("API_URL", "http://localhost:4000")).rstrip("/")
+        self.api_url = (api_url or os.getenv("API_BASE_URL", "http://localhost:4000")).rstrip("/")
         self.timeout = float(os.getenv("AGENT_TIMEOUT_SEC", str(timeout_sec)))
-        # Resolve OpenAI token only from environment variables: OPENAI_TOKEN
         self.openai_token = os.getenv("OPENAI_TOKEN")
 
     # --- Tools (sitemap, info, atlas) -------------------------------------------------
