@@ -121,17 +121,12 @@ def generate_rule_triggers(
     if not target:
         raise HTTPException(status_code=404, detail="RULE_NOT_FOUND")
     rule_instruction = target.get("ruleInstruction")
-    output_instruction = target.get("outputInstruction")
     if not rule_instruction:
         raise HTTPException(status_code=400, detail="RULE_INSTRUCTION_REQUIRED")
 
     # Call Agent to generate triggers
     try:
-        body = AgentRuleRequest(
-            siteId=siteId,
-            ruleInstruction=rule_instruction,
-            outputInstruction=output_instruction,
-        ).model_dump()
+        body = AgentRuleRequest(siteId=siteId, ruleInstruction=rule_instruction).model_dump()
         with httpx.Client(timeout=AGENT_TIMEOUT) as client:
             r = client.post(
                 f"{AGENT_URL}/agent/rule",

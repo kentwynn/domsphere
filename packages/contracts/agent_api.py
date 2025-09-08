@@ -11,7 +11,6 @@ from .suggestion import Suggestion
 class AgentRuleRequest(BaseModel):
     siteId: str
     ruleInstruction: str
-    outputInstruction: Optional[str] = None
 
 class AgentRuleResponse(BaseModel):
     triggers: List[Dict[str, Any]]
