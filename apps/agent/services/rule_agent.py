@@ -13,10 +13,11 @@ class RuleAgent:
     a simple deterministic heuristic.
     """
 
-    def __init__(self, api_url: Optional[str] = None, timeout_sec: float = 5.0) -> None:
+    def __init__(self, api_url: Optional[str] = None, timeout_sec: float = 5.0, debug: bool = False) -> None:
         self.api_url = (api_url or os.getenv("API_BASE_URL", "http://localhost:4000")).rstrip("/")
         self.timeout = float(os.getenv("AGENT_TIMEOUT_SEC", str(timeout_sec)))
         self.openai_token = os.getenv("OPENAI_TOKEN")
+        self.debug = debug
 
     # --- Tools (sitemap, info, atlas) -------------------------------------------------
     def tool_get_sitemap(self, site_id: str) -> List[Dict[str, Any]]:
@@ -45,8 +46,12 @@ class RuleAgent:
             from langchain_core.tools import tool
             from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
         except Exception:
+            if getattr(self, "debug", False):
+                print("[RuleAgent] LangChain/OpenAI not available; skipping LLM path")
             return None
         if not self.openai_token:
+            if getattr(self, "debug", False):
+                print("[RuleAgent] OPENAI_TOKEN missing; skipping LLM path")
             return None
 
         # Define tools bound to this instance
@@ -103,25 +108,39 @@ class RuleAgent:
         )
 
         messages = [sys, human]
-        for _ in range(4):  # small loop to resolve tool calls
+        for turn in range(4):  # small loop to resolve tool calls
             ai = llm.invoke(messages)
             tool_calls = getattr(ai, "tool_calls", None) or []
             if not tool_calls:
                 # expect final JSON content
                 try:
-                    data = json.loads(ai.content)
+                    if getattr(self, "debug", False):
+                        print(f"[RuleAgent] Final AI content (no tool calls, turn={turn}): {ai.content}")
+                    data = self._extract_json(ai.content)
                     trig = data.get("triggers")
                     if isinstance(trig, list):
                         return trig
                 except Exception:
-                    return None
-                return None
+                    # fall through to return [] below
+                    pass
+                # If we reach here, content wasn't usable JSON
+                return []
             # Append the assistant message that contains tool_calls
             messages.append(ai)
             # Execute tools and append their outputs as ToolMessage responses
             for tc in tool_calls:
                 name = tc["name"] if isinstance(tc, dict) else getattr(tc, "name", None)
                 args = tc["args"] if isinstance(tc, dict) else getattr(tc, "args", {})
+                # Normalize args: LangChain generally parses to dict, but sometimes a JSON string slips through.
+                if isinstance(args, str):
+                    try:
+                        parsed = json.loads(args)
+                        if isinstance(parsed, dict):
+                            args = parsed
+                    except Exception:
+                        pass
+                if getattr(self, "debug", False):
+                    print(f"[RuleAgent] Tool call -> name={name}, args={args}")
                 try:
                     if name == "get_sitemap":
                         result = get_sitemap.invoke(args)
@@ -133,13 +152,17 @@ class RuleAgent:
                         result = {"error": f"unknown tool {name}"}
                 except Exception as e:
                     result = {"error": str(e)}
+                if getattr(self, "debug", False):
+                    preview = result if isinstance(result, (dict, list)) else str(result)
+                    print(f"[RuleAgent] Tool result for {name}: {str(preview)[:200]}")
                 messages.append(
                     ToolMessage(
                         content=json.dumps(result)[:4000],
                         tool_call_id=(tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", "tool")),
                     )
                 )
-        return None
+        # Exceeded tool resolution turns without a usable final; return empty
+        return []
 
     # --- Public API ------------------------------------------------------------------
     def generate_triggers(self, site_id: str, rule_instruction: str, output_instruction: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -149,3 +172,31 @@ class RuleAgent:
         if isinstance(trig, list) and trig:
             return trig
         return []
+
+    # --- Helpers --------------------------------------------------------------------
+    @staticmethod
+    def _extract_json(text: str) -> Dict[str, Any]:
+        """Attempt to parse a JSON object from model text.
+
+        Tries direct json.loads; if that fails, extracts the first balanced-looking
+        object using the outermost braces.
+        """
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+        # Fallback: grab substring between first '{' and last '}'
+        try:
+            start = text.find('{')
+            end = text.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                snippet = text[start:end + 1]
+                obj2 = json.loads(snippet)
+                if isinstance(obj2, dict):
+                    return obj2
+        except Exception:
+            pass
+        # Last resort: empty object
+        return {}
