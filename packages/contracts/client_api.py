@@ -24,13 +24,15 @@ class RuleCheckResponse(BaseModel):
 # ==============================================================================
 
 class RuleCreatePayload(BaseModel):
-    llmInstruction: str
+    ruleInstruction: str
+    outputInstruction: Optional[str] = None
 
 
 class RuleUpdatePayload(BaseModel):
     enabled: Optional[bool] = None
     tracking: Optional[bool] = None
-    llmInstruction: Optional[str] = None
+    ruleInstruction: Optional[str] = None
+    outputInstruction: Optional[str] = None
 
 # ==============================================================================
 # /rule/track  (control plane for SDK tracking behavior)
@@ -151,4 +153,3 @@ class SiteAtlasResponse(BaseModel):
 # ==============================================================================
 
 APIHealthResponse = HealthResponse
-

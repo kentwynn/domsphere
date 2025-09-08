@@ -28,7 +28,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "promo_cart_gte_2",
                     "enabled": True,
                     "tracking": True,
-                    "llmInstruction": "Give promo code XXX when cart count >= 2",
+                    "ruleInstruction": "Give promo code XXX when cart count >= 2",
+                    "outputInstruction": "",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
@@ -51,7 +52,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "promo_cart_gte_5",
                     "enabled": True,
                     "tracking": True,
-                    "llmInstruction": "Give special promo code YYY when cart count >= 5",
+                    "ruleInstruction": "Give special promo code YYY when cart count >= 5",
+                    "outputInstruction": "",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
@@ -74,7 +76,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "products_birthday_20y",
                     "enabled": True,
                     "tracking": True,
-                    "llmInstruction": "happy 20 years birthday show up",
+                    "ruleInstruction": "happy 20 years birthday show up",
+                    "outputInstruction": "",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/products"}
@@ -85,7 +88,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "home_info",
                     "enabled": True,
                     "tracking": True,
-                    "llmInstruction": "Show a welcome info on home page",
+                    "ruleInstruction": "Show a welcome info on home page",
+                    "outputInstruction": "",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/"}
@@ -96,7 +100,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "product_abc_10s",
                     "enabled": True,
                     "tracking": True,
-                    "llmInstruction": "",
+                    "ruleInstruction": "",
+                    "outputInstruction": "",
                     "ttlSec": 10,
                     "triggers": [
                         {"eventType": "page_load", "when": [
@@ -109,7 +114,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "product_def_choice",
                     "enabled": True,
                     "tracking": True,
-                    "llmInstruction": "Ask shopper a simple choice then recommend Product ABC",
+                    "ruleInstruction": "Ask shopper a simple choice then recommend Product ABC",
+                    "outputInstruction": "",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/product/sku-def"}
@@ -411,7 +417,8 @@ def update_rule_fields(
     *,
     enabled: Optional[bool] = None,
     tracking: Optional[bool] = None,
-    llmInstruction: Optional[str] = None,
+    ruleInstruction: Optional[str] = None,
+    outputInstruction: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Update allowed fields for a rule in RULES_DB and mirror enabled to flat rules.
 
@@ -428,8 +435,10 @@ def update_rule_fields(
                 r["enabled"] = enabled
             if tracking is not None:
                 r["tracking"] = tracking
-            if llmInstruction is not None:
-                r["llmInstruction"] = llmInstruction
+            if ruleInstruction is not None:
+                r["ruleInstruction"] = ruleInstruction
+            if outputInstruction is not None:
+                r["outputInstruction"] = outputInstruction
             updated = r
             break
     # Mirror enabled to flat rules if present
@@ -456,7 +465,8 @@ def list_rules(siteId: str) -> List[Dict[str, Any]]:
             "id": r.get("id"),
             "enabled": r.get("enabled", True),
             "tracking": r.get("tracking", False),
-            "llmInstruction": r.get("llmInstruction"),
+            "ruleInstruction": r.get("ruleInstruction"),
+            "outputInstruction": r.get("outputInstruction"),
         })
     return out
 
@@ -478,9 +488,9 @@ def _slugify(text: str) -> str:
     return s or "rule"
 
 
-def create_rule(site_id: str, llm_instruction: str) -> Dict[str, Any]:
+def create_rule(site_id: str, rule_instruction: str, output_instruction: Optional[str] = None) -> Dict[str, Any]:
     site = _ensure_site(site_id)
-    base_id = _slugify(llm_instruction)[:24]
+    base_id = _slugify(rule_instruction)[:24]
     rid = base_id or "rule"
     existing_ids = {r.get("id") for r in site["rulesJson"]["rules"]}
     idx = 1
@@ -492,7 +502,8 @@ def create_rule(site_id: str, llm_instruction: str) -> Dict[str, Any]:
         "id": cand,
         "enabled": True,
         "tracking": True,
-        "llmInstruction": llm_instruction,
+        "ruleInstruction": rule_instruction,
+        "outputInstruction": output_instruction or "",
         "triggers": [],
     }
     site["rulesJson"]["rules"].append(rule)

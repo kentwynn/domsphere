@@ -65,7 +65,7 @@ def rule_check(
 @router.post("", response_model=dict)
 def create_rule_route(payload: RuleCreatePayload, siteId: str = "demo-site"):
     try:
-        r = create_rule(siteId, payload.llmInstruction)
+        r = create_rule(siteId, payload.ruleInstruction, payload.outputInstruction)
         return {"siteId": siteId, "rule": r}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"CREATE_FAILED: {e}")
@@ -97,7 +97,8 @@ def update_rule(ruleId: str, payload: RuleUpdatePayload, siteId: str = "demo-sit
         rule_id=ruleId,
         enabled=payload.enabled,
         tracking=payload.tracking,
-        llmInstruction=payload.llmInstruction,
+        ruleInstruction=payload.ruleInstruction,
+        outputInstruction=payload.outputInstruction,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="RULE_NOT_FOUND")
@@ -119,13 +120,18 @@ def generate_rule_triggers(
     target = next((r for r in rich_rules if r.get("id") == ruleId), None)
     if not target:
         raise HTTPException(status_code=404, detail="RULE_NOT_FOUND")
-    llm_instruction = target.get("llmInstruction")
-    if not llm_instruction:
-        raise HTTPException(status_code=400, detail="LLM_INSTRUCTION_REQUIRED")
+    rule_instruction = target.get("ruleInstruction")
+    output_instruction = target.get("outputInstruction")
+    if not rule_instruction:
+        raise HTTPException(status_code=400, detail="RULE_INSTRUCTION_REQUIRED")
 
     # Call Agent to generate triggers
     try:
-        body = AgentRuleRequest(siteId=siteId, llmInstruction=llm_instruction).model_dump()
+        body = AgentRuleRequest(
+            siteId=siteId,
+            ruleInstruction=rule_instruction,
+            outputInstruction=output_instruction,
+        ).model_dump()
         with httpx.Client(timeout=AGENT_TIMEOUT) as client:
             r = client.post(
                 f"{AGENT_URL}/agent/rule",

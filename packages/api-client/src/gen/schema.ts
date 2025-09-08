@@ -335,8 +335,10 @@ export type components = {
         };
         /** RuleCreatePayload */
         RuleCreatePayload: {
-            /** Llminstruction */
-            llmInstruction: string;
+            /** Ruleinstruction */
+            ruleInstruction: string;
+            /** Outputinstruction */
+            outputInstruction?: string | null;
         };
         /** RuleUpdatePayload */
         RuleUpdatePayload: {
@@ -344,8 +346,10 @@ export type components = {
             enabled?: boolean | null;
             /** Tracking */
             tracking?: boolean | null;
-            /** Llminstruction */
-            llmInstruction?: string | null;
+            /** Ruleinstruction */
+            ruleInstruction?: string | null;
+            /** Outputinstruction */
+            outputInstruction?: string | null;
         };
         /** SiteAtlasRequest */
         SiteAtlasRequest: {

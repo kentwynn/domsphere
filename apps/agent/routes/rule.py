@@ -10,7 +10,7 @@ def compile_rule(
     x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
     x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> AgentRuleResponse:
-    instr = (payload.llmInstruction or "").lower()
+    instr = (payload.ruleInstruction or "").lower()
     path = "/"
     if "cart" in instr:
         path = "/cart"
