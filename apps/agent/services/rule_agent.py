@@ -3,7 +3,8 @@ from typing import Any, Dict, List, Optional
 import os
 import json
 import httpx
-from contracts.common import DOM_EVENT_TYPES, CONDITION_OPS
+import inspect
+from contracts.common import DOM_EVENT_TYPES, CONDITION_OPS, RuleTrigger, TriggerCondition
 
 
 class RuleAgent:
@@ -34,6 +35,57 @@ class RuleAgent:
             r.raise_for_status()
             return r.json() or {}
 
+    def tool_get_output_schema(self) -> Dict[str, Any]:
+        """Extract the actual output schema from RuleTrigger and TriggerCondition contracts."""
+        try:
+            # Get the Pydantic model schema
+            trigger_schema = RuleTrigger.model_json_schema()
+            condition_schema = TriggerCondition.model_json_schema()
+
+            # Extract useful information for the LLM
+            trigger_props = trigger_schema.get("properties", {})
+            condition_props = condition_schema.get("properties", {})
+
+            return {
+                "trigger_fields": {
+                    field: {
+                        "type": info.get("type"),
+                        "description": info.get("description"),
+                        "enum": info.get("enum"),
+                        "default": info.get("default")
+                    }
+                    for field, info in trigger_props.items()
+                },
+                "condition_fields": {
+                    field: {
+                        "type": info.get("type"),
+                        "description": info.get("description"),
+                        "enum": info.get("enum"),
+                        "default": info.get("default")
+                    }
+                    for field, info in condition_props.items()
+                },
+                "trigger_required": trigger_schema.get("required", []),
+                "condition_required": condition_schema.get("required", []),
+                "available_event_types": DOM_EVENT_TYPES,
+                "available_operators": CONDITION_OPS
+            }
+        except Exception as e:
+            # Fallback to basic structure if schema extraction fails
+            return {
+                "trigger_fields": {
+                    "eventType": {"type": "string", "description": "DOM event type", "enum": DOM_EVENT_TYPES},
+                    "when": {"type": "array", "description": "Array of conditions"}
+                },
+                "condition_fields": {
+                    "field": {"type": "string", "description": "Telemetry field path"},
+                    "op": {"type": "string", "description": "Comparison operator", "enum": CONDITION_OPS},
+                    "value": {"type": "any", "description": "Value to compare against"}
+                },
+                "available_event_types": DOM_EVENT_TYPES,
+                "available_operators": CONDITION_OPS
+            }
+
     # --- LLM path --------------------------------------------------------------------
     def _llm_generate(self, site_id: str, rule_instruction: str) -> Optional[List[Dict[str, Any]]]:
         try:
@@ -48,6 +100,11 @@ class RuleAgent:
         # Define tools bound to this instance
         agent_self = self
 
+        @tool("get_output_schema", return_direct=False)
+        def get_output_schema() -> Dict[str, Any]:  # type: ignore[override]
+            """Get the actual output schema for RuleTrigger and TriggerCondition objects."""
+            return agent_self.tool_get_output_schema()
+
         @tool("get_sitemap", return_direct=False)
         def get_sitemap(siteId: str) -> List[Dict[str, Any]]:  # type: ignore[override]
             """Fetch the site's sitemap pages array for the given siteId."""
@@ -60,43 +117,28 @@ class RuleAgent:
 
         model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")  # small+cheap default
         llm = ChatOpenAI(api_key=self.openai_token, model=model_name, temperature=0)
-        llm_tools = [get_sitemap, get_site_atlas]
+        llm_tools = [get_output_schema, get_sitemap, get_site_atlas]
         llm = llm.bind_tools(llm_tools)
 
         sys = SystemMessage(
             content=(
-                "Generate rule triggers using real DOM data and advanced patterns.\n\n"
-                "EXACT OUTPUT FORMAT (strict JSON):\n"
-                '{"triggers": [{\n'
-                '  "eventType": "page_load",\n'
-                '  "when": [\n'
-                '    {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},\n'
-                '    {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},\n'
-                '    {"field": "telemetry.elementText", "op": "gt", "value": 2}\n'
-                '  ]\n'
-                '}]}\n\n'
-                "FIELD PATHS:\n"
-                "Basic: telemetry.attributes.path, .id, .class, .role, .aria-label\n"
-                "Content: telemetry.elementText, .elementHtml\n"
-                "Position: telemetry.cssPath, .attributes.data-*\n"
-                "Session: session.timeOnPage, .clickCount, .scrollDepth\n"
-                "Advanced: session.userAgent, .viewport, .referrer\n\n"
-                "EVENT TYPES:\n"
-                "Basic: page_load, dom_click, input_change, submit, route_change\n"
-                "Advanced: scroll, time_spent, visibility_change\n\n"
-                "OPERATORS:\n"
-                "Compare: equals, gt, gte, lt, lte, between\n"
-                "Text: contains, regex, in\n"
-                "Existence: exists, not_exists\n\n"
-                "ADVANCED PATTERNS:\n"
-                "Time: session.timeOnPage + gte + 10 (10+ seconds)\n"
-                "Role: telemetry.attributes.role + equals + button\n"
-                "Data attr: telemetry.attributes.data-category + equals + product\n"
-                "Regex: telemetry.elementText + regex + ^[0-9]+$ (numbers only)\n\n"
-                "STEPS:\n"
-                "1. get_sitemap → find pages\n"
-                "2. get_site_atlas → get real elements\n"
-                "3. Output triggers with ONLY real IDs/paths found"
+                "Generate rule triggers using real DOM data and schema-defined patterns.\n\n"
+                "PROCESS:\n"
+                "1. get_output_schema → understand exact trigger interface\n"
+                "2. get_sitemap → find pages\n"
+                "3. get_site_atlas → get real elements\n"
+                "4. Generate triggers using schema fields and real DOM data\n\n"
+                "RULES:\n"
+                "- Use schema to understand available eventTypes and operators\n"
+                "- Use ONLY real IDs/paths from site atlas\n"
+                "- Follow schema field requirements exactly\n"
+                "- Return: {\"triggers\": [...]}\n\n"
+                "FIELD REFERENCE:\n"
+                "- Page: telemetry.attributes.path\n"
+                "- Element ID: telemetry.attributes.id\n"
+                "- Element text: telemetry.elementText\n"
+                "- Time on page: telemetry.attributes.timeOnPage\n\n"
+                "Think about what conditions are actually needed for the rule. Use minimal, relevant conditions only."
             )
         )
         preferred_events = DOM_EVENT_TYPES
@@ -137,7 +179,9 @@ class RuleAgent:
                     except Exception:
                         pass
                 try:
-                    if name == "get_sitemap":
+                    if name == "get_output_schema":
+                        result = get_output_schema.invoke(args)
+                    elif name == "get_sitemap":
                         result = get_sitemap.invoke(args)
                     elif name == "get_site_atlas":
                         result = get_site_atlas.invoke(args)

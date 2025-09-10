@@ -45,12 +45,72 @@ class SuggestionAgent:
             return r.json() or {}
 
     def tool_get_rule_info(self, site_id: str, rule_id: str) -> Dict[str, Any]:
-        """Fetch rule information including output instructions and all relevant fields (title, description, couponCode, etc)."""
+        """Fetch rule information including output instructions."""
         with httpx.Client(timeout=self.http_timeout) as client:
             r = client.get(f"{self.api_url}/rule/{rule_id}", params={"siteId": site_id})
             r.raise_for_status()
-            # Return the entire rule data so LLM can use fields like outputInstruction, title, description, couponCode, etc.
             return r.json() or {}
+
+    def tool_get_output_schema(self) -> Dict[str, Any]:
+        """Extract the actual output schema from Suggestion and CtaSpec contracts."""
+        try:
+            # Get the Pydantic model schema
+            suggestion_schema = Suggestion.model_json_schema()
+            cta_schema = CtaSpec.model_json_schema()
+
+            # Extract useful information for the LLM
+            suggestion_props = suggestion_schema.get("properties", {})
+            cta_props = cta_schema.get("properties", {})
+
+            # Extract enum values for specific fields
+            type_field = suggestion_props.get("type", {})
+            kind_field = cta_props.get("kind", {})
+
+            return {
+                "suggestion_fields": {
+                    field: {
+                        "type": info.get("type"),
+                        "description": info.get("description"),
+                        "enum": info.get("enum"),
+                        "default": info.get("default")
+                    }
+                    for field, info in suggestion_props.items()
+                },
+                "cta_fields": {
+                    field: {
+                        "type": info.get("type"),
+                        "description": info.get("description"),
+                        "enum": info.get("enum"),
+                        "default": info.get("default")
+                    }
+                    for field, info in cta_props.items()
+                },
+                "suggestion_required": suggestion_schema.get("required", []),
+                "cta_required": cta_schema.get("required", [])
+            }
+        except Exception as e:
+            # Fallback to basic structure if schema extraction fails
+            return {
+                "suggestion_fields": {
+                    "type": {"type": "string", "description": "Type of suggestion"},
+                    "id": {"type": "string", "description": "Unique identifier"},
+                    "title": {"type": "string", "description": "Main title"},
+                    "description": {"type": "string", "description": "Description text"},
+                    "primaryCta": {"type": "object", "description": "Primary action button"},
+                    "secondaryCtas": {"type": "array", "description": "Secondary action buttons"},
+                    "actions": {"type": "array", "description": "Choice actions for multi-step flows"},
+                    "primaryActions": {"type": "array", "description": "Sequential primary actions"},
+                    "meta": {"type": "object", "description": "Metadata including step info"}
+                },
+                "cta_fields": {
+                    "label": {"type": "string", "description": "Button label"},
+                    "kind": {"type": "string", "description": "Action type"},
+                    "url": {"type": "string", "description": "Target URL"},
+                    "payload": {"type": "object", "description": "Action payload data"},
+                    "nextStep": {"type": "integer", "description": "Next step number"},
+                    "nextClose": {"type": "boolean", "description": "Close after action"}
+                }
+            }
 
     # --- LLM path --------------------------------------------------------------------
     def _llm_generate_suggestions(self, request: AgentSuggestNextRequest) -> Optional[List[Dict[str, Any]]]:
@@ -65,6 +125,11 @@ class SuggestionAgent:
         if not self.openai_token:
             return None        # Define tools bound to this instance
         agent_self = self
+
+        @tool("get_output_schema", return_direct=False)
+        def get_output_schema() -> Dict[str, Any]:  # type: ignore[override]
+            """Get the actual output schema for Suggestion and CtaSpec objects."""
+            return agent_self.tool_get_output_schema()
 
         @tool("get_sitemap", return_direct=False)
         def get_sitemap(siteId: str) -> List[Dict[str, Any]]:  # type: ignore[override]
@@ -83,100 +148,37 @@ class SuggestionAgent:
 
         @tool("get_rule_info", return_direct=False)
         def get_rule_info(siteId: str, ruleId: str) -> Dict[str, Any]:  # type: ignore[override]
-            """Fetch full rule info including outputInstruction, title, description, couponCode, etc, to determine what type of suggestions to generate."""
+            """Fetch rule's output instruction to determine what type of suggestions to generate."""
             rule_data = agent_self.tool_get_rule_info(siteId, ruleId)
-            # Return the full rule_data so LLM can use all fields for CTA/suggestion generation.
-            return rule_data
+            # Extract only the outputInstruction to keep context clean and focused
+            output_instruction = rule_data.get("outputInstruction", "")
+            return {
+                "outputInstruction": output_instruction,
+                "ruleId": ruleId
+            }
 
         model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")  # Good balance of cost/capability
         llm = ChatOpenAI(api_key=self.openai_token, model=model_name, temperature=0.7)  # Bit more creative
-        llm_tools = [get_sitemap, get_site_info, get_site_atlas, get_rule_info]
+        llm_tools = [get_output_schema, get_sitemap, get_site_info, get_site_atlas, get_rule_info]
         llm = llm.bind_tools(llm_tools)
 
         sys = SystemMessage(
             content=(
-                "Generate contextual suggestions based on REAL site data and the specific rule's outputInstruction.\n\n"
-                "CRITICAL RULES:\n"
-                "- ALWAYS call get_rule_info first to get the outputInstruction and all relevant fields for this specific rule\n"
-                "- ALWAYS call get_sitemap second to see ALL available pages and URLs\n"
-                "- FOLLOW the rule's outputInstruction exactly - this determines the TYPE and CONTENT of suggestions\n"
-                "- Use fields like 'title', 'description', 'couponCode', etc. from ruleInfo if present to personalize suggestions.\n"
-                "- ONLY use URLs that exist in the sitemap - NEVER invent URLs or add query parameters\n"
-                "- Call get_site_info to understand the business context\n"
-                "- Call get_site_atlas if you need DOM context for the current page\n"
-                "- Handle userChoices for multi-step flows properly\n"
-                "- Use the actual site structure from sitemap, not assumptions\n\n"
-                "EXACT OUTPUT FORMAT (strict JSON):\n"
-                '{"suggestions": [{\n'
-                '  "type": "recommendation|upsell|info|promotion|guidance|choice|banner|coupon|checkout",\n'
-                '  "id": "unique-id",\n'
-                '  "title": "Engaging title",\n'
-                '  "description": "Helpful description based on rule outputInstruction",\n'
-                '  "primaryCta": {"label": "Action", "kind": "open|click|choose|dom_fill|add_to_cart|noop", "url": "/exact-sitemap-url", "payload": {"selector": "#id", "value": "data"}},\n'
-                '  "secondaryCtas": [{"label": "Alt action", "kind": "open", "url": "/another-exact-sitemap-url"}],\n'
-                '  "actions": [{"label": "Choice", "kind": "choose", "payload": {"name": "fieldName", "value": "choiceValue"}}],\n'
-                '  "primaryActions": [{"label": "Fill Code", "kind": "dom_fill", "payload": {"selector": "#promo-code", "value": "SAVE10"}}],\n'
-                '  "meta": {"step": 1, "context": "current_page_context"}\n'
-                '}]}\n\n'
-                "SUGGESTION TYPES:\n"
-                "- recommendation: Product/content recommendations\n"
-                "- upsell: Cross-sell or upgrade suggestions\n"
-                "- info: Informational content\n"
-                "- promotion: Discounts, offers, deals\n"
-                "- guidance: Help user navigate or complete tasks\n"
-                "- choice: Ask user for input (must include 'actions' with 'choose' kind and meta.step)\n"
-                "- banner: Celebratory or promotional banners\n"
-                "- coupon: Promo code applications\n"
-                "- checkout: Checkout flow suggestions\n\n"
-                "CTA KINDS:\n"
-                "- open: Navigate to URL (MUST be exact URL from sitemap)\n"
-                "- click: Click DOM element (use selector in payload: {'selector': '#button-id'})\n"
-                "- choose: Make selection in multi-step flow (payload: {'name': 'field', 'value': 'choice'})\n"
-                "- dom_fill: Fill form field (payload: {'selector': '#input', 'value': 'text'})\n"
-                "- add_to_cart: Add product to cart\n"
-                "- noop: No operation, just a label (can have nextStep, nextClose)\n"
-                "- route: SPA navigation\n"
-                "- copy: Copy text to clipboard\n\n"
-                "MULTI-STEP CHOICE FLOWS:\n"
-                "- Check userChoices to determine current step\n"
-                "- For choice type, use 'actions' array with 'choose' kind\n"
-                "- Include step number in meta: {'step': 1}\n"
-                "- Progress through choices until all collected, then provide final recommendation\n"
-                "- Example: interest -> ageGroup -> color -> final recommendation\n"
-                "- Multi-step flows must always include meta.step to reflect current stage (e.g., 1, 2, 3…).\n"
-                "- Use only a single suggestion per step to avoid latency and confusion.\n"
-                "- Ensure 'choice' suggestions include exactly one `actions[]` block with 'choose' kind and proper payload.\n"
-                "\n"
-                "SMART PATTERNS:\n"
-                "- Cart promotions: Use 'coupon' type with dom_fill + click actions for promo codes. If ruleInfo contains a couponCode or similar field, use it for the code value instead of hardcoded values like 'SAVE10' or 'YYY'.\n"
-                "- Product pages: Use 'upsell' type with add_to_cart or navigation\n"
-                "- Home page: Use 'info' or 'banner' types for welcomes/announcements\n"
-                "- Time-based: Use 'guidance' for helping users who've been browsing\n\n"
-                "MANDATORY PROCESS:\n"
-                "1. get_rule_info → Get the outputInstruction and all relevant fields (REQUIRED FIRST)\n"
-                "2. get_sitemap → Get ALL available URLs (REQUIRED SECOND)\n"
-                "3. get_site_info → Get business context\n"
-                "4. get_site_atlas → Get page context if needed\n"
-                "5. Check userChoices for multi-step flows\n"
-                "6. Generate suggestions following outputInstruction and other rule fields exactly\n"
-                "6a. For multi-step flows, always return one suggestion per step with correct meta.step\n"
-                "7. Use ONLY exact URLs from the sitemap list\n\n"
-                "URL RULES:\n"
-                "- Use exact URLs from sitemap (e.g., '/products', '/cart', '/product/sku-abc')\n"
-                "- NEVER add query parameters like '?sort=best_sellers'\n"
-                "- NEVER invent URLs not in the sitemap\n"
-                "- If you need a specific page type, find the closest match in sitemap\n\n"
-                "KEY FOCUS:\n"
-                "- The rule's outputInstruction and other fields are MANDATORY - follow them exactly\n"
-                "- Handle multi-step flows intelligently using userChoices\n"
-                "- Use appropriate suggestion types and CTA kinds\n"
-                "- Only use real URLs that exist in the sitemap\n"
-                "- Be contextual and relevant to the current page\n"
-                "- Include proper meta data with step numbers for flows\n"
-                "- Multi-step flows must always include meta.step to reflect current stage (e.g., 1, 2, 3…).\n"
-                "- Use only a single suggestion per step to avoid latency and confusion.\n"
-                "- Ensure 'choice' suggestions include exactly one `actions[]` block with 'choose' kind and proper payload.\n"
-                "- Do NOT hallucinate or invent options—use only options actually provided by tool results or outputInstruction or other fields (e.g., couponCode).\n"
+                "Generate actionable suggestions using ONLY real data from tools. NO hallucination.\n\n"
+                "PROCESS:\n"
+                "1. get_output_schema → understand interface\n"
+                "2. get_rule_info → get outputInstruction\n"
+                "3. get_sitemap → get valid URLs\n"
+                "4. Generate suggestions using ONLY data from tools\n\n"
+                "STRICT RULES:\n"
+                "- Follow outputInstruction EXACTLY\n"
+                "- Use ONLY URLs from sitemap - never invent\n"
+                "- Use ONLY data from rule/site info - never invent codes/content\n"
+                "- If rule has couponCode, use it. If not, don't add promo actions\n"
+                "- Include actionable CTAs (primaryCta, secondaryCtas, actions)\n"
+                "- For choice type: use actions array with choose kind\n"
+                "- Return: {\"suggestions\": [...]}\n\n"
+                "NO HALLUCINATION. Stick to facts from tools only."
             )
         )
 
@@ -219,7 +221,9 @@ class SuggestionAgent:
                         pass
 
                 try:
-                    if name == "get_sitemap":
+                    if name == "get_output_schema":
+                        result = get_output_schema.invoke(args)
+                    elif name == "get_sitemap":
                         result = get_sitemap.invoke(args)
                     elif name == "get_site_info":
                         result = get_site_info.invoke(args)
