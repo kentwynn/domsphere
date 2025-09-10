@@ -68,6 +68,10 @@ export class AutoAssistant {
   private triggeredRules = new Set<string>();
   private choiceInput: Record<string, unknown> = {};
 
+  // Time-based rule tracking
+  private lastTimeBasedTrigger = 0;
+  private triggeredTimeThresholds = new Set<number>();
+
   // Session tracking for advanced conditions
   private pageLoadTime = Date.now();
   private sessionData: Record<string, unknown> = {
@@ -257,6 +261,8 @@ export class AutoAssistant {
       this.choiceInput = {};
       // Reset session tracking for new page
       this.pageLoadTime = Date.now();
+      this.lastTimeBasedTrigger = 0;
+      this.triggeredTimeThresholds.clear();
       this.sessionData['clickCount'] = 0;
       this.sessionData['scrollDepth'] = 0;
       const target = this.pickFocusTarget('route_change');
@@ -819,23 +825,39 @@ export class AutoAssistant {
     const checkTimeConditions = () => {
       const timeOnPage = Math.floor((Date.now() - this.pageLoadTime) / 1000);
 
-      // Check if current time matches any time conditions
-      const matchesTime = filters.timeConditions.some(({ op, value }) => {
-        switch (op) {
-          case 'gt':
-            return timeOnPage > value;
-          case 'gte':
-            return timeOnPage >= value;
-          case 'lt':
-            return timeOnPage < value;
-          case 'lte':
-            return timeOnPage <= value;
-          default:
-            return false;
-        }
-      });
+      // Check for newly crossed time thresholds
+      const newlyTriggeredThresholds = filters.timeConditions.filter(
+        ({ op, value }) => {
+          // Skip if we've already triggered this threshold
+          if (this.triggeredTimeThresholds.has(value)) return false;
 
-      if (matchesTime && this.pathMatches('time_spent')) {
+          // Check if we've just crossed this threshold
+          switch (op) {
+            case 'gt':
+              return timeOnPage > value;
+            case 'gte':
+              return timeOnPage >= value;
+            case 'lt':
+              return timeOnPage < value;
+            case 'lte':
+              return timeOnPage <= value;
+            default:
+              return false;
+          }
+        }
+      );
+
+      // If we have newly triggered thresholds and path matches
+      if (
+        newlyTriggeredThresholds.length > 0 &&
+        this.pathMatches('time_spent') &&
+        !this.inflight
+      ) {
+        // Mark these thresholds as triggered
+        newlyTriggeredThresholds.forEach(({ value }) => {
+          this.triggeredTimeThresholds.add(value);
+        });
+
         this.schedule(() => this.handleEvent('time_spent', document.body));
       }
     };

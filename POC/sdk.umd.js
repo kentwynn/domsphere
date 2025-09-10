@@ -173,7 +173,8 @@
                         bucket.elementIds.add(val);
                     }
                     // Time-based conditions
-                    if ((field === 'session.timeOnPage' || field === 'telemetry.attributes.timeOnPage') &&
+                    if ((field === 'session.timeOnPage' ||
+                        field === 'telemetry.attributes.timeOnPage') &&
                         ['gt', 'gte', 'lt', 'lte'].includes(op) &&
                         typeof val === 'number') {
                         bucket.timeConditions.push({ op, value: val });
@@ -533,6 +534,9 @@
             this.currentStep = 1;
             this.triggeredRules = new Set();
             this.choiceInput = {};
+            // Time-based rule tracking
+            this.lastTimeBasedTrigger = 0;
+            this.triggeredTimeThresholds = new Set();
             // Session tracking for advanced conditions
             this.pageLoadTime = Date.now();
             this.sessionData = {
@@ -680,6 +684,8 @@
                 this.choiceInput = {};
                 // Reset session tracking for new page
                 this.pageLoadTime = Date.now();
+                this.lastTimeBasedTrigger = 0;
+                this.triggeredTimeThresholds.clear();
                 this.sessionData['clickCount'] = 0;
                 this.sessionData['scrollDepth'] = 0;
                 const target = this.pickFocusTarget('route_change');
@@ -1205,8 +1211,12 @@
             const minTime = Math.min(...filters.timeConditions.map((c) => c.value));
             const checkTimeConditions = () => {
                 const timeOnPage = Math.floor((Date.now() - this.pageLoadTime) / 1000);
-                // Check if current time matches any time conditions
-                const matchesTime = filters.timeConditions.some(({ op, value }) => {
+                // Check for newly crossed time thresholds
+                const newlyTriggeredThresholds = filters.timeConditions.filter(({ op, value }) => {
+                    // Skip if we've already triggered this threshold
+                    if (this.triggeredTimeThresholds.has(value))
+                        return false;
+                    // Check if we've just crossed this threshold
                     switch (op) {
                         case 'gt':
                             return timeOnPage > value;
@@ -1220,7 +1230,12 @@
                             return false;
                     }
                 });
-                if (matchesTime && this.pathMatches('time_spent')) {
+                // If we have newly triggered thresholds and path matches
+                if (newlyTriggeredThresholds.length > 0 && this.pathMatches('time_spent') && !this.inflight) {
+                    // Mark these thresholds as triggered
+                    newlyTriggeredThresholds.forEach(({ value }) => {
+                        this.triggeredTimeThresholds.add(value);
+                    });
                     this.schedule(() => this.handleEvent('time_spent', document.body));
                 }
             };
