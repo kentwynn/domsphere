@@ -2,9 +2,9 @@ import { createApi } from './api';
 import { Emitter, type Listener } from './emitter';
 import {
   collectFocusFromRules,
+  evaluateAdvancedConditions,
   idMatches as idMatchHelper,
   targetMatches as targetMatchHelper,
-  evaluateAdvancedConditions,
   type EventKind,
   type FocusMap,
 } from './focus';
@@ -157,7 +157,7 @@ export class AutoAssistant {
   private setupListenersFocusMode() {
     // Initialize session tracking
     this.initializeSessionTracking();
-    
+
     // page_load
     if (this.allow.has('page_load')) {
       this.schedule(() => {
@@ -176,10 +176,11 @@ export class AutoAssistant {
     // clicks
     const onClick = (e: Event) => {
       const tgt = e.target as Element | undefined;
-      
+
       // Update session click count
-      this.sessionData['clickCount'] = (this.sessionData['clickCount'] as number) + 1;
-      
+      this.sessionData['clickCount'] =
+        (this.sessionData['clickCount'] as number) + 1;
+
       if (!this.allow.has('dom_click')) return;
       const focusTgt = this.pickFocusTarget('dom_click') || tgt;
       if (!this.pathMatches('dom_click')) return;
@@ -476,8 +477,9 @@ export class AutoAssistant {
           if (!name) return;
           try {
             // Merge prior choices so the agent sees cumulative input
-            const extra = (c as CtaSpec & { nextInput?: Record<string, unknown> })
-              .nextInput || {};
+            const extra =
+              (c as CtaSpec & { nextInput?: Record<string, unknown> })
+                .nextInput || {};
             const input = {
               ...this.choiceInput,
               [name]: value,
@@ -770,14 +772,20 @@ export class AutoAssistant {
   // Session tracking initialization
   private initializeSessionTracking() {
     this.pageLoadTime = Date.now();
-    
+
     // Track scroll depth
     if (this.allow.has('scroll')) {
       const onScroll = () => {
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const scrollPercent = docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0;
-        this.sessionData['scrollDepth'] = Math.max(this.sessionData['scrollDepth'] as number, scrollPercent);
+        const scrollTop =
+          window.pageYOffset || document.documentElement.scrollTop;
+        const docHeight =
+          document.documentElement.scrollHeight - window.innerHeight;
+        const scrollPercent =
+          docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0;
+        this.sessionData['scrollDepth'] = Math.max(
+          this.sessionData['scrollDepth'] as number,
+          scrollPercent
+        );
       };
       window.addEventListener('scroll', onScroll, { passive: true });
       this.detachFns.push(() => window.removeEventListener('scroll', onScroll));
@@ -785,7 +793,9 @@ export class AutoAssistant {
 
     // Update time on site periodically
     const updateTimeOnSite = () => {
-      this.sessionData['timeOnSite'] = Math.floor((Date.now() - this.pageLoadTime) / 1000);
+      this.sessionData['timeOnSite'] = Math.floor(
+        (Date.now() - this.pageLoadTime) / 1000
+      );
     };
     const timeInterval = setInterval(updateTimeOnSite, 1000);
     this.detachFns.push(() => clearInterval(timeInterval));
@@ -797,19 +807,24 @@ export class AutoAssistant {
     if (!filters || filters.timeConditions.length === 0) return;
 
     // Find the minimum time threshold to start checking
-    const minTime = Math.min(...filters.timeConditions.map(c => c.value));
-    
+    const minTime = Math.min(...filters.timeConditions.map((c) => c.value));
+
     const checkTimeConditions = () => {
       const timeOnPage = Math.floor((Date.now() - this.pageLoadTime) / 1000);
-      
+
       // Check if current time matches any time conditions
       const matchesTime = filters.timeConditions.some(({ op, value }) => {
         switch (op) {
-          case 'gt': return timeOnPage > value;
-          case 'gte': return timeOnPage >= value;
-          case 'lt': return timeOnPage < value; 
-          case 'lte': return timeOnPage <= value;
-          default: return false;
+          case 'gt':
+            return timeOnPage > value;
+          case 'gte':
+            return timeOnPage >= value;
+          case 'lt':
+            return timeOnPage < value;
+          case 'lte':
+            return timeOnPage <= value;
+          default:
+            return false;
         }
       });
 
@@ -825,7 +840,7 @@ export class AutoAssistant {
       const intervalId = setInterval(checkTimeConditions, 1000);
       this.detachFns.push(() => clearInterval(intervalId));
     }, minTime * 1000);
-    
+
     this.detachFns.push(() => clearTimeout(timerId));
   }
 
@@ -835,7 +850,7 @@ export class AutoAssistant {
     target?: Element
   ) {
     const timeOnPage = Math.floor((Date.now() - this.pageLoadTime) / 1000);
-    
+
     // Check if advanced conditions are met
     const conditionsMet = evaluateAdvancedConditions(this.focus, kind, {
       timeOnPage,
