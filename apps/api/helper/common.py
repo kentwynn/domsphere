@@ -29,7 +29,7 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "enabled": True,
                     "tracking": True,
                     "ruleInstruction": "Show suggestions when cart has 2 or more items",
-                    "outputInstruction": "Create exciting promotion suggestions with discount codes, savings breakdown, and clear next steps to increase cart value",
+                    "outputInstruction": "Given PromoCode SAVE10",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
