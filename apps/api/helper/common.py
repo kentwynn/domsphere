@@ -12,7 +12,6 @@ from contracts.common import DomAtlasSnapshot, DomAtlasElement
 
 
 AGENT_URL = os.getenv("AGENT_BASE_URL", "http://localhost:5001").rstrip("/")
-AGENT_TIMEOUT = float(os.getenv("AGENT_TIMEOUT_SEC", "5.0"))
 
 # ----------------------------------------------------------------------------
 # Mock: Rules DB used by /api/rule/check (flat eventType + when conditions)

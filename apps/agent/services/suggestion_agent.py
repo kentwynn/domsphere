@@ -15,16 +15,14 @@ class SuggestionAgent:
     when LLM is unavailable.
     """
 
-    def __init__(self, api_url: Optional[str] = None, timeout_sec: float = 5.0, debug: bool = False) -> None:
+    def __init__(self, api_url: Optional[str] = None) -> None:
         self.api_url = (api_url or os.getenv("API_BASE_URL", "http://localhost:4000")).rstrip("/")
-        self.timeout = float(os.getenv("AGENT_TIMEOUT_SEC", str(timeout_sec)))
         self.openai_token = os.getenv("OPENAI_TOKEN")
-        self.debug = debug
 
     # --- Tools (sitemap, info, atlas) -------------------------------------------------
     def tool_get_sitemap(self, site_id: str) -> List[Dict[str, Any]]:
         """Fetch site's sitemap to understand available pages and structure."""
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client() as client:
             r = client.get(f"{self.api_url}/site/map", params={"siteId": site_id})
             r.raise_for_status()
             data = r.json() or {}
@@ -32,14 +30,14 @@ class SuggestionAgent:
 
     def tool_get_site_info(self, site_id: str) -> Dict[str, Any]:
         """Fetch site metadata and business info."""
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client() as client:
             r = client.get(f"{self.api_url}/site/info", params={"siteId": site_id})
             r.raise_for_status()
             return r.json() or {}
 
     def tool_get_site_atlas(self, site_id: str, url: str) -> Dict[str, Any]:
         """Fetch DOM atlas snapshot for current page context."""
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client() as client:
             r = client.get(f"{self.api_url}/site/atlas", params={"siteId": site_id, "url": url})
             r.raise_for_status()
             return r.json() or {}
@@ -52,16 +50,10 @@ class SuggestionAgent:
             from langchain_core.tools import tool
             from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
         except Exception:
-            if self.debug:
-                print("[SuggestionAgent] LangChain/OpenAI not available; skipping LLM path")
             return None
-
+        
         if not self.openai_token:
-            if self.debug:
-                print("[SuggestionAgent] OPENAI_TOKEN missing; skipping LLM path")
-            return None
-
-        # Define tools bound to this instance
+            return None        # Define tools bound to this instance
         agent_self = self
 
         @tool("get_sitemap", return_direct=False)
@@ -149,15 +141,12 @@ class SuggestionAgent:
             if not tool_calls:
                 # Expect final JSON content
                 try:
-                    if self.debug:
-                        print(f"[SuggestionAgent] Final AI content (turn={turn}): {ai.content}")
                     data = _parse_json(ai.content)
                     suggestions = data.get("suggestions")
                     if isinstance(suggestions, list):
                         return suggestions
                 except Exception as e:
-                    if self.debug:
-                        print(f"[SuggestionAgent] Failed to parse final response: {e}")
+                    pass
                 return []
 
             messages.append(ai)
@@ -172,9 +161,6 @@ class SuggestionAgent:
                     except Exception:
                         pass
 
-                if self.debug:
-                    print(f"[SuggestionAgent] Tool call -> name={name}, args={args}")
-
                 try:
                     if name == "get_sitemap":
                         result = get_sitemap.invoke(args)
@@ -187,10 +173,6 @@ class SuggestionAgent:
                 except Exception as e:
                     result = {"error": str(e)}
 
-                if self.debug:
-                    preview = result if isinstance(result, (dict, list)) else str(result)
-                    print(f"[SuggestionAgent] Tool result for {name}: {str(preview)[:200]}")
-
                 messages.append(
                     ToolMessage(
                         content=json.dumps(result)[:4000],
@@ -199,108 +181,18 @@ class SuggestionAgent:
                 )
         return []
 
-    def _fallback_suggestions(self, request: AgentSuggestNextRequest) -> List[Dict[str, Any]]:
-        """Generate fallback suggestions using deterministic rules when LLM unavailable."""
-        url = request.url or ""
-        rule_id = request.ruleId or ""
-        choices = request.input or {}
-
-        suggestions = []
-
-        # Product page suggestions
-        if "/product/" in url:
-            if "sku-abc" in url:
-                suggestions.append({
-                    "type": "upsell",
-                    "id": f"upsell-{rule_id}",
-                    "title": "Add this to your cart",
-                    "description": "Popular item with great reviews",
-                    "primaryCta": {"label": "Add to cart", "kind": "click", "payload": {"selector": "#add-to-cart"}},
-                    "secondaryCtas": [{"label": "View details", "kind": "link", "url": url}]
-                })
-            else:
-                suggestions.append({
-                    "type": "recommendation",
-                    "id": f"rec-{rule_id}",
-                    "title": "You might also like",
-                    "description": "Similar products to consider",
-                    "primaryCta": {"label": "Browse similar", "kind": "link", "url": "/products"},
-                    "secondaryCtas": [{"label": "Add to wishlist", "kind": "click", "payload": {"selector": ".wishlist-btn"}}]
-                })
-
-        # Cart page suggestions
-        elif "/cart" in url:
-            suggestions.append({
-                "type": "promotion",
-                "id": f"promo-{rule_id}",
-                "title": "Free shipping available",
-                "description": "Add $25 more for free shipping",
-                "primaryCta": {"label": "Continue shopping", "kind": "link", "url": "/products"},
-                "secondaryCtas": [{"label": "Proceed to checkout", "kind": "click", "payload": {"selector": "#checkout"}}]
-            })
-
-        # Checkout page suggestions
-        elif "/checkout" in url:
-            suggestions.append({
-                "type": "guidance",
-                "id": f"help-{rule_id}",
-                "title": "Need help with checkout?",
-                "description": "Contact support if you have questions",
-                "primaryCta": {"label": "Continue", "kind": "click", "payload": {"selector": "#continue-checkout"}},
-                "secondaryCtas": [{"label": "Contact support", "kind": "link", "url": "/support"}]
-            })
-
-        # Products/browse page
-        elif "/products" in url:
-            suggestions.append({
-                "type": "guidance",
-                "id": f"browse-{rule_id}",
-                "title": "Browse by category",
-                "description": "Find exactly what you're looking for",
-                "primaryCta": {"label": "View categories", "kind": "link", "url": "/products?category=all"},
-                "secondaryCtas": [
-                    {"label": "Featured items", "kind": "link", "url": "/products?featured=true"},
-                    {"label": "New arrivals", "kind": "link", "url": "/products?new=true"}
-                ]
-            })
-
-        # Home page
-        elif url.endswith("/") or "index.html" in url:
-            suggestions.append({
-                "type": "info",
-                "id": f"welcome-{rule_id}",
-                "title": "Welcome to our store",
-                "description": "Discover our latest products and deals",
-                "primaryCta": {"label": "Start shopping", "kind": "link", "url": "/products"},
-                "secondaryCtas": [{"label": "View deals", "kind": "link", "url": "/products?sale=true"}]
-            })
-
-        # Default suggestion
-        if not suggestions:
-            suggestions.append({
-                "type": "recommendation",
-                "id": f"default-{rule_id}",
-                "title": "Explore our products",
-                "description": "Check out what we have to offer",
-                "primaryCta": {"label": "Browse products", "kind": "link", "url": "/products"}
-            })
-
-        return suggestions
-
     # --- Public API ------------------------------------------------------------------
     def generate_suggestions(self, request: AgentSuggestNextRequest) -> List[Suggestion]:
         """Public API: Generate suggestions for the given request context.
 
         Returns a list of Suggestion objects that can be directly used in responses.
         """
-        # Try LLM path first
+        # Generate suggestions using LLM
         suggestions_data = self._llm_generate_suggestions(request)
-
-        # Fall back to deterministic suggestions if LLM fails
+        
+        # Return empty list if no suggestions generated
         if not suggestions_data:
-            if self.debug:
-                print("[SuggestionAgent] Using fallback suggestions")
-            suggestions_data = self._fallback_suggestions(request)
+            return []
 
         # Convert to Suggestion objects and validate
         validated_suggestions = []
@@ -335,12 +227,7 @@ class SuggestionAgent:
                 validated_suggestions.append(suggestion)
 
             except Exception as e:
-                if self.debug:
-                    print(f"[SuggestionAgent] Failed to validate suggestion: {e}, data: {data}")
                 continue
-
-        if self.debug:
-            print(f"[SuggestionAgent] Generated {len(validated_suggestions)} suggestions")
 
         return validated_suggestions
 

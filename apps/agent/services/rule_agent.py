@@ -13,22 +13,21 @@ class RuleAgent:
     a simple deterministic heuristic.
     """
 
-    def __init__(self, api_url: Optional[str] = None, timeout_sec: float = 5.0, debug: bool = False) -> None:
+    def __init__(self, api_url: Optional[str] = None, debug: bool = False) -> None:
         self.api_url = (api_url or os.getenv("API_BASE_URL", "http://localhost:4000")).rstrip("/")
-        self.timeout = float(os.getenv("AGENT_TIMEOUT_SEC", str(timeout_sec)))
         self.openai_token = os.getenv("OPENAI_TOKEN")
         self.debug = debug
 
     # --- Tools (sitemap, info, atlas) -------------------------------------------------
     def tool_get_sitemap(self, site_id: str) -> List[Dict[str, Any]]:
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client() as client:
             r = client.get(f"{self.api_url}/site/map", params={"siteId": site_id})
             r.raise_for_status()
             data = r.json() or {}
             return data.get("pages", [])
 
     def tool_get_site_atlas(self, site_id: str, url: str) -> Dict[str, Any]:
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client() as client:
             r = client.get(f"{self.api_url}/site/atlas", params={"siteId": site_id, "url": url})
             r.raise_for_status()
             return r.json() or {}
@@ -40,12 +39,8 @@ class RuleAgent:
             from langchain_core.tools import tool
             from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
         except Exception:
-            if getattr(self, "debug", False):
-                print("[RuleAgent] LangChain/OpenAI not available; skipping LLM path")
             return None
         if not self.openai_token:
-            if getattr(self, "debug", False):
-                print("[RuleAgent] OPENAI_TOKEN missing; skipping LLM path")
             return None
 
         # Define tools bound to this instance
@@ -120,8 +115,6 @@ class RuleAgent:
             if not tool_calls:
                 # expect final JSON content
                 try:
-                    if self.debug:
-                        print(f"[RuleAgent] Final AI content (no tool calls, turn={turn}): {ai.content}")
                     data = _parse_json(ai.content)
                     trig = data.get("triggers")
                     # Lightweight shape check: triggers is a list of dicts
@@ -141,8 +134,6 @@ class RuleAgent:
                             args = parsed
                     except Exception:
                         pass
-                if self.debug:
-                    print(f"[RuleAgent] Tool call -> name={name}, args={args}")
                 try:
                     if name == "get_sitemap":
                         result = get_sitemap.invoke(args)
@@ -152,9 +143,6 @@ class RuleAgent:
                         result = {"error": f"unknown tool {name}"}
                 except Exception as e:
                     result = {"error": str(e)}
-                if self.debug:
-                    preview = result if isinstance(result, (dict, list)) else str(result)
-                    print(f"[RuleAgent] Tool result for {name}: {str(preview)[:200]}")
                 messages.append(
                     ToolMessage(
                         content=json.dumps(result)[:4000],
@@ -169,8 +157,6 @@ class RuleAgent:
         Returns a list of triggers conforming to RuleTrigger contract.
         """
         trig = self._llm_generate(site_id, rule_instruction)
-        if self.debug:
-            print(f"Generated triggers: {trig}")
 
         if isinstance(trig, list) and trig:
             # Validate triggers against contract format
