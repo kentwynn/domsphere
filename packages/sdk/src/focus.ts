@@ -92,7 +92,8 @@ export function collectFocusFromRules(rules: RuleListItem[]): {
 
         // Time-based conditions
         if (
-          field === 'session.timeOnPage' &&
+          (field === 'session.timeOnPage' ||
+            field === 'telemetry.attributes.timeOnPage') &&
           ['gt', 'gte', 'lt', 'lte'].includes(op) &&
           typeof val === 'number'
         ) {

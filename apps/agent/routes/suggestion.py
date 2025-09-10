@@ -165,6 +165,21 @@ def suggest(
         )
         return AgentSuggestNextResponse(suggestions=[s_final])
 
+    # PRODUCTS page: time-based engagement suggestion
+    if rid == "products_browse_help" and "/products" in url:
+        s = Suggestion(
+            type="recommendation",
+            id=f"rec-{rid}",
+            title="Still browsing?",
+            description="You have stayed on this site so long, do you want to explore the products more?",
+            primaryCta=CtaSpec(label="View featured products", kind="open", url="/products?featured=true"),
+            secondaryCtas=[
+                CtaSpec(label="Browse by category", kind="open", url="/products?category=all"),
+                CtaSpec(label="See what's new", kind="open", url="/products?new=true")
+            ],
+        )
+        return AgentSuggestNextResponse(suggestions=[s])
+
     # Fallback generic suggestion
     s = Suggestion(
         type="recommendation",

@@ -296,7 +296,7 @@ export type components = {
              * Type
              * @enum {string}
              */
-            type: "dom_click" | "input_change" | "page_load" | "submit" | "route_change";
+            type: "dom_click" | "input_change" | "page_load" | "submit" | "route_change" | "scroll" | "time_spent" | "visibility_change";
             /** Ts */
             ts: number;
             telemetry: components["schemas"]["Telemetry"];

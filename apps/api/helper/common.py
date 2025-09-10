@@ -121,6 +121,19 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/product/sku-def"}
                         ]}
                     ],
+                },
+                {
+                    "id": "products_browse_help",
+                    "enabled": True,
+                    "tracking": True,
+                    "ruleInstruction": "Help users who spend more than 10 seconds browsing products",
+                    "outputInstruction": "Offer product exploration assistance and personalized recommendations",
+                    "triggers": [
+                        {"eventType": "time_spent", "when": [
+                            {"field": "telemetry.attributes.path", "op": "equals", "value": "/products"},
+                            {"field": "telemetry.attributes.timeOnPage", "op": "gt", "value": 10}
+                        ]}
+                    ],
                 }
             ],
         },
@@ -358,7 +371,9 @@ def _op_eval(left: Any, op: str, right: Any) -> bool:
         if op == "equals": return left == right
         if op == "eq": return left == right
         if op == "in": return left in right if isinstance(right, (list, tuple, set)) else False
+        if op == "gt": return left is not None and right is not None and left > right
         if op == "gte": return left is not None and right is not None and left >= right
+        if op == "lt": return left is not None and right is not None and left < right
         if op == "lte": return left is not None and right is not None and left <= right
         if op == "contains":
             if isinstance(left, str) and isinstance(right, str):

@@ -627,6 +627,13 @@ export class AutoAssistant {
     } catch {
       /* ignore */
     }
+
+    // Add session data to attributes for rule matching
+    const timeOnPage = Math.floor((Date.now() - this.pageLoadTime) / 1000);
+    attributes['timeOnPage'] = String(timeOnPage);
+    attributes['clickCount'] = String(this.sessionData['clickCount'] || 0);
+    attributes['scrollDepth'] = String(this.sessionData['scrollDepth'] || 0);
+
     try {
       const withAction = el?.closest('[data-action]') as HTMLElement | null;
       const action = withAction?.getAttribute('data-action');
