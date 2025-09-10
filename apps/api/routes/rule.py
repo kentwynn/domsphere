@@ -10,6 +10,7 @@ from helper.common import (
     create_rule,
     update_rule_triggers,
     AGENT_URL,
+    AGENT_TIMEOUT,
     _fwd_headers,
     list_rules,
 )
@@ -126,7 +127,7 @@ def generate_rule_triggers(
     # Call Agent to generate triggers
     try:
         body = AgentRuleRequest(siteId=siteId, ruleInstruction=rule_instruction).model_dump()
-        with httpx.Client() as client:
+        with httpx.Client(timeout=AGENT_TIMEOUT) as client:
             r = client.post(
                 f"{AGENT_URL}/agent/rule",
                 json=body,

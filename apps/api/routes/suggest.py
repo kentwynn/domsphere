@@ -3,7 +3,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 
-from helper.common import AGENT_URL, _fwd_headers
+from helper.common import AGENT_URL, AGENT_TIMEOUT, _fwd_headers
 from contracts.client_api import (
     SuggestGetRequest,
     SuggestGetResponse,
@@ -21,7 +21,7 @@ def suggest(
 ) -> SuggestGetResponse:
     body = payload.model_dump()
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=AGENT_TIMEOUT) as client:
             r = client.post(
                 f"{AGENT_URL}/agent/suggest",
                 json=body,
@@ -46,7 +46,7 @@ def suggest_next(
 ) -> SuggestNextResponse:
     body = payload.model_dump()
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=AGENT_TIMEOUT) as client:
             r = client.post(
                 f"{AGENT_URL}/agent/suggest",
                 json=body,

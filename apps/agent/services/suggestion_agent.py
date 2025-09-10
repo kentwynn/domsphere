@@ -18,11 +18,13 @@ class SuggestionAgent:
     def __init__(self, api_url: Optional[str] = None) -> None:
         self.api_url = (api_url or os.getenv("API_BASE_URL", "http://localhost:4000")).rstrip("/")
         self.openai_token = os.getenv("OPENAI_TOKEN")
+        self.http_timeout = float(os.getenv("HTTP_TIMEOUT", "300"))
+        self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "300"))
 
     # --- Tools (sitemap, info, atlas) -------------------------------------------------
     def tool_get_sitemap(self, site_id: str) -> List[Dict[str, Any]]:
         """Fetch site's sitemap to understand available pages and structure."""
-        with httpx.Client() as client:
+        with httpx.Client(timeout=self.http_timeout) as client:
             r = client.get(f"{self.api_url}/site/map", params={"siteId": site_id})
             r.raise_for_status()
             data = r.json() or {}
@@ -30,14 +32,14 @@ class SuggestionAgent:
 
     def tool_get_site_info(self, site_id: str, url: str) -> Dict[str, Any]:
         """Fetch site metadata and business info."""
-        with httpx.Client() as client:
+        with httpx.Client(timeout=self.http_timeout) as client:
             r = client.get(f"{self.api_url}/site/info", params={"siteId": site_id, "url": url})
             r.raise_for_status()
             return r.json() or {}
 
     def tool_get_site_atlas(self, site_id: str, url: str) -> Dict[str, Any]:
         """Fetch DOM atlas snapshot for current page context."""
-        with httpx.Client() as client:
+        with httpx.Client(timeout=self.http_timeout) as client:
             r = client.get(f"{self.api_url}/site/atlas", params={"siteId": site_id, "url": url})
             r.raise_for_status()
             return r.json() or {}
