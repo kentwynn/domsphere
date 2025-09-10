@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
-from .common import HealthResponse, ConditionOp
-from .suggestion import Suggestion
+from common import HealthResponse, ConditionOp, RuleTrigger
+from suggestion import Suggestion
 
 # ==============================================================================
 # /agent/rule  (compile NL rules -> deterministic RuleSet JSON)
@@ -13,7 +13,7 @@ class AgentRuleRequest(BaseModel):
     ruleInstruction: str
 
 class AgentRuleResponse(BaseModel):
-    triggers: List[Dict[str, Any]]
+    triggers: List[RuleTrigger]
 
 # ==============================================================================
 # /agent/step/check  (reason about multi-step rule flows)

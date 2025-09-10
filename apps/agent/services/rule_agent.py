@@ -1,8 +1,7 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import os
 import json
-from click import Tuple
 import httpx
 from contracts.common import DOM_EVENT_TYPES, CONDITION_OPS
 
@@ -69,25 +68,26 @@ class RuleAgent:
 
         sys = SystemMessage(
             content=(
-                "You are Rule Trigger Agent.\n"
-                "Goal: Given a ruleInstruction and a siteId, generate 'triggers' based strictly on real DOM data.\n\n"
-                "Step-by-step:\n"
-                "1. Call get_sitemap(siteId) to get list of pages.\n"
-                "2. Identify candidate page(s) based on ruleInstruction (e.g. keywords like 'cart', 'checkout').\n"
-                "3. Call get_site_atlas(siteId, url) for each relevant page to get real DOM elements.\n"
-                "4. From those elements, find ones with matching id/class/text relevant to ruleInstruction.\n\n"
-                "Use these fields in trigger conditions:\n"
-                "- telemetry.attributes.path (equals)\n"
-                "- telemetry.attributes.id or .class (equals only)\n"
-                "- telemetry.elementText or .attributes.value (for numeric or text comparison)\n\n"
-                "Rules:\n"
-                "- Do NOT invent IDs or paths. Only use values seen in tool results.\n"
-                "- Use 'gte', 'gt', 'lte', 'lt' only on numeric fields like telemetry.elementText.\n"
-                "- Bind each trigger to a specific element if possible (via id/class).\n"
-                "- Always include telemetry.attributes.path equals <path> from sitemap.\n"
-                "- Always return JSON with key 'triggers', and nothing else.\n\n"
-                "Example output:\n"
-                "{ \"triggers\": [ {\"eventType\": \"page_load\", \"when\": [ ... ]} ] }"
+                "Generate rule triggers using real DOM data.\n\n"
+                "EXACT OUTPUT FORMAT (strict JSON):\n"
+                '{"triggers": [{\n'
+                '  "eventType": "page_load",\n'
+                '  "when": [\n'
+                '    {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},\n'
+                '    {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"},\n'
+                '    {"field": "telemetry.elementText", "op": "gt", "value": 2}\n'
+                '  ]\n'
+                '}]}\n\n'
+                "FIELD PATHS:\n"
+                "- telemetry.attributes.path (page URL path)\n"
+                "- telemetry.attributes.id (element ID)\n"
+                "- telemetry.attributes.class (CSS class)\n"
+                "- telemetry.elementText (element text content)\n"
+                "- telemetry.cssPath (CSS selector)\n\n"
+                "STEPS:\n"
+                "1. get_sitemap → find pages\n"
+                "2. get_site_atlas → get real elements\n"
+                "3. Output triggers with ONLY real IDs/paths found"
             )
         )
         preferred_events = DOM_EVENT_TYPES
@@ -96,20 +96,8 @@ class RuleAgent:
             content=json.dumps({
                 "siteId": site_id,
                 "ruleInstruction": rule_instruction,
-                "requirements": {
-                    "eventTypes": preferred_events,
-                    "ops": CONDITION_OPS,
-                    "fieldExamples": [
-                        "telemetry.attributes.path", "telemetry.attributes.id", "telemetry.attributes.class", "telemetry.cssPath", "telemetry.elementText"
-                    ],
-                },
-                "outputSchema": {
-                    "triggers": [
-                        {"eventType": "<one of eventTypes>", "when": [
-                            {"field": "<fieldExamples entry>", "op": "<ops entry>", "value": "<value from tools>"}
-                        ]}
-                    ]
-                }
+                "events": preferred_events,
+                "ops": CONDITION_OPS
             })
         )
 
@@ -166,13 +154,38 @@ class RuleAgent:
     # --- Public API ------------------------------------------------------------------
     def generate_triggers(self, site_id: str, rule_instruction: str) -> List[Dict[str, Any]]:
         """Public API: Generate triggers for a rule instruction using LLM/tool-calling.
-        Returns a list of triggers or an empty list if generation failed.
+        Returns a list of triggers conforming to RuleTrigger contract.
         """
         trig = self._llm_generate(site_id, rule_instruction)
         if self.debug:
             print(f"Generated triggers: {trig}")
+
         if isinstance(trig, list) and trig:
-            return trig
+            # Validate triggers against contract format
+            validated_triggers = []
+            for t in trig:
+                try:
+                    # Ensure the trigger follows RuleTrigger contract
+                    if isinstance(t, dict) and "eventType" in t and "when" in t:
+                        # Validate eventType is one of the allowed types
+                        if t["eventType"] in DOM_EVENT_TYPES:
+                            # Validate when conditions
+                            when_conditions = t.get("when", [])
+                            if isinstance(when_conditions, list):
+                                valid_conditions = []
+                                for cond in when_conditions:
+                                    if (isinstance(cond, dict) and
+                                        "field" in cond and "op" in cond and "value" in cond and
+                                        cond["op"] in CONDITION_OPS):
+                                        valid_conditions.append(cond)
+                                if valid_conditions:  # Only add if has valid conditions
+                                    validated_triggers.append({
+                                        "eventType": t["eventType"],
+                                        "when": valid_conditions
+                                    })
+                except Exception:
+                    continue  # Skip invalid triggers
+            return validated_triggers
         return []
 
     # --- Helpers --------------------------------------------------------------------

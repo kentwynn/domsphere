@@ -8,9 +8,22 @@ DomEventType = Literal["dom_click", "input_change", "page_load", "submit", "rout
 # Export runtime lists for agents and validators
 DOM_EVENT_TYPES: list[str] = ["dom_click", "input_change", "page_load", "submit", "route_change"]
 # Common condition operator enum used across rule checks and agents
-ConditionOp = Literal["equals", "in", "gte", "lte", "contains", "between", "regex"]
-CONDITION_OPS: list[str] = ["equals", "in", "gte", "lte", "contains", "between", "regex"]
+ConditionOp = Literal["equals", "in", "gte", "lte", "gt", "lt", "contains", "between", "regex"]
+CONDITION_OPS: list[str] = ["equals", "in", "gte", "lte", "gt", "lt", "contains", "between", "regex"]
 NoActionReason = Literal["no_trigger", "debounced", "budget_exceeded", "plan_missing", "unknown_selector", None]
+
+# ----- Rule Trigger Schema ----------------------------------------------------
+
+class TriggerCondition(BaseModel):
+    """Single condition within a trigger's when clause."""
+    field: str = Field(..., description="Telemetry field path (e.g., 'telemetry.attributes.path')")
+    op: ConditionOp = Field(..., description="Comparison operator")
+    value: Any = Field(..., description="Value to compare against")
+
+class RuleTrigger(BaseModel):
+    """Standard trigger format used across agent, API, and SDK."""
+    eventType: DomEventType = Field(..., description="DOM event that activates this trigger")
+    when: List[TriggerCondition] = Field(default_factory=list, description="Conditions that must all be true")
 
 # ----- Event & DOM telemetry --------------------------------------------------
 
