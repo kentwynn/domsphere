@@ -45,10 +45,11 @@ class SuggestionAgent:
             return r.json() or {}
 
     def tool_get_rule_info(self, site_id: str, rule_id: str) -> Dict[str, Any]:
-        """Fetch rule information including output instructions."""
+        """Fetch rule information including output instructions and all relevant fields (title, description, couponCode, etc)."""
         with httpx.Client(timeout=self.http_timeout) as client:
             r = client.get(f"{self.api_url}/rule/{rule_id}", params={"siteId": site_id})
             r.raise_for_status()
+            # Return the entire rule data so LLM can use fields like outputInstruction, title, description, couponCode, etc.
             return r.json() or {}
 
     # --- LLM path --------------------------------------------------------------------
@@ -82,14 +83,10 @@ class SuggestionAgent:
 
         @tool("get_rule_info", return_direct=False)
         def get_rule_info(siteId: str, ruleId: str) -> Dict[str, Any]:  # type: ignore[override]
-            """Fetch rule's output instruction to determine what type of suggestions to generate."""
+            """Fetch full rule info including outputInstruction, title, description, couponCode, etc, to determine what type of suggestions to generate."""
             rule_data = agent_self.tool_get_rule_info(siteId, ruleId)
-            # Extract only the outputInstruction to keep context clean and focused
-            output_instruction = rule_data.get("outputInstruction", "")
-            return {
-                "outputInstruction": output_instruction,
-                "ruleId": ruleId
-            }
+            # Return the full rule_data so LLM can use all fields for CTA/suggestion generation.
+            return rule_data
 
         model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")  # Good balance of cost/capability
         llm = ChatOpenAI(api_key=self.openai_token, model=model_name, temperature=0.7)  # Bit more creative
@@ -100,9 +97,10 @@ class SuggestionAgent:
             content=(
                 "Generate contextual suggestions based on REAL site data and the specific rule's outputInstruction.\n\n"
                 "CRITICAL RULES:\n"
-                "- ALWAYS call get_rule_info first to get the outputInstruction for this specific rule\n"
+                "- ALWAYS call get_rule_info first to get the outputInstruction and all relevant fields for this specific rule\n"
                 "- ALWAYS call get_sitemap second to see ALL available pages and URLs\n"
                 "- FOLLOW the rule's outputInstruction exactly - this determines the TYPE and CONTENT of suggestions\n"
+                "- Use fields like 'title', 'description', 'couponCode', etc. from ruleInfo if present to personalize suggestions.\n"
                 "- ONLY use URLs that exist in the sitemap - NEVER invent URLs or add query parameters\n"
                 "- Call get_site_info to understand the business context\n"
                 "- Call get_site_atlas if you need DOM context for the current page\n"
@@ -150,17 +148,17 @@ class SuggestionAgent:
                 "- Ensure 'choice' suggestions include exactly one `actions[]` block with 'choose' kind and proper payload.\n"
                 "\n"
                 "SMART PATTERNS:\n"
-                "- Cart promotions: Use 'coupon' type with dom_fill + click actions for promo codes\n"
+                "- Cart promotions: Use 'coupon' type with dom_fill + click actions for promo codes. If ruleInfo contains a couponCode or similar field, use it for the code value instead of hardcoded values like 'SAVE10' or 'YYY'.\n"
                 "- Product pages: Use 'upsell' type with add_to_cart or navigation\n"
                 "- Home page: Use 'info' or 'banner' types for welcomes/announcements\n"
                 "- Time-based: Use 'guidance' for helping users who've been browsing\n\n"
                 "MANDATORY PROCESS:\n"
-                "1. get_rule_info → Get the outputInstruction (REQUIRED FIRST)\n"
+                "1. get_rule_info → Get the outputInstruction and all relevant fields (REQUIRED FIRST)\n"
                 "2. get_sitemap → Get ALL available URLs (REQUIRED SECOND)\n"
                 "3. get_site_info → Get business context\n"
                 "4. get_site_atlas → Get page context if needed\n"
                 "5. Check userChoices for multi-step flows\n"
-                "6. Generate suggestions following outputInstruction exactly\n"
+                "6. Generate suggestions following outputInstruction and other rule fields exactly\n"
                 "6a. For multi-step flows, always return one suggestion per step with correct meta.step\n"
                 "7. Use ONLY exact URLs from the sitemap list\n\n"
                 "URL RULES:\n"
@@ -169,7 +167,7 @@ class SuggestionAgent:
                 "- NEVER invent URLs not in the sitemap\n"
                 "- If you need a specific page type, find the closest match in sitemap\n\n"
                 "KEY FOCUS:\n"
-                "- The rule's outputInstruction is MANDATORY - follow it exactly\n"
+                "- The rule's outputInstruction and other fields are MANDATORY - follow them exactly\n"
                 "- Handle multi-step flows intelligently using userChoices\n"
                 "- Use appropriate suggestion types and CTA kinds\n"
                 "- Only use real URLs that exist in the sitemap\n"
@@ -178,7 +176,7 @@ class SuggestionAgent:
                 "- Multi-step flows must always include meta.step to reflect current stage (e.g., 1, 2, 3…).\n"
                 "- Use only a single suggestion per step to avoid latency and confusion.\n"
                 "- Ensure 'choice' suggestions include exactly one `actions[]` block with 'choose' kind and proper payload.\n"
-                "- Do NOT hallucinate or invent options—use only options actually provided by tool results or outputInstruction.\n"
+                "- Do NOT hallucinate or invent options—use only options actually provided by tool results or outputInstruction or other fields (e.g., couponCode).\n"
             )
         )
 
