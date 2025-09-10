@@ -80,16 +80,22 @@ class SuggestionAgent:
 
         sys = SystemMessage(
             content=(
-                "Generate contextual suggestions for users based on their current page and behavior.\n\n"
+                "Generate contextual suggestions based on REAL site data. You MUST use tools to gather actual site information.\n\n"
+                "CRITICAL RULES:\n"
+                "- ALWAYS call get_sitemap first to see real available pages\n"
+                "- ALWAYS call get_site_info to understand the business\n"
+                "- ONLY use URLs that exist in the sitemap - never invent URLs or query parameters\n"
+                "- Use the actual site structure, not generic e-commerce assumptions\n"
+                "- If current page isn't in sitemap, call get_site_atlas for DOM context\n\n"
                 "EXACT OUTPUT FORMAT (strict JSON):\n"
                 '{"suggestions": [{\n'
                 '  "type": "recommendation",\n'
                 '  "id": "unique-id",\n'
                 '  "title": "Engaging title",\n'
-                '  "description": "Helpful description",\n'
-                '  "primaryCta": {"label": "Action", "kind": "link", "url": "/target"},\n'
-                '  "secondaryCtas": [{"label": "Alt action", "kind": "link", "url": "/alt"}],\n'
-                '  "meta": {"context": "page_specific"}\n'
+                '  "description": "Helpful description based on REAL site data",\n'
+                '  "primaryCta": {"label": "Action", "kind": "link", "url": "/real-sitemap-url"},\n'
+                '  "secondaryCtas": [{"label": "Alt action", "kind": "link", "url": "/another-real-url"}],\n'
+                '  "meta": {"context": "actual_page_context"}\n'
                 '}]}\n\n'
                 "SUGGESTION TYPES:\n"
                 "- recommendation: Product/content recommendations\n"
@@ -99,29 +105,23 @@ class SuggestionAgent:
                 "- guidance: Help user navigate or complete tasks\n"
                 "- choice: Interactive multi-step flows\n\n"
                 "CTA KINDS:\n"
-                "- link/open: Navigate to URL\n"
+                "- link/open: Navigate to URL (MUST be from sitemap)\n"
                 "- click: Click DOM element (selector in payload)\n"
                 "- add_to_cart: Add product to cart\n"
                 "- choose: Make selection in multi-step flow\n"
                 "- dom_fill: Fill form field (selector + value in payload)\n"
                 "- route: SPA navigation\n"
                 "- copy: Copy text to clipboard\n\n"
-                "CONTEXT ANALYSIS:\n"
-                "1. Current page type (product, cart, checkout, etc.)\n"
-                "2. User choices/input from previous steps\n"
-                "3. Available site pages and structure\n"
-                "4. DOM elements and data attributes\n"
-                "5. Business context from site info\n\n"
-                "PERSONALIZATION:\n"
-                "- Use user's previous choices to tailor suggestions\n"
-                "- Consider page context and available actions\n"
-                "- Suggest logical next steps in user journey\n"
-                "- Create multi-step flows for complex decisions\n\n"
-                "STEPS:\n"
-                "1. get_site_info → understand business context\n"
-                "2. get_sitemap → see available pages/products\n"
-                "3. get_site_atlas → analyze current page DOM\n"
-                "4. Generate 1-3 relevant suggestions with actionable CTAs"
+                "MANDATORY PROCESS:\n"
+                "1. get_sitemap → Get actual available pages (REQUIRED)\n"
+                "2. get_site_info → Get business context (REQUIRED)\n"
+                "3. get_site_atlas → Analyze current page DOM if needed\n"
+                "4. Generate suggestions using ONLY real URLs from sitemap\n"
+                "5. Base suggestions on actual site structure, not assumptions\n\n"
+                "FORBIDDEN:\n"
+                "- Never invent URLs like '/products?sort=new' if not in sitemap\n"
+                "- Never use generic e-commerce URLs without checking sitemap\n"
+                "- Never skip tool calls - always gather real data first"
             )
         )
 
@@ -189,6 +189,12 @@ class SuggestionAgent:
 
         Returns a list of Suggestion objects that can be directly used in responses.
         """
+        # Get sitemap for URL validation
+        try:
+            sitemap_pages = self.tool_get_sitemap(request.siteId)
+        except Exception:
+            sitemap_pages = []
+
         # Generate suggestions using LLM
         suggestions_data = self._llm_generate_suggestions(request)
 
@@ -203,6 +209,9 @@ class SuggestionAgent:
                 # Ensure required fields
                 if not isinstance(data, dict):
                     continue
+
+                # Validate URLs against sitemap
+                data = self._validate_suggestion_urls(data, sitemap_pages)
 
                 # Set defaults for required fields
                 data.setdefault("type", "recommendation")
@@ -232,6 +241,52 @@ class SuggestionAgent:
                 continue
 
         return validated_suggestions
+
+    def _validate_suggestion_urls(self, suggestion_data: Dict[str, Any], sitemap_pages: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Validate that suggestion URLs exist in the sitemap and fix invalid ones."""
+        # Extract valid URLs from sitemap
+        valid_urls = set()
+        for page in sitemap_pages:
+            if isinstance(page, dict) and "url" in page:
+                valid_urls.add(page["url"])
+            elif isinstance(page, dict) and "path" in page:
+                valid_urls.add(page["path"])
+
+        # Helper to validate and fix a CTA
+        def fix_cta_url(cta: Dict[str, Any]) -> Dict[str, Any]:
+            if not isinstance(cta, dict) or "url" not in cta:
+                return cta
+
+            url = cta["url"]
+            # Remove query parameters and fragments for validation
+            clean_url = url.split("?")[0].split("#")[0]
+
+            if clean_url not in valid_urls:
+                # Try to find a similar URL or default to home
+                fallback_url = "/" if "/" in valid_urls else (list(valid_urls)[0] if valid_urls else "/")
+                cta["url"] = fallback_url
+
+            return cta
+
+        # Validate primary CTA
+        if "primaryCta" in suggestion_data and isinstance(suggestion_data["primaryCta"], dict):
+            suggestion_data["primaryCta"] = fix_cta_url(suggestion_data["primaryCta"])
+
+        # Validate secondary CTAs
+        if "secondaryCtas" in suggestion_data and isinstance(suggestion_data["secondaryCtas"], list):
+            suggestion_data["secondaryCtas"] = [
+                fix_cta_url(cta) if isinstance(cta, dict) else cta
+                for cta in suggestion_data["secondaryCtas"]
+            ]
+
+        # Validate actions
+        if "actions" in suggestion_data and isinstance(suggestion_data["actions"], list):
+            suggestion_data["actions"] = [
+                fix_cta_url(action) if isinstance(action, dict) else action
+                for action in suggestion_data["actions"]
+            ]
+
+        return suggestion_data
 
 
 # --- Helpers --------------------------------------------------------------------

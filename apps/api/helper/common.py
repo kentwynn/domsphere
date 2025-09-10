@@ -22,14 +22,14 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
     "demo-site": {
         "version": "ruleset-001",
         "rulesJson": {
-            "ruleset": "promo-when-cart-gte-2",
+            "ruleset": "diverse-suggestions-demo",
             "rules": [
                 {
                     "id": "promo_cart_gte_2",
                     "enabled": True,
                     "tracking": True,
-                    "ruleInstruction": "Give promo code XXX when cart count >= 2",
-                    "outputInstruction": "",
+                    "ruleInstruction": "Show suggestions when cart has 2 or more items",
+                    "outputInstruction": "Create exciting promotion suggestions with discount codes, savings breakdown, and clear next steps to increase cart value",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
@@ -52,8 +52,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "promo_cart_gte_5",
                     "enabled": True,
                     "tracking": True,
-                    "ruleInstruction": "Give special promo code YYY when cart count >= 5",
-                    "outputInstruction": "",
+                    "ruleInstruction": "Show suggestions when cart has 5 or more items",
+                    "outputInstruction": "Generate premium, loyalty-focused suggestions that make customers feel valued and exclusive",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"},
@@ -76,8 +76,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "products_birthday_20y",
                     "enabled": True,
                     "tracking": True,
-                    "ruleInstruction": "happy 20 years birthday show up",
-                    "outputInstruction": "",
+                    "ruleInstruction": "Show suggestions when user visits products page",
+                    "outputInstruction": "Generate celebratory, milestone-focused suggestions with historical context and special offers",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/products"}
@@ -89,7 +89,7 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "enabled": True,
                     "tracking": True,
                     "ruleInstruction": "Show a welcome info on home page",
-                    "outputInstruction": "",
+                    "outputInstruction": "Create welcoming guidance suggestions to help new visitors explore the site",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/"}
@@ -100,8 +100,8 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "id": "product_abc_10s",
                     "enabled": True,
                     "tracking": True,
-                    "ruleInstruction": "",
-                    "outputInstruction": "",
+                    "ruleInstruction": "Show suggestions when user visits Product ABC page",
+                    "outputInstruction": "Generate product-specific recommendations and cross-sell suggestions",
                     "ttlSec": 10,
                     "triggers": [
                         {"eventType": "page_load", "when": [
@@ -115,7 +115,7 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
                     "enabled": True,
                     "tracking": True,
                     "ruleInstruction": "Ask shopper a simple choice then recommend Product ABC",
-                    "outputInstruction": "",
+                    "outputInstruction": "Create interactive choice-based suggestions that lead to Product ABC recommendations",
                     "triggers": [
                         {"eventType": "page_load", "when": [
                             {"field": "telemetry.attributes.path", "op": "equals", "value": "/product/sku-def"}
