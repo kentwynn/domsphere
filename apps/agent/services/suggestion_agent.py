@@ -28,10 +28,10 @@ class SuggestionAgent:
             data = r.json() or {}
             return data.get("pages", [])
 
-    def tool_get_site_info(self, site_id: str) -> Dict[str, Any]:
+    def tool_get_site_info(self, site_id: str, url: str) -> Dict[str, Any]:
         """Fetch site metadata and business info."""
         with httpx.Client() as client:
-            r = client.get(f"{self.api_url}/site/info", params={"siteId": site_id})
+            r = client.get(f"{self.api_url}/site/info", params={"siteId": site_id, "url": url})
             r.raise_for_status()
             return r.json() or {}
 
@@ -51,7 +51,7 @@ class SuggestionAgent:
             from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
         except Exception:
             return None
-        
+
         if not self.openai_token:
             return None        # Define tools bound to this instance
         agent_self = self
@@ -62,9 +62,9 @@ class SuggestionAgent:
             return agent_self.tool_get_sitemap(siteId)
 
         @tool("get_site_info", return_direct=False)
-        def get_site_info(siteId: str) -> Dict[str, Any]:  # type: ignore[override]
+        def get_site_info(siteId: str, url: str) -> Dict[str, Any]:  # type: ignore[override]
             """Fetch site metadata and business information."""
-            return agent_self.tool_get_site_info(siteId)
+            return agent_self.tool_get_site_info(siteId, url)
 
         @tool("get_site_atlas", return_direct=False)
         def get_site_atlas(siteId: str, url: str) -> Dict[str, Any]:  # type: ignore[override]
@@ -189,7 +189,7 @@ class SuggestionAgent:
         """
         # Generate suggestions using LLM
         suggestions_data = self._llm_generate_suggestions(request)
-        
+
         # Return empty list if no suggestions generated
         if not suggestions_data:
             return []
