@@ -68,7 +68,7 @@ class RuleAgent:
 
         sys = SystemMessage(
             content=(
-                "Generate rule triggers using real DOM data.\n\n"
+                "Generate rule triggers using real DOM data and advanced patterns.\n\n"
                 "EXACT OUTPUT FORMAT (strict JSON):\n"
                 '{"triggers": [{\n'
                 '  "eventType": "page_load",\n'
@@ -79,11 +79,23 @@ class RuleAgent:
                 '  ]\n'
                 '}]}\n\n'
                 "FIELD PATHS:\n"
-                "- telemetry.attributes.path (page URL path)\n"
-                "- telemetry.attributes.id (element ID)\n"
-                "- telemetry.attributes.class (CSS class)\n"
-                "- telemetry.elementText (element text content)\n"
-                "- telemetry.cssPath (CSS selector)\n\n"
+                "Basic: telemetry.attributes.path, .id, .class, .role, .aria-label\n"
+                "Content: telemetry.elementText, .elementHtml\n"
+                "Position: telemetry.cssPath, .attributes.data-*\n"
+                "Session: session.timeOnPage, .clickCount, .scrollDepth\n"
+                "Advanced: session.userAgent, .viewport, .referrer\n\n"
+                "EVENT TYPES:\n"
+                "Basic: page_load, dom_click, input_change, submit, route_change\n"
+                "Advanced: scroll, time_spent, visibility_change\n\n"
+                "OPERATORS:\n"
+                "Compare: equals, gt, gte, lt, lte, between\n"
+                "Text: contains, regex, in\n"
+                "Existence: exists, not_exists\n\n"
+                "ADVANCED PATTERNS:\n"
+                "Time: session.timeOnPage + gte + 10 (10+ seconds)\n"
+                "Role: telemetry.attributes.role + equals + button\n"
+                "Data attr: telemetry.attributes.data-category + equals + product\n"
+                "Regex: telemetry.elementText + regex + ^[0-9]+$ (numbers only)\n\n"
                 "STEPS:\n"
                 "1. get_sitemap → find pages\n"
                 "2. get_site_atlas → get real elements\n"

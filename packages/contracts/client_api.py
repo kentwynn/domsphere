@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, model_validator
-from common import Event, DomAtlasSnapshot, NoActionReason, HealthResponse
-from suggestion import Suggestion as RichSuggestion
+from .common import Event, DomAtlasSnapshot, NoActionReason, HealthResponse
+from .suggestion import Suggestion as RichSuggestion
 
 # ==============================================================================
 # /rule/check  (called on EVERY user event; API resolves context internally)

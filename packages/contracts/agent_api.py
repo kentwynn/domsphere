@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
-from common import HealthResponse, ConditionOp, RuleTrigger
-from suggestion import Suggestion
+from .common import HealthResponse, ConditionOp, RuleTrigger
+from .suggestion import Suggestion
 
 # ==============================================================================
 # /agent/rule  (compile NL rules -> deterministic RuleSet JSON)

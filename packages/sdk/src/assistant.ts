@@ -4,6 +4,7 @@ import {
   collectFocusFromRules,
   idMatches as idMatchHelper,
   targetMatches as targetMatchHelper,
+  evaluateAdvancedConditions,
   type EventKind,
   type FocusMap,
 } from './focus';
@@ -66,6 +67,18 @@ export class AutoAssistant {
   private lastMatchSig?: string;
   private triggeredRules = new Set<string>();
   private choiceInput: Record<string, unknown> = {};
+
+  // Session tracking for advanced conditions
+  private pageLoadTime = Date.now();
+  private sessionData: Record<string, unknown> = {
+    clickCount: 0,
+    scrollDepth: 0,
+    timeOnSite: 0,
+    referrer: document.referrer,
+    userAgent: navigator.userAgent,
+    viewport: `${window.innerWidth}x${window.innerHeight}`,
+  };
+  private timeBasedTimers = new Map<string, NodeJS.Timeout>();
 
   // Local helper types to avoid `any` casting for extended fields not yet in the OpenAPI client
   private sigForCta(c: CtaSpec): string {
@@ -142,6 +155,9 @@ export class AutoAssistant {
 
   // Focused tracking: only emit allowed events and only for allowed selectors
   private setupListenersFocusMode() {
+    // Initialize session tracking
+    this.initializeSessionTracking();
+    
     // page_load
     if (this.allow.has('page_load')) {
       this.schedule(() => {
@@ -152,9 +168,18 @@ export class AutoAssistant {
       });
     }
 
+    // time_spent events
+    if (this.allow.has('time_spent')) {
+      this.setupTimeBasedEvents();
+    }
+
     // clicks
     const onClick = (e: Event) => {
       const tgt = e.target as Element | undefined;
+      
+      // Update session click count
+      this.sessionData['clickCount'] = (this.sessionData['clickCount'] as number) + 1;
+      
       if (!this.allow.has('dom_click')) return;
       const focusTgt = this.pickFocusTarget('dom_click') || tgt;
       if (!this.pathMatches('dom_click')) return;
@@ -229,6 +254,10 @@ export class AutoAssistant {
       this.triggeredRules.clear();
       // Clear accumulated choice inputs on navigation
       this.choiceInput = {};
+      // Reset session tracking for new page
+      this.pageLoadTime = Date.now();
+      this.sessionData['clickCount'] = 0;
+      this.sessionData['scrollDepth'] = 0;
       const target = this.pickFocusTarget('route_change');
       this.schedule(() => this.handleEvent('route_change', target));
     };
@@ -736,5 +765,86 @@ export class AutoAssistant {
     } finally {
       this.inflight = false;
     }
+  }
+
+  // Session tracking initialization
+  private initializeSessionTracking() {
+    this.pageLoadTime = Date.now();
+    
+    // Track scroll depth
+    if (this.allow.has('scroll')) {
+      const onScroll = () => {
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const scrollPercent = docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0;
+        this.sessionData['scrollDepth'] = Math.max(this.sessionData['scrollDepth'] as number, scrollPercent);
+      };
+      window.addEventListener('scroll', onScroll, { passive: true });
+      this.detachFns.push(() => window.removeEventListener('scroll', onScroll));
+    }
+
+    // Update time on site periodically
+    const updateTimeOnSite = () => {
+      this.sessionData['timeOnSite'] = Math.floor((Date.now() - this.pageLoadTime) / 1000);
+    };
+    const timeInterval = setInterval(updateTimeOnSite, 1000);
+    this.detachFns.push(() => clearInterval(timeInterval));
+  }
+
+  // Setup time-based event triggers
+  private setupTimeBasedEvents() {
+    const filters = this.focus.get('time_spent');
+    if (!filters || filters.timeConditions.length === 0) return;
+
+    // Find the minimum time threshold to start checking
+    const minTime = Math.min(...filters.timeConditions.map(c => c.value));
+    
+    const checkTimeConditions = () => {
+      const timeOnPage = Math.floor((Date.now() - this.pageLoadTime) / 1000);
+      
+      // Check if current time matches any time conditions
+      const matchesTime = filters.timeConditions.some(({ op, value }) => {
+        switch (op) {
+          case 'gt': return timeOnPage > value;
+          case 'gte': return timeOnPage >= value;
+          case 'lt': return timeOnPage < value; 
+          case 'lte': return timeOnPage <= value;
+          default: return false;
+        }
+      });
+
+      if (matchesTime && this.pathMatches('time_spent')) {
+        this.schedule(() => this.handleEvent('time_spent', document.body));
+      }
+    };
+
+    // Start checking after the minimum time threshold
+    const timerId = setTimeout(() => {
+      checkTimeConditions();
+      // Continue checking every second
+      const intervalId = setInterval(checkTimeConditions, 1000);
+      this.detachFns.push(() => clearInterval(intervalId));
+    }, minTime * 1000);
+    
+    this.detachFns.push(() => clearTimeout(timerId));
+  }
+
+  // Enhanced event handling with advanced conditions
+  private async handleEventWithAdvancedConditions(
+    kind: EventKind,
+    target?: Element
+  ) {
+    const timeOnPage = Math.floor((Date.now() - this.pageLoadTime) / 1000);
+    
+    // Check if advanced conditions are met
+    const conditionsMet = evaluateAdvancedConditions(this.focus, kind, {
+      timeOnPage,
+      sessionData: this.sessionData,
+    });
+
+    if (!conditionsMet) return;
+
+    // Proceed with normal event handling
+    return this.handleEvent(kind, target);
   }
 }
