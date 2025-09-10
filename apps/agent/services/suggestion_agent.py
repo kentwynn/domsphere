@@ -44,6 +44,13 @@ class SuggestionAgent:
             r.raise_for_status()
             return r.json() or {}
 
+    def tool_get_rule_info(self, site_id: str, rule_id: str) -> Dict[str, Any]:
+        """Fetch rule information including output instructions."""
+        with httpx.Client(timeout=self.http_timeout) as client:
+            r = client.get(f"{self.api_url}/rule/{rule_id}", params={"siteId": site_id})
+            r.raise_for_status()
+            return r.json() or {}
+
     # --- LLM path --------------------------------------------------------------------
     def _llm_generate_suggestions(self, request: AgentSuggestNextRequest) -> Optional[List[Dict[str, Any]]]:
         """Use LLM with tool calling to generate contextual suggestions."""
@@ -73,17 +80,24 @@ class SuggestionAgent:
             """Fetch DOM atlas snapshot for a specific URL."""
             return agent_self.tool_get_site_atlas(siteId, url)
 
-        model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # Good balance of cost/capability
+        @tool("get_rule_info", return_direct=False)
+        def get_rule_info(siteId: str, ruleId: str) -> Dict[str, Any]:  # type: ignore[override]
+            """Fetch rule information including output instructions."""
+            return agent_self.tool_get_rule_info(siteId, ruleId)
+
+        model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")  # Good balance of cost/capability
         llm = ChatOpenAI(api_key=self.openai_token, model=model_name, temperature=0.7)  # Bit more creative
-        llm_tools = [get_sitemap, get_site_info, get_site_atlas]
+        llm_tools = [get_sitemap, get_site_info, get_site_atlas, get_rule_info]
         llm = llm.bind_tools(llm_tools)
 
         sys = SystemMessage(
             content=(
-                "Generate contextual suggestions based on REAL site data. You MUST use tools to gather actual site information.\n\n"
+                "Generate contextual suggestions based on REAL site data and the specific rule output instructions.\n\n"
                 "CRITICAL RULES:\n"
-                "- ALWAYS call get_sitemap first to see real available pages\n"
+                "- ALWAYS call get_rule_info first to get the output instructions for this specific rule\n"
+                "- ALWAYS call get_sitemap to see real available pages\n"
                 "- ALWAYS call get_site_info to understand the business\n"
+                "- FOLLOW the rule's outputInstruction exactly - this tells you what TYPE of suggestions to generate\n"
                 "- ONLY use URLs that exist in the sitemap - never invent URLs or query parameters\n"
                 "- Use the actual site structure, not generic e-commerce assumptions\n"
                 "- If current page isn't in sitemap, call get_site_atlas for DOM context\n\n"
@@ -113,12 +127,14 @@ class SuggestionAgent:
                 "- route: SPA navigation\n"
                 "- copy: Copy text to clipboard\n\n"
                 "MANDATORY PROCESS:\n"
-                "1. get_sitemap → Get actual available pages (REQUIRED)\n"
-                "2. get_site_info → Get business context (REQUIRED)\n"
-                "3. get_site_atlas → Analyze current page DOM if needed\n"
-                "4. Generate suggestions using ONLY real URLs from sitemap\n"
-                "5. Base suggestions on actual site structure, not assumptions\n\n"
+                "1. get_rule_info → Get the specific output instruction for this rule (REQUIRED FIRST)\n"
+                "2. get_sitemap → Get actual available pages (REQUIRED)\n"
+                "3. get_site_info → Get business context (REQUIRED)\n"
+                "4. get_site_atlas → Analyze current page DOM if needed\n"
+                "5. Generate suggestions following the rule's outputInstruction exactly\n"
+                "6. Use ONLY real URLs from sitemap\n\n"
                 "FORBIDDEN:\n"
+                "- Never ignore the rule's outputInstruction\n"
                 "- Never invent URLs like '/products?sort=new' if not in sitemap\n"
                 "- Never use generic e-commerce URLs without checking sitemap\n"
                 "- Never skip tool calls - always gather real data first"
