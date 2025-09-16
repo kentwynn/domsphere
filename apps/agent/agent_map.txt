@@ -1,0 +1,54 @@
+[User Request]
+      │
+      ▼
+ ┌──────────────────┐
+ │ Planner Agent    │
+ │ (system_planner) │
+ └──────────────────┘
+      │
+      ▼
+ ┌──────────────────┐
+ │ Template Agent   │
+ │ (template_filler)│
+ └──────────────────┘
+      │
+      ├─ If template type = "info"
+      │      └─ Fill Info Template → return Suggestion
+      │
+      ├─ If template type = "action"
+      │      └─ Fill Action Template → return Suggestion
+      │
+      └─ If template type = "choice"
+             │
+             ▼
+      ┌───────────────────────┐
+      │ Choice Manager Agent  │
+      │ (choice_flow_manager) │
+      └───────────────────────┘
+             │
+             │ Handles multi-step flows:
+             │  - Ask user input (step 1, step 2…)
+             │  - Keep track of user choices
+             │  - Re-query tools if needed
+             │
+             ▼
+      ┌──────────────────┐
+      │ Template Agent   │
+      │ (final fill)     │
+      │ - Called again   │
+      │ - Fills final    │
+      │   Action/Info    │
+      └──────────────────┘
+             │
+             ▼
+      [Final Suggestion JSON]
+
+      │
+      ▼
+ ┌──────────────────────┐
+ │ Validator / Executor │
+ │ (schema + DOM check) │
+ └──────────────────────┘
+      │
+      ▼
+ [Final Suggestion Response → User]
