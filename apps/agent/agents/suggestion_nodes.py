@@ -1,0 +1,222 @@
+"""LangGraph agent node implementations used by the suggestion agent."""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any, Dict, List
+
+from contracts.suggestion import CtaSpec, Suggestion
+
+from helper.suggestion import (
+    get_site_atlas,
+    get_site_info,
+    get_sitemap,
+    parse_json_object,
+)
+from templates.suggestion import get_templates
+
+
+def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
+    """LLM-based planner that selects which template type to use."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_openai import ChatOpenAI
+
+    openai_token = os.getenv("OPENAI_TOKEN")
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+    llm = ChatOpenAI(api_key=openai_token, model=model_name, temperature=0)
+
+    sys = SystemMessage(
+        content=(
+            "You are a planner for a suggestion agent. "
+            "Given the context and especially the 'outputInstruction', choose which template type ('info', 'action', or 'choice') best fits. "
+            "Return a JSON object: {\"template_type\": <chosen template>}"
+        )
+    )
+    human = HumanMessage(content=json.dumps(context))
+    ai = llm.invoke([sys, human])
+
+    try:
+        data = parse_json_object(ai.content)
+        if isinstance(data, dict) and "template_type" in data:
+            return data
+    except Exception:
+        pass
+
+    return {"template_type": "action"}
+
+
+def validator_agent_node(suggestions_data: List[dict], context: dict) -> List[Suggestion]:
+    """Validate suggestions using schema enforcement and atlas validation."""
+    final: List[Suggestion] = []
+    for data in suggestions_data:
+        try:
+            if not isinstance(data, dict):
+                continue
+            data.setdefault("type", "recommendation")
+            data.setdefault("id", f"sug-{hash(str(data))}")
+
+            if "primaryCta" in data and isinstance(data["primaryCta"], dict):
+                data["primaryCta"] = CtaSpec(**data["primaryCta"])
+            if "secondaryCta" in data and isinstance(data["secondaryCta"], dict):
+                data["secondaryCta"] = CtaSpec(**data["secondaryCta"])
+            if "primaryActions" in data and isinstance(data["primaryActions"], list):
+                data["primaryActions"] = [
+                    CtaSpec(**cta) if isinstance(cta, dict) else cta
+                    for cta in data["primaryActions"]
+                ]
+            if "actions" in data and isinstance(data["actions"], list):
+                data["actions"] = [
+                    CtaSpec(**cta) if isinstance(cta, dict) else cta
+                    for cta in data["actions"]
+                ]
+            suggestion = Suggestion(**data)
+            final.append(suggestion)
+        except Exception:
+            continue
+    return final
+
+
+def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
+    """Choose a template and fill in fields using available tools."""
+    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+    from langchain_core.tools import tool
+    from langchain_openai import ChatOpenAI
+
+    @tool("get_sitemap", return_direct=False)
+    def tool_get_sitemap(siteId: str) -> Dict[str, Any]:
+        """Fetch the sitemap for the provided site identifier."""
+        result = get_sitemap(siteId, api_url, timeout).model_dump()
+        return result
+
+    @tool("get_site_info", return_direct=False)
+    def tool_get_site_info(siteId: str, url: str) -> Dict[str, Any]:
+        """Fetch site info for a given site identifier and URL."""
+        result = get_site_info(siteId, url, api_url, timeout).model_dump()
+        return result
+
+    @tool("get_site_atlas", return_direct=False)
+    def tool_get_site_atlas(siteId: str, url: str) -> Dict[str, Any]:
+        """Fetch the site atlas containing DOM selectors for the page."""
+        result = get_site_atlas(siteId, url, api_url, timeout).model_dump()
+        return result
+
+    @tool("get_templates", return_direct=False)
+    def tool_get_templates() -> Dict[str, Dict[str, Any]]:
+        """Return the available suggestion templates keyed by type."""
+        return get_templates()
+
+    openai_token = os.getenv("OPENAI_TOKEN")
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+    llm = ChatOpenAI(api_key=openai_token, model=model_name, temperature=0)
+    llm = llm.bind_tools(
+        [tool_get_sitemap, tool_get_site_info, tool_get_site_atlas, tool_get_templates]
+    )
+
+    sys = SystemMessage(
+        content=(
+            "You are a suggestion template agent. "
+            "Based on the 'outputInstruction' and context, choose which template ('info', 'action', or 'choice') best fits. "
+            "CRITICAL: First call get_templates to get the template structure, then call get_site_atlas to get DOM selectors. "
+            "You MUST fill in the template structure exactly, replacing all <fill-in-*> placeholders with contextually appropriate values. "
+            "For ACTION templates, follow these patterns: "
+            "MULTI-STEP PATTERN (when multiple DOM operations needed): "
+            "- primaryCta: kind='noop', label='Apply/Submit/etc', nextStep=2 "
+            "- primaryActions: array of actual DOM operations (dom_fill, click, etc.) "
+            "- secondaryCta: kind='noop', label='Cancel', nextClose=True "
+            "- meta: step=1 "
+            "SINGLE-STEP PATTERN (when only one DOM operation needed): "
+            "- primaryCta: kind='click'/'dom_fill'/etc, direct payload with selector "
+            "- NO primaryActions needed "
+            "- secondaryCta: kind='noop', label='Cancel', nextClose=True (optional) "
+            "- meta: step=1 "
+            "For CHOICE templates, follow this pattern: "
+            "- actions: array of choice options (any number needed) with kind='choose' "
+            "- each action has payload: {'name': '<field_name>', 'value': '<option_value>'} "
+            "- Example: [{'label': 'School', 'kind': 'choose', 'payload': {'name': 'interest', 'value': 'school'}}, ...] "
+            "- Can have 2, 3, 4, or more options depending on what makes sense for the choice "
+            "- meta: step=<current_step> "
+            "Field filling rules: "
+            "- <fill-in-id>: unique ID based on the action "
+            "- <fill-in-title> and <fill-in-description>: from outputInstruction context "
+            "- <fill-in-label>: action labels based on what user wants to do "
+            "- <fill-in-kind>: 'noop' for multi-step OR 'dom_fill'/'click'/etc for single-step OR 'choose' for choices "
+            "- <fill-in-payload>: CSS selectors and values from atlas (only if kind is not 'noop') "
+            "- <fill-in-nextStep>: 2 (only if kind is 'noop') "
+            "- <fill-in-primaryActions>: array of DOM operations (only if primaryCta.kind is 'noop') "
+            "- <fill-in-step>: 1 for first step, 2 for continuation steps "
+            "- For choices: <fill-in-name> is the field name, <fill-in-value-1/2/3> are different option values "
+            "Analyze the outputInstruction to determine if it needs multiple DOM operations (use multi-step) or single operation (use single-step) or user choices (use choice). "
+            "Return valid JSON: {\"template_type\": \"<chosen_type>\", \"suggestion_data\": <filled_template>, \"intermediate\": false}. "
+            "Ensure proper JSON formatting with no trailing commas or syntax errors."
+        )
+    )
+
+    human = HumanMessage(content=json.dumps(context))
+    messages: List[Any] = [sys, human]
+
+    for _ in range(4):
+        ai = llm.invoke(messages)
+        tool_calls = getattr(ai, "tool_calls", None) or []
+
+        if not tool_calls:
+            try:
+                data = parse_json_object(ai.content)
+                if isinstance(data, dict) and "template_type" in data:
+                    return data
+            except Exception:
+                pass
+            return {}
+
+        messages.append(ai)
+        for tc in tool_calls:
+            name = tc["name"] if isinstance(tc, dict) else getattr(tc, "name", None)
+            args = tc["args"] if isinstance(tc, dict) else getattr(tc, "args", {})
+            if isinstance(args, str):
+                try:
+                    parsed = json.loads(args)
+                    if isinstance(parsed, dict):
+                        args = parsed
+                except Exception:
+                    pass
+            try:
+                if name == "get_sitemap":
+                    result = tool_get_sitemap.invoke(args)
+                elif name == "get_site_info":
+                    result = tool_get_site_info.invoke(args)
+                elif name == "get_site_atlas":
+                    result = tool_get_site_atlas.invoke(args)
+                elif name == "get_templates":
+                    result = tool_get_templates.invoke(args)
+                else:
+                    result = {"error": f"unknown tool {name}"}
+                if hasattr(result, "model_dump"):
+                    result = result.model_dump()
+            except Exception as exc:  # noqa: F841 - preserve original behaviour
+                result = {"error": str(exc)}
+            messages.append(
+                ToolMessage(
+                    content=json.dumps(result)[:4000],
+                    tool_call_id=(
+                        tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", "tool")
+                    ),
+                )
+            )
+
+    return {}
+
+
+def choice_manager_agent_node(context: dict, suggestion: dict, api_url: str, timeout: float) -> dict:
+    """Manage multi-step flows for choice suggestions."""
+    if suggestion.get("type") != "choice":
+        return {"final": True, "suggestion_data": suggestion}
+
+    user_choices = context.get("userChoices") or {}
+    if not user_choices:
+        return {"final": False, "suggestion_data": suggestion}
+
+    step = suggestion.get("meta", {}).get("step", 1)
+    if step >= 2:
+        return {"final": True, "suggestion_data": suggestion}
+
+    return {"final": False, "suggestion_data": suggestion}

@@ -1,8 +1,7 @@
 from typing import Optional
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header
 from contracts.agent_api import AgentSuggestNextRequest, AgentSuggestNextResponse
-from contracts.suggestion import CtaSpec, Suggestion
-from services.suggestion_agent import SuggestionAgent
+from agents import SuggestionAgent
 
 router = APIRouter(prefix="/agent", tags=["suggestion"])
 
@@ -32,16 +31,5 @@ def suggest(
         return AgentSuggestNextResponse(suggestions=suggestions)
 
     except Exception as e:
-        # Log the error and return a fallback suggestion
         print(f"[SuggestionRoute] Error generating suggestions: {e}")
-
-        # Create a basic fallback suggestion
-        fallback_suggestion = Suggestion(
-            type="recommendation",
-            id="fallback-error",
-            title="Something went wrong",
-            description="We're having trouble generating suggestions right now. Please try again later.",
-            primaryCta=CtaSpec(label="Continue browsing", kind="link", url="/products")
-        )
-
-        return AgentSuggestNextResponse(suggestions=[fallback_suggestion])
+        return AgentSuggestNextResponse(suggestions=[])
