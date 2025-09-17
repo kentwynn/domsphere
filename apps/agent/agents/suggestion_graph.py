@@ -98,5 +98,5 @@ def build_suggestion_graph(api_url: str, timeout: float) -> StateGraph:
     graph.add_conditional_edge("choice_manager", choice_manager_router)
 
     graph.set_entry_point("planner")
-    graph.set_output_node("validator")
+    graph.set_finish_point("validator")
     return graph

@@ -8,7 +8,9 @@ from typing import Any, Dict, List, Optional
 from contracts.common import CONDITION_OPS, DOM_EVENT_TYPES
 
 from helper.rule import build_output_schema, fetch_site_atlas, fetch_sitemap
-from .rule_llm import RuleLLMToolkit, run_llm_generation
+from .rule_graph import build_rule_graph
+from .rule_llm import RuleLLMToolkit
+from .rule_nodes import rule_validation_node
 
 
 class RuleAgent:
@@ -47,7 +49,15 @@ class RuleAgent:
         )
 
     def _llm_generate(self, site_id: str, rule_instruction: str) -> Optional[List[Dict[str, Any]]]:
-        return run_llm_generation(site_id, rule_instruction, self._create_toolkit())
+        graph = build_rule_graph(self._create_toolkit)
+        app = graph.compile()
+
+        state = {"context": {"siteId": site_id, "ruleInstruction": rule_instruction}}
+        result = app.invoke(state)
+        triggers = result.get("triggers") if isinstance(result, dict) else None
+        if isinstance(triggers, list):
+            return triggers
+        return None
 
     # ------------------------------------------------------------------
     # Public API
@@ -57,36 +67,5 @@ class RuleAgent:
         trig = self._llm_generate(site_id, rule_instruction)
 
         if isinstance(trig, list) and trig:
-            validated_triggers: List[Dict[str, Any]] = []
-            for item in trig:
-                try:
-                    if not isinstance(item, dict):
-                        continue
-                    if "eventType" not in item or "when" not in item:
-                        continue
-                    if item["eventType"] not in DOM_EVENT_TYPES:
-                        continue
-
-                    when_conditions = item.get("when", [])
-                    if not isinstance(when_conditions, list):
-                        continue
-
-                    valid_conditions = []
-                    for cond in when_conditions:
-                        if (
-                            isinstance(cond, dict)
-                            and "field" in cond
-                            and "op" in cond
-                            and "value" in cond
-                            and cond["op"] in CONDITION_OPS
-                        ):
-                            valid_conditions.append(cond)
-
-                    if valid_conditions:
-                        validated_triggers.append(
-                            {"eventType": item["eventType"], "when": valid_conditions}
-                        )
-                except Exception:
-                    continue
-            return validated_triggers
+            return rule_validation_node(trig)
         return []
