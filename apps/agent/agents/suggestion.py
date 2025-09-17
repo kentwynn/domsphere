@@ -14,7 +14,6 @@ from helper.suggestion import normalize_url
 from agents.suggestion_nodes import (
     choice_manager_agent_node,
     template_agent_node,
-    validator_agent_node,
 )
 
 
@@ -52,15 +51,93 @@ class SuggestionAgent:
         if not suggestion_data:
             return []
 
+        suggestion_data = self._normalize_suggestion(suggestion_data)
+
         if template_type == "choice":
             choice_result = choice_manager_agent_node(
                 context, suggestion_data, self.api_url, self.http_timeout
             )
-            if not choice_result.get("final"):
-                return validator_agent_node([choice_result["suggestion_data"]], context)
-            return validator_agent_node([choice_result["suggestion_data"]], context)
+            return [choice_result.get("suggestion_data")]
 
-        return validator_agent_node([suggestion_data], context)
+        return [suggestion_data]
 
     def _parse_suggestions(self, suggestions_data: List[dict], context: dict) -> List[Suggestion]:
-        return validator_agent_node(suggestions_data, context)
+        return suggestions_data
+
+    def _normalize_suggestion(self, suggestion: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure generated suggestion conforms to expected action shape."""
+
+        def _normalize_action(action: Dict[str, Any], default_prefix: str) -> Dict[str, Any]:
+            if "operation" in action and "kind" not in action:
+                action["kind"] = action.pop("operation")
+            if "type" in action and "kind" not in action:
+                action["kind"] = action.pop("type")
+
+            payload = action.get("payload") or {}
+            selector = action.get("selector")
+            value = action.get("value")
+            if selector is not None:
+                payload.setdefault("selector", selector)
+            if value is not None:
+                payload.setdefault("value", value)
+            if payload:
+                action["payload"] = payload
+
+            for key in ("selector", "value"):
+                if key in action:
+                    del action[key]
+
+            if not action.get("label"):
+                kind = action.get("kind", default_prefix)
+                label = kind.replace("_", " ").title()
+                action["label"] = label
+
+            return action
+
+        suggestion.setdefault("type", "recommendation")
+
+        primary_cta = suggestion.get("primaryCta")
+        if isinstance(primary_cta, dict):
+            payload = primary_cta.get("payload")
+            if payload in ("", None):
+                primary_cta.pop("payload", None)
+            elif not isinstance(payload, dict):
+                primary_cta["payload"] = {"value": payload}
+
+            # Remove nextStep when we do not orchestrate multi-step flows
+            if "nextStep" in primary_cta:
+                primary_cta.pop("nextStep", None)
+
+        primary_actions = suggestion.get("primaryActions")
+        if isinstance(primary_actions, list):
+            suggestion["primaryActions"] = [
+                _normalize_action(dict(action), "Action")
+                if isinstance(action, dict) else action
+                for action in primary_actions
+            ]
+
+        secondary_actions = suggestion.get("secondaryActions")
+        if isinstance(secondary_actions, list):
+            suggestion["secondaryActions"] = [
+                _normalize_action(dict(action), "Secondary")
+                if isinstance(action, dict) else action
+                for action in secondary_actions
+            ]
+
+        links = suggestion.get("links")
+        if isinstance(links, list):
+            suggestion["links"] = [
+                _normalize_action(dict(link), "Link")
+                if isinstance(link, dict) else link
+                for link in links
+            ]
+
+        actions = suggestion.get("actions")
+        if isinstance(actions, list):
+            suggestion["actions"] = [
+                _normalize_action(dict(action), "Action")
+                if isinstance(action, dict) else action
+                for action in actions
+            ]
+
+        return suggestion

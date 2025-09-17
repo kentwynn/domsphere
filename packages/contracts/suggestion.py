@@ -97,11 +97,11 @@ class Suggestion(BaseModel):
 
     # CTAs
     primaryCta: Optional[CtaSpec] = None
-    primaryActions: Optional[List[CtaSpec]] = None
+    primaryActions: Optional[List[Dict[str, Any]]] = None
     secondaryCta: Optional[CtaSpec] = None
-    secondaryActions: Optional[List[CtaSpec]] = None
-    links: Optional[List[CtaSpec]] = None
-    actions: Optional[List[CtaSpec]] = None
+    secondaryActions: Optional[List[Dict[str, Any]]] = None
+    links: Optional[List[Dict[str, Any]]] = None
+    actions: Optional[List[Dict[str, Any]]] = None
 
     # Freeform extension
     meta: Optional[Dict[str, Any]] = None

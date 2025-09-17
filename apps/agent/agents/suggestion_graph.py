@@ -10,7 +10,6 @@ from agents.suggestion_nodes import (
     choice_manager_agent_node,
     planner_agent_node,
     template_agent_node,
-    validator_agent_node,
 )
 
 
@@ -72,9 +71,8 @@ def build_suggestion_graph(api_url: str, timeout: float) -> StateGraph:
         }
 
     def validator_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        context = state["context"]
         suggestion_data = state.get("suggestion_data")
-        suggestions = validator_agent_node([suggestion_data], context)
+        suggestions = [suggestion_data] if suggestion_data else []
         return {**state, "suggestions": suggestions}
 
     graph = StateGraph()
@@ -82,6 +80,7 @@ def build_suggestion_graph(api_url: str, timeout: float) -> StateGraph:
     graph.add_node("template", template_node)
     graph.add_node("choice_manager", choice_manager_node)
     graph.add_node("validator", validator_node)
+
 
     graph.add_edge("planner", "template")
 

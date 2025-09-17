@@ -2,7 +2,6 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 from .common import HealthResponse, ConditionOp, RuleTrigger
-from .suggestion import Suggestion
 
 # ==============================================================================
 # /agent/rule  (compile NL rules -> deterministic RuleSet JSON)
@@ -55,7 +54,7 @@ class AgentSuggestNextRequest(BaseModel):
     input: Optional[Dict[str, Any]] = None  # choice input map for next-step branching
 
 class AgentSuggestNextResponse(BaseModel):
-    suggestions: List[Suggestion]
+    suggestions: List[Dict[str, Any]]
 
 # ==============================================================================
 # /agent/health

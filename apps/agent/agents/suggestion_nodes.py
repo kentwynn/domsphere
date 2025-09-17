@@ -6,8 +6,6 @@ import json
 import os
 from typing import Any, Dict, List
 
-from contracts.suggestion import CtaSpec, Suggestion
-
 from helper.suggestion import (
     get_site_atlas,
     get_site_info,
@@ -44,39 +42,6 @@ def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
         pass
 
     return {"template_type": "action"}
-
-
-def validator_agent_node(suggestions_data: List[dict], context: dict) -> List[Suggestion]:
-    """Validate suggestions using schema enforcement and atlas validation."""
-    final: List[Suggestion] = []
-    for data in suggestions_data:
-        try:
-            if not isinstance(data, dict):
-                continue
-            data.setdefault("type", "recommendation")
-            data.setdefault("id", f"sug-{hash(str(data))}")
-
-            if "primaryCta" in data and isinstance(data["primaryCta"], dict):
-                data["primaryCta"] = CtaSpec(**data["primaryCta"])
-            if "secondaryCta" in data and isinstance(data["secondaryCta"], dict):
-                data["secondaryCta"] = CtaSpec(**data["secondaryCta"])
-            if "primaryActions" in data and isinstance(data["primaryActions"], list):
-                data["primaryActions"] = [
-                    CtaSpec(**cta) if isinstance(cta, dict) else cta
-                    for cta in data["primaryActions"]
-                ]
-            if "actions" in data and isinstance(data["actions"], list):
-                data["actions"] = [
-                    CtaSpec(**cta) if isinstance(cta, dict) else cta
-                    for cta in data["actions"]
-                ]
-            suggestion = Suggestion(**data)
-            final.append(suggestion)
-        except Exception:
-            continue
-    return final
-
-
 def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     """Choose a template and fill in fields using available tools."""
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -86,20 +51,17 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     @tool("get_sitemap", return_direct=False)
     def tool_get_sitemap(siteId: str) -> Dict[str, Any]:
         """Fetch the sitemap for the provided site identifier."""
-        result = get_sitemap(siteId, api_url, timeout).model_dump()
-        return result
+        return get_sitemap(siteId, api_url, timeout).model_dump()
 
     @tool("get_site_info", return_direct=False)
     def tool_get_site_info(siteId: str, url: str) -> Dict[str, Any]:
         """Fetch site info for a given site identifier and URL."""
-        result = get_site_info(siteId, url, api_url, timeout).model_dump()
-        return result
+        return get_site_info(siteId, url, api_url, timeout).model_dump()
 
     @tool("get_site_atlas", return_direct=False)
     def tool_get_site_atlas(siteId: str, url: str) -> Dict[str, Any]:
         """Fetch the site atlas containing DOM selectors for the page."""
-        result = get_site_atlas(siteId, url, api_url, timeout).model_dump()
-        return result
+        return get_site_atlas(siteId, url, api_url, timeout).model_dump()
 
     @tool("get_templates", return_direct=False)
     def tool_get_templates() -> Dict[str, Dict[str, Any]]:
@@ -218,5 +180,4 @@ def choice_manager_agent_node(context: dict, suggestion: dict, api_url: str, tim
     step = suggestion.get("meta", {}).get("step", 1)
     if step >= 2:
         return {"final": True, "suggestion_data": suggestion}
-
     return {"final": False, "suggestion_data": suggestion}
