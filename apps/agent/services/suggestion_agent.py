@@ -60,6 +60,11 @@ def validator_agent_node(suggestions_data: list, context: dict) -> list:
                 data["primaryCta"] = CtaSpec(**data["primaryCta"])
             if "secondaryCta" in data and isinstance(data["secondaryCta"], dict):
                 data["secondaryCta"] = CtaSpec(**data["secondaryCta"])
+            if "primaryActions" in data and isinstance(data["primaryActions"], list):
+                data["primaryActions"] = [
+                    CtaSpec(**cta) if isinstance(cta, dict) else cta
+                    for cta in data["primaryActions"]
+                ]
             if "actions" in data and isinstance(data["actions"], list):
                 data["actions"] = [
                     CtaSpec(**cta) if isinstance(cta, dict) else cta
@@ -82,7 +87,10 @@ INFO_TEMPLATE = {
     "id": "<fill-in-id>",
     "title": "<fill-in-title>",
     "description": "<fill-in-description>",
-    "meta": {"source": "<fill-in-source>"}
+    "meta": {
+        "source": "<fill-in-source>",
+        "step": "<fill-in-step>"
+    }
 }
 
 ACTION_TEMPLATE = {
@@ -92,20 +100,20 @@ ACTION_TEMPLATE = {
     "description": "<fill-in-description>",
     "primaryCta": {
         "label": "<fill-in-label>",
-        "kind": "<fill-in-kind>",  # e.g., dom_fill, click, navigate
-        "payload": {
-            "selector": "<fill-in-selector>",
-            "value": "<fill-in-value>"  # Only include if needed for the action
-        }
+        "kind": "<fill-in-kind>",  # "noop" for multi-step, "click"/"dom_fill"/etc for single-step
+        "payload": "<fill-in-payload>",  # Only if kind is not "noop"
+        "nextStep": "<fill-in-nextStep>"  # Only if kind is "noop"
     },
-    "primaryActions": [
-        {
-            "label": "<fill-in-label>",
-            "kind": "<fill-in-kind>",
-            "payload": {"selector": "<fill-in-selector>"}
-        }
-    ],
-    "meta": {"source": "<fill-in-source>"}
+    "primaryActions": "<fill-in-primaryActions>",  # Only if primaryCta.kind is "noop"
+    "secondaryCta": {
+        "label": "<fill-in-secondary-label>",
+        "kind": "<fill-in-secondary-kind>",  # Usually "noop" with nextClose=True for cancel
+        "nextClose": "<fill-in-nextClose>"  # True for cancel actions
+    },
+    "meta": {
+        "source": "<fill-in-source>",
+        "step": "<fill-in-step>"  # 1 for first step, 2 for second step
+    }
 }
 
 CHOICE_TEMPLATE = {
@@ -117,11 +125,14 @@ CHOICE_TEMPLATE = {
         {
             "label": "<fill-in-label>",
             "kind": "choose",
-            "payload": {"<fill-in-key>": "<fill-in-value>"},
-            "nextStep": "<fill-in-nextStep>"
+            "payload": {"name": "<fill-in-name>", "value": "<fill-in-value>"}
         }
+        # Add more actions as needed - this is an array that can have any number of choice options
     ],
-    "meta": {"source": "<fill-in-source>", "step": "<fill-in-step>"}
+    "meta": {
+        "source": "<fill-in-source>",
+        "step": "<fill-in-step>"
+    }
 }
 
 # --- Helper tools ---
@@ -215,15 +226,42 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
             "You are a suggestion template agent. "
             "Based on the 'outputInstruction' and context, choose which template ('info', 'action', or 'choice') best fits. "
             "CRITICAL: First call get_templates to get the template structure, then call get_site_atlas to get DOM selectors. "
-            "You MUST fill in the template structure exactly, replacing all <fill-in-*> placeholders with contextually appropriate values: "
-            "- Replace <fill-in-id> with a unique ID based on the action "
-            "- Replace <fill-in-title> and <fill-in-description> with appropriate text from the outputInstruction context "
-            "- Replace <fill-in-label> with appropriate action labels based on what the user wants to do "
-            "- Replace <fill-in-kind> with appropriate action types: 'dom_fill' for form inputs, 'click' for buttons/links, 'navigate' for page changes "
-            "- Replace <fill-in-selector> with actual CSS selectors from the atlas that match the intended action "
-            "- Replace <fill-in-value> with contextually appropriate values extracted from the outputInstruction "
-            "- Replace <fill-in-source> with site info identifying the source page "
-            "Analyze the outputInstruction to understand what action the user wants to perform, then fill the template accordingly. "
+            "You MUST fill in the template structure exactly, replacing all <fill-in-*> placeholders with contextually appropriate values. "
+            ""
+            "For ACTION templates, follow these patterns: "
+            ""
+            "MULTI-STEP PATTERN (when multiple DOM operations needed): "
+            "- primaryCta: kind='noop', label='Apply/Submit/etc', nextStep=2 "
+            "- primaryActions: array of actual DOM operations (dom_fill, click, etc.) "
+            "- secondaryCta: kind='noop', label='Cancel', nextClose=True "
+            "- meta: step=1 "
+            ""
+            "SINGLE-STEP PATTERN (when only one DOM operation needed): "
+            "- primaryCta: kind='click'/'dom_fill'/etc, direct payload with selector "
+            "- NO primaryActions needed "
+            "- secondaryCta: kind='noop', label='Cancel', nextClose=True (optional) "
+            "- meta: step=1 "
+            ""
+            "For CHOICE templates, follow this pattern: "
+            "- actions: array of choice options (any number needed) with kind='choose' "
+            "- each action has payload: {'name': '<field_name>', 'value': '<option_value>'} "
+            "- all actions in one choice should use the same 'name' but different 'value' "
+            "- Example: [{'label': 'School', 'kind': 'choose', 'payload': {'name': 'interest', 'value': 'school'}}, ...] "
+            "- Can have 2, 3, 4, or more options depending on what makes sense for the choice "
+            "- meta: step=<current_step> "
+            ""
+            "Field filling rules: "
+            "- <fill-in-id>: unique ID based on the action "
+            "- <fill-in-title> and <fill-in-description>: from outputInstruction context "
+            "- <fill-in-label>: action labels based on what user wants to do "
+            "- <fill-in-kind>: 'noop' for multi-step OR 'dom_fill'/'click'/etc for single-step OR 'choose' for choices "
+            "- <fill-in-payload>: CSS selectors and values from atlas (only if kind is not 'noop') "
+            "- <fill-in-nextStep>: 2 (only if kind is 'noop') "
+            "- <fill-in-primaryActions>: array of DOM operations (only if primaryCta.kind is 'noop') "
+            "- <fill-in-step>: 1 for first step, 2 for continuation steps "
+            "- For choices: <fill-in-name> is the field name, <fill-in-value-1/2/3> are different option values "
+            ""
+            "Analyze the outputInstruction to determine if it needs multiple DOM operations (use multi-step) or single operation (use single-step) or user choices (use choice). "
             "Return valid JSON: {\"template_type\": \"<chosen_type>\", \"suggestion_data\": <filled_template>, \"intermediate\": false}. "
             "Ensure proper JSON formatting with no trailing commas or syntax errors."
         )

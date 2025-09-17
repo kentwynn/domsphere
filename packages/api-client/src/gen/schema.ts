@@ -4,1130 +4,1119 @@
  */
 
 export type paths = {
-  '/health': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health */
+        get: operations["health_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Health */
-    get: operations['health_health_get'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/rule/check': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/rule/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rule Check */
+        post: operations["rule_check_rule_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Rule Check */
-    post: operations['rule_check_rule_check_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/rule': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/rule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Rules */
+        get: operations["get_rules_rule_get"];
+        put?: never;
+        /** Create Rule Route */
+        post: operations["create_rule_route_rule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get Rules */
-    get: operations['get_rules_rule_get'];
-    put?: never;
-    /** Create Rule Route */
-    post: operations['create_rule_route_rule_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/rule/{ruleId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/rule/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Rule */
+        get: operations["get_rule_rule__ruleId__get"];
+        /** Update Rule */
+        put: operations["update_rule_rule__ruleId__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get Rule */
-    get: operations['get_rule_rule__ruleId__get'];
-    /** Update Rule */
-    put: operations['update_rule_rule__ruleId__put'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/rule/{ruleId}/generate': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/rule/{ruleId}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Rule Triggers */
+        post: operations["generate_rule_triggers_rule__ruleId__generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Generate Rule Triggers */
-    post: operations['generate_rule_triggers_rule__ruleId__generate_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/suggest': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suggest */
+        post: operations["suggest_suggest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Suggest */
-    post: operations['suggest_suggest_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/suggest/next': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/suggest/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suggest Next */
+        post: operations["suggest_next_suggest_next_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Suggest Next */
-    post: operations['suggest_next_suggest_next_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/site/register': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/site/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register Site */
+        post: operations["register_site_site_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Register Site */
-    post: operations['register_site_site_register_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/site/map': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/site/map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Site Map */
+        get: operations["get_site_map_site_map_get"];
+        put?: never;
+        /** Build Site Map */
+        post: operations["build_site_map_site_map_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get Site Map */
-    get: operations['get_site_map_site_map_get'];
-    put?: never;
-    /** Build Site Map */
-    post: operations['build_site_map_site_map_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/site/info': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/site/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Site Info */
+        get: operations["get_site_info_site_info_get"];
+        put?: never;
+        /** Drag Site Info */
+        post: operations["drag_site_info_site_info_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get Site Info */
-    get: operations['get_site_info_site_info_get'];
-    put?: never;
-    /** Drag Site Info */
-    post: operations['drag_site_info_site_info_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/site/atlas': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/site/atlas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Site Atlas */
+        get: operations["get_site_atlas_site_atlas_get"];
+        put?: never;
+        /** Drag Site Atlas */
+        post: operations["drag_site_atlas_site_atlas_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get Site Atlas */
-    get: operations['get_site_atlas_site_atlas_get'];
-    put?: never;
-    /** Drag Site Atlas */
-    post: operations['drag_site_atlas_site_atlas_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
 };
 export type webhooks = Record<string, never>;
 export type components = {
-  schemas: {
-    /** CtaSpec */
-    CtaSpec: {
-      /** Label */
-      label: string;
-      /**
-       * Kind
-       * @default link
-       */
-      kind: string;
-      /** Href */
-      href?: string | null;
-      /** Url */
-      url?: string | null;
-      /** Route */
-      route?: string | null;
-      /** Sku */
-      sku?: string | null;
-      /** Payload */
-      payload?: {
-        [key: string]: unknown;
-      } | null;
-      /** Target */
-      target?: string | null;
-      /** Confirm */
-      confirm?: boolean | null;
-      /** Meta */
-      meta?: {
-        [key: string]: unknown;
-      } | null;
-      /** Nextstep */
-      nextStep?: number | null;
-      /** Nextid */
-      nextId?: string | null;
-      /** Nextclose */
-      nextClose?: boolean | null;
-      /** Nextmode */
-      nextMode?: ('replace' | 'append') | null;
-      /** Nextinput */
-      nextInput?: {
-        [key: string]: unknown;
-      } | null;
+    schemas: {
+        /** CtaSpec */
+        CtaSpec: {
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @default link
+             */
+            kind: string;
+            /** Href */
+            href?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Route */
+            route?: string | null;
+            /** Sku */
+            sku?: string | null;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            } | null;
+            /** Target */
+            target?: string | null;
+            /** Confirm */
+            confirm?: boolean | null;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+            /** Nextstep */
+            nextStep?: number | null;
+            /** Nextid */
+            nextId?: string | null;
+            /** Nextclose */
+            nextClose?: boolean | null;
+            /** Nextmode */
+            nextMode?: ("replace" | "append") | null;
+            /** Nextinput */
+            nextInput?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * DomAtlasElement
+         * @description A compact node for selector learning.
+         */
+        DomAtlasElement: {
+            /** Idx */
+            idx: number;
+            /** Tag */
+            tag: string;
+            /** Id */
+            id?: string | null;
+            /** Classlist */
+            classList?: string[] | null;
+            /** Role */
+            role?: string | null;
+            /** Dataattrs */
+            dataAttrs?: {
+                [key: string]: string;
+            } | null;
+            /** Textsample */
+            textSample?: string | null;
+            /** Csspath */
+            cssPath?: string | null;
+            /** Parentidx */
+            parentIdx?: number | null;
+        };
+        /** DomAtlasSnapshot */
+        DomAtlasSnapshot: {
+            /** Atlasid */
+            atlasId: string;
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /** Domhash */
+            domHash: string;
+            /** Capturedat */
+            capturedAt: string;
+            /** Elementcount */
+            elementCount: number;
+            /** Elements */
+            elements?: components["schemas"]["DomAtlasElement"][];
+            /**
+             * Version
+             * @default atlas-v1
+             */
+            version: string;
+        };
+        /** Event */
+        Event: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "dom_click" | "input_change" | "page_load" | "submit" | "route_change" | "scroll" | "time_spent" | "visibility_change";
+            /** Ts */
+            ts: number;
+            telemetry: components["schemas"]["Telemetry"];
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HealthResponse */
+        HealthResponse: {
+            /**
+             * Status
+             * @default ok
+             */
+            status: string;
+        };
+        /** RuleCheckRequest */
+        RuleCheckRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Sessionid */
+            sessionId: string;
+            event: components["schemas"]["Event"];
+        };
+        /** RuleCheckResponse */
+        RuleCheckResponse: {
+            /** Eventtype */
+            eventType: string;
+            /** Matchedrules */
+            matchedRules: string[];
+            /** Shouldproceed */
+            shouldProceed: boolean;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** RuleCreatePayload */
+        RuleCreatePayload: {
+            /** Ruleinstruction */
+            ruleInstruction: string;
+            /** Outputinstruction */
+            outputInstruction?: string | null;
+        };
+        /** RuleUpdatePayload */
+        RuleUpdatePayload: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Tracking */
+            tracking?: boolean | null;
+            /** Ruleinstruction */
+            ruleInstruction?: string | null;
+            /** Outputinstruction */
+            outputInstruction?: string | null;
+        };
+        /** SiteAtlasRequest */
+        SiteAtlasRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+        };
+        /** SiteAtlasResponse */
+        SiteAtlasResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            atlas?: components["schemas"]["DomAtlasSnapshot"] | null;
+            /** Queuedplanrebuild */
+            queuedPlanRebuild?: boolean | null;
+        };
+        /** SiteInfoRequest */
+        SiteInfoRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Path */
+            path?: string | null;
+            /** Url */
+            url?: string | null;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+        };
+        /** SiteInfoResponse */
+        SiteInfoResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+            /** Normalized */
+            normalized?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SiteMapPage */
+        SiteMapPage: {
+            /** Url */
+            url: string;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SiteMapRequest */
+        SiteMapRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url?: string | null;
+            /**
+             * Depth
+             * @default 1
+             */
+            depth: number | null;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+        };
+        /** SiteMapResponse */
+        SiteMapResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Pages */
+            pages: components["schemas"]["SiteMapPage"][];
+        };
+        /** SiteRegisterRequest */
+        SiteRegisterRequest: {
+            /** Siteid */
+            siteId?: string | null;
+            /** Parenturl */
+            parentUrl: string;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SiteRegisterResponse */
+        SiteRegisterResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Parenturl */
+            parentUrl: string;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SuggestGetRequest */
+        SuggestGetRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /** Ruleid */
+            ruleId: string;
+        };
+        /** SuggestGetResponse */
+        SuggestGetResponse: {
+            /** Suggestions */
+            suggestions: components["schemas"]["Suggestion"][];
+        };
+        /** SuggestNextRequest */
+        SuggestNextRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Url */
+            url: string;
+            /** Ruleid */
+            ruleId: string;
+            /** Input */
+            input?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SuggestNextResponse */
+        SuggestNextResponse: {
+            /** Suggestions */
+            suggestions: components["schemas"]["Suggestion"][];
+        };
+        /** Suggestion */
+        Suggestion: {
+            /** Type */
+            type: string;
+            /** Id */
+            id?: string | null;
+            /** Score */
+            score?: number | null;
+            /** Tracking */
+            tracking?: {
+                [key: string]: unknown;
+            } | null;
+            /** Title */
+            title?: string | null;
+            /** Subtitle */
+            subtitle?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Image */
+            image?: string | null;
+            /** Gallery */
+            gallery?: string[] | null;
+            /** Alt */
+            alt?: string | null;
+            /** Price */
+            price?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Rating */
+            rating?: number | null;
+            /** Attributes */
+            attributes?: {
+                [key: string]: unknown;
+            } | null;
+            primaryCta?: components["schemas"]["CtaSpec"] | null;
+            /** Primaryactions */
+            primaryActions?: components["schemas"]["CtaSpec"][] | null;
+            secondaryCta?: components["schemas"]["CtaSpec"] | null;
+            /** Secondaryactions */
+            secondaryActions?: components["schemas"]["CtaSpec"][] | null;
+            /** Links */
+            links?: components["schemas"]["CtaSpec"][] | null;
+            /** Actions */
+            actions?: components["schemas"]["CtaSpec"][] | null;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * Telemetry
+         * @description Sanitized DOM context (PII stripped upstream).
+         */
+        Telemetry: {
+            /** Elementtext */
+            elementText?: string | null;
+            /** Elementhtml */
+            elementHtml?: string | null;
+            /** Attributes */
+            attributes?: {
+                [key: string]: string | null;
+            } | null;
+            /** Csspath */
+            cssPath?: string | null;
+            /** Xpath */
+            xpath?: string | null;
+            /** Nearbytext */
+            nearbyText?: string[] | null;
+            /** Ancestors */
+            ancestors?: {
+                [key: string]: string | null;
+            }[] | null;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+        };
     };
-    /**
-     * DomAtlasElement
-     * @description A compact node for selector learning.
-     */
-    DomAtlasElement: {
-      /** Idx */
-      idx: number;
-      /** Tag */
-      tag: string;
-      /** Id */
-      id?: string | null;
-      /** Classlist */
-      classList?: string[] | null;
-      /** Role */
-      role?: string | null;
-      /** Dataattrs */
-      dataAttrs?: {
-        [key: string]: string;
-      } | null;
-      /** Textsample */
-      textSample?: string | null;
-      /** Csspath */
-      cssPath?: string | null;
-      /** Parentidx */
-      parentIdx?: number | null;
-    };
-    /** DomAtlasSnapshot */
-    DomAtlasSnapshot: {
-      /** Atlasid */
-      atlasId: string;
-      /** Siteid */
-      siteId: string;
-      /** Url */
-      url: string;
-      /** Domhash */
-      domHash: string;
-      /** Capturedat */
-      capturedAt: string;
-      /** Elementcount */
-      elementCount: number;
-      /** Elements */
-      elements?: components['schemas']['DomAtlasElement'][];
-      /**
-       * Version
-       * @default atlas-v1
-       */
-      version: string;
-    };
-    /** Event */
-    Event: {
-      /**
-       * Type
-       * @enum {string}
-       */
-      type:
-        | 'dom_click'
-        | 'input_change'
-        | 'page_load'
-        | 'submit'
-        | 'route_change'
-        | 'scroll'
-        | 'time_spent'
-        | 'visibility_change';
-      /** Ts */
-      ts: number;
-      telemetry: components['schemas']['Telemetry'];
-    };
-    /** HTTPValidationError */
-    HTTPValidationError: {
-      /** Detail */
-      detail?: components['schemas']['ValidationError'][];
-    };
-    /** HealthResponse */
-    HealthResponse: {
-      /**
-       * Status
-       * @default ok
-       */
-      status: string;
-    };
-    /** RuleCheckRequest */
-    RuleCheckRequest: {
-      /** Siteid */
-      siteId: string;
-      /** Sessionid */
-      sessionId: string;
-      event: components['schemas']['Event'];
-    };
-    /** RuleCheckResponse */
-    RuleCheckResponse: {
-      /** Eventtype */
-      eventType: string;
-      /** Matchedrules */
-      matchedRules: string[];
-      /** Shouldproceed */
-      shouldProceed: boolean;
-      /** Reason */
-      reason?: string | null;
-    };
-    /** RuleCreatePayload */
-    RuleCreatePayload: {
-      /** Ruleinstruction */
-      ruleInstruction: string;
-      /** Outputinstruction */
-      outputInstruction?: string | null;
-    };
-    /** RuleUpdatePayload */
-    RuleUpdatePayload: {
-      /** Enabled */
-      enabled?: boolean | null;
-      /** Tracking */
-      tracking?: boolean | null;
-      /** Ruleinstruction */
-      ruleInstruction?: string | null;
-      /** Outputinstruction */
-      outputInstruction?: string | null;
-    };
-    /** SiteAtlasRequest */
-    SiteAtlasRequest: {
-      /** Siteid */
-      siteId: string;
-      /** Url */
-      url: string;
-      /**
-       * Force
-       * @default false
-       */
-      force: boolean;
-    };
-    /** SiteAtlasResponse */
-    SiteAtlasResponse: {
-      /** Siteid */
-      siteId: string;
-      /** Url */
-      url: string;
-      atlas?: components['schemas']['DomAtlasSnapshot'] | null;
-      /** Queuedplanrebuild */
-      queuedPlanRebuild?: boolean | null;
-    };
-    /** SiteInfoRequest */
-    SiteInfoRequest: {
-      /** Siteid */
-      siteId: string;
-      /** Path */
-      path?: string | null;
-      /** Url */
-      url?: string | null;
-      /**
-       * Force
-       * @default false
-       */
-      force: boolean;
-    };
-    /** SiteInfoResponse */
-    SiteInfoResponse: {
-      /** Siteid */
-      siteId: string;
-      /** Url */
-      url: string;
-      /** Meta */
-      meta?: {
-        [key: string]: unknown;
-      } | null;
-      /** Normalized */
-      normalized?: {
-        [key: string]: unknown;
-      } | null;
-    };
-    /** SiteMapPage */
-    SiteMapPage: {
-      /** Url */
-      url: string;
-      /** Meta */
-      meta?: {
-        [key: string]: unknown;
-      } | null;
-    };
-    /** SiteMapRequest */
-    SiteMapRequest: {
-      /** Siteid */
-      siteId: string;
-      /** Url */
-      url?: string | null;
-      /**
-       * Depth
-       * @default 1
-       */
-      depth: number | null;
-      /**
-       * Force
-       * @default false
-       */
-      force: boolean;
-    };
-    /** SiteMapResponse */
-    SiteMapResponse: {
-      /** Siteid */
-      siteId: string;
-      /** Pages */
-      pages: components['schemas']['SiteMapPage'][];
-    };
-    /** SiteRegisterRequest */
-    SiteRegisterRequest: {
-      /** Siteid */
-      siteId?: string | null;
-      /** Parenturl */
-      parentUrl: string;
-      /** Meta */
-      meta?: {
-        [key: string]: unknown;
-      } | null;
-    };
-    /** SiteRegisterResponse */
-    SiteRegisterResponse: {
-      /** Siteid */
-      siteId: string;
-      /** Parenturl */
-      parentUrl: string;
-      /** Meta */
-      meta?: {
-        [key: string]: unknown;
-      } | null;
-    };
-    /** SuggestGetRequest */
-    SuggestGetRequest: {
-      /** Siteid */
-      siteId: string;
-      /** Url */
-      url: string;
-      /** Ruleid */
-      ruleId: string;
-    };
-    /** SuggestGetResponse */
-    SuggestGetResponse: {
-      /** Suggestions */
-      suggestions: components['schemas']['Suggestion'][];
-    };
-    /** SuggestNextRequest */
-    SuggestNextRequest: {
-      /** Siteid */
-      siteId: string;
-      /** Url */
-      url: string;
-      /** Ruleid */
-      ruleId: string;
-      /** Input */
-      input?: {
-        [key: string]: unknown;
-      } | null;
-    };
-    /** SuggestNextResponse */
-    SuggestNextResponse: {
-      /** Suggestions */
-      suggestions: components['schemas']['Suggestion'][];
-    };
-    /** Suggestion */
-    Suggestion: {
-      /** Type */
-      type: string;
-      /** Id */
-      id?: string | null;
-      /** Score */
-      score?: number | null;
-      /** Tracking */
-      tracking?: {
-        [key: string]: unknown;
-      } | null;
-      /** Title */
-      title?: string | null;
-      /** Subtitle */
-      subtitle?: string | null;
-      /** Description */
-      description?: string | null;
-      /** Image */
-      image?: string | null;
-      /** Gallery */
-      gallery?: string[] | null;
-      /** Alt */
-      alt?: string | null;
-      /** Price */
-      price?: number | null;
-      /** Currency */
-      currency?: string | null;
-      /** Rating */
-      rating?: number | null;
-      /** Attributes */
-      attributes?: {
-        [key: string]: unknown;
-      } | null;
-      primaryCta?: components['schemas']['CtaSpec'] | null;
-      /** Primaryactions */
-      primaryActions?: components['schemas']['CtaSpec'][] | null;
-      /** Secondaryactions */
-      secondaryActions?: components['schemas']['CtaSpec'][] | null;
-      /** Secondarycta */
-      secondaryCta?: components['schemas']['CtaSpec'] | null;
-      /** Links */
-      links?: components['schemas']['CtaSpec'][] | null;
-      /** Actions */
-      actions?: components['schemas']['CtaSpec'][] | null;
-      /** Meta */
-      meta?: {
-        [key: string]: unknown;
-      } | null;
-    };
-    /**
-     * Telemetry
-     * @description Sanitized DOM context (PII stripped upstream).
-     */
-    Telemetry: {
-      /** Elementtext */
-      elementText?: string | null;
-      /** Elementhtml */
-      elementHtml?: string | null;
-      /** Attributes */
-      attributes?: {
-        [key: string]: string | null;
-      } | null;
-      /** Csspath */
-      cssPath?: string | null;
-      /** Xpath */
-      xpath?: string | null;
-      /** Nearbytext */
-      nearbyText?: string[] | null;
-      /** Ancestors */
-      ancestors?:
-        | {
-            [key: string]: string | null;
-          }[]
-        | null;
-    };
-    /** ValidationError */
-    ValidationError: {
-      /** Location */
-      loc: (string | number)[];
-      /** Message */
-      msg: string;
-      /** Error Type */
-      type: string;
-    };
-  };
-  responses: never;
-  parameters: never;
-  requestBodies: never;
-  headers: never;
-  pathItems: never;
+    responses: never;
+    parameters: never;
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
 };
 export type $defs = Record<string, never>;
 export interface operations {
-  health_health_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    rule_check_rule_check_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          'application/json': components['schemas']['HealthResponse'];
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleCheckRequest"];
+            };
         };
-      };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleCheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-  };
-  rule_check_rule_check_post: {
-    parameters: {
-      query?: never;
-      header?: {
-        'X-Contract-Version'?: string | null;
-        'X-Request-Id'?: string | null;
-      };
-      path?: never;
-      cookie?: never;
+    get_rules_rule_get: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RuleCheckRequest'];
-      };
+    create_rule_route_rule_post: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleCreatePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    get_rule_rule__ruleId__get: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: never;
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
         };
-        content: {
-          'application/json': components['schemas']['RuleCheckResponse'];
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
     };
-  };
-  get_rules_rule_get: {
-    parameters: {
-      query?: {
-        siteId?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
+    update_rule_rule__ruleId__put: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: never;
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleUpdatePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    generate_rule_triggers_rule__ruleId__generate_post: {
+        parameters: {
+            query?: {
+                siteId?: string;
+            };
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
         };
-        content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
     };
-  };
-  create_rule_route_rule_post: {
-    parameters: {
-      query?: {
-        siteId?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
+    suggest_suggest_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestGetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestGetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RuleCreatePayload'];
-      };
+    suggest_next_suggest_next_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestNextRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestNextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    register_site_site_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteRegisterRequest"];
+            };
         };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteRegisterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
     };
-  };
-  get_rule_rule__ruleId__get: {
-    parameters: {
-      query?: {
-        siteId?: string;
-      };
-      header?: never;
-      path: {
-        ruleId: string;
-      };
-      cookie?: never;
+    get_site_map_site_map_get: {
+        parameters: {
+            query: {
+                siteId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteMapResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    build_site_map_site_map_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteMapRequest"];
+            };
         };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteMapResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
     };
-  };
-  update_rule_rule__ruleId__put: {
-    parameters: {
-      query?: {
-        siteId?: string;
-      };
-      header?: never;
-      path: {
-        ruleId: string;
-      };
-      cookie?: never;
+    get_site_info_site_info_get: {
+        parameters: {
+            query: {
+                siteId: string;
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteInfoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RuleUpdatePayload'];
-      };
+    drag_site_info_site_info_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteInfoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteInfoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    get_site_atlas_site_atlas_get: {
+        parameters: {
+            query: {
+                siteId: string;
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAtlasResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
     };
-  };
-  generate_rule_triggers_rule__ruleId__generate_post: {
-    parameters: {
-      query?: {
-        siteId?: string;
-      };
-      header?: {
-        'X-Contract-Version'?: string | null;
-        'X-Request-Id'?: string | null;
-      };
-      path: {
-        ruleId: string;
-      };
-      cookie?: never;
+    drag_site_atlas_site_atlas_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteAtlasRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAtlasResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  suggest_suggest_post: {
-    parameters: {
-      query?: never;
-      header?: {
-        'X-Contract-Version'?: string | null;
-        'X-Request-Id'?: string | null;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SuggestGetRequest'];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SuggestGetResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  suggest_next_suggest_next_post: {
-    parameters: {
-      query?: never;
-      header?: {
-        'X-Contract-Version'?: string | null;
-        'X-Request-Id'?: string | null;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SuggestNextRequest'];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SuggestNextResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  register_site_site_register_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SiteRegisterRequest'];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SiteRegisterResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  get_site_map_site_map_get: {
-    parameters: {
-      query: {
-        siteId: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SiteMapResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  build_site_map_site_map_post: {
-    parameters: {
-      query?: never;
-      header?: {
-        'X-Request-Id'?: string | null;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SiteMapRequest'];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SiteMapResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  get_site_info_site_info_get: {
-    parameters: {
-      query: {
-        siteId: string;
-        url: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SiteInfoResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  drag_site_info_site_info_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SiteInfoRequest'];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SiteInfoResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  get_site_atlas_site_atlas_get: {
-    parameters: {
-      query: {
-        siteId: string;
-        url: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SiteAtlasResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  drag_site_atlas_site_atlas_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SiteAtlasRequest'];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SiteAtlasResponse'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
 }
