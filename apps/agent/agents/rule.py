@@ -11,6 +11,9 @@ from helper.rule import build_output_schema, fetch_site_atlas, fetch_sitemap
 from .rule_graph import build_rule_graph
 from .rule_llm import RuleLLMToolkit
 from .rule_nodes import rule_validation_node
+from core.logging import get_agent_logger
+
+logger = get_agent_logger(__name__)
 
 
 class RuleAgent:
@@ -22,6 +25,13 @@ class RuleAgent:
         self.debug = debug
         self.http_timeout = float(os.getenv("HTTP_TIMEOUT", "300"))
         self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "300"))
+        logger.debug(
+            "RuleAgent initialized api_url=%s debug=%s http_timeout=%s llm_timeout=%s",
+            self.api_url,
+            self.debug,
+            self.http_timeout,
+            self.llm_timeout,
+        )
 
     # ------------------------------------------------------------------
     # Tool adapters
@@ -49,23 +59,39 @@ class RuleAgent:
         )
 
     def _llm_generate(self, site_id: str, rule_instruction: str) -> Optional[List[Dict[str, Any]]]:
-        graph = build_rule_graph(self._create_toolkit)
-        app = graph.compile()
+        try:
+            logger.info("Invoking rule graph site=%s", site_id)
+            graph = build_rule_graph(self._create_toolkit)
+            app = graph.compile()
 
-        state = {"context": {"siteId": site_id, "ruleInstruction": rule_instruction}}
-        result = app.invoke(state)
-        triggers = result.get("triggers") if isinstance(result, dict) else None
-        if isinstance(triggers, list):
-            return triggers
-        return None
+            state = {"context": {"siteId": site_id, "ruleInstruction": rule_instruction}}
+            result = app.invoke(state)
+            triggers = result.get("triggers") if isinstance(result, dict) else None
+            count = len(triggers) if isinstance(triggers, list) else 0
+            logger.debug("Rule graph returned %s trigger candidate(s) site=%s", count, site_id)
+            if isinstance(triggers, list):
+                return triggers
+            return None
+        except Exception:
+            logger.exception("Rule graph invocation failed site=%s", site_id)
+            raise
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
     def generate_triggers(self, site_id: str, rule_instruction: str) -> List[Dict[str, Any]]:
         """Generate triggers for a rule instruction using LLM/tool-calling."""
+        logger.info("Generating triggers site=%s", site_id)
         trig = self._llm_generate(site_id, rule_instruction)
 
         if isinstance(trig, list) and trig:
-            return rule_validation_node(trig)
+            validated = rule_validation_node(trig)
+            logger.info(
+                "Validated %s trigger(s) site=%s",
+                len(validated),
+                site_id,
+            )
+            return validated
+
+        logger.warning("No triggers generated site=%s", site_id)
         return []

@@ -1,5 +1,7 @@
 """Agent implementations exposed by the agent service layer."""
 
+from core.logging import get_agent_logger
+
 from .rule import RuleAgent
 from .rule_graph import build_rule_graph
 from .rule_nodes import rule_generation_node, rule_validation_node
@@ -10,6 +12,8 @@ from .suggestion_nodes import (
     template_agent_node,
     choice_manager_agent_node,
 )
+
+logger = get_agent_logger(__name__)
 
 __all__ = [
     "RuleAgent",
@@ -22,3 +26,5 @@ __all__ = [
     "template_agent_node",
     "choice_manager_agent_node",
 ]
+
+logger.debug("Agent package loaded exports=%s", __all__)

@@ -10,8 +10,11 @@ from contracts.client_api import (
     SuggestNextRequest,
     SuggestNextResponse,
 )
+from core.logging import get_api_logger
 
 router = APIRouter(prefix="/suggest", tags=["suggest"])
+
+logger = get_api_logger(__name__)
 
 @router.post("", response_model=SuggestGetResponse)
 def suggest(
@@ -21,6 +24,11 @@ def suggest(
 ) -> SuggestGetResponse:
     body = payload.model_dump()
     try:
+        logger.info(
+            "Suggest request site=%s request_id=%s",
+            payload.siteId,
+            x_request_id,
+        )
         with httpx.Client(timeout=AGENT_TIMEOUT) as client:
             r = client.post(
                 f"{AGENT_URL}/agent/suggest",
@@ -30,11 +38,29 @@ def suggest(
             r.raise_for_status()
             data = r.json()
     except Exception as e:
+        logger.exception(
+            "Suggest proxy failed site=%s request_id=%s: %s",
+            payload.siteId,
+            x_request_id,
+            e,
+        )
         raise HTTPException(status_code=502, detail=f"Agent proxy failed: {e}")
     try:
         suggestions = data.get("suggestions", [])
+        logger.info(
+            "Suggest returning %s suggestion(s) site=%s request_id=%s",
+            len(suggestions),
+            payload.siteId,
+            x_request_id,
+        )
         return SuggestGetResponse(suggestions=suggestions)
     except Exception as e:
+        logger.exception(
+            "Suggest response parsing failed site=%s request_id=%s: %s",
+            payload.siteId,
+            x_request_id,
+            e,
+        )
         raise HTTPException(status_code=502, detail=f"Agent response invalid: {e}")
 
 
@@ -46,6 +72,11 @@ def suggest_next(
 ) -> SuggestNextResponse:
     body = payload.model_dump()
     try:
+        logger.info(
+            "SuggestNext request site=%s request_id=%s",
+            payload.siteId,
+            x_request_id,
+        )
         with httpx.Client(timeout=AGENT_TIMEOUT) as client:
             r = client.post(
                 f"{AGENT_URL}/agent/suggest",
@@ -55,9 +86,27 @@ def suggest_next(
             r.raise_for_status()
             data = r.json()
     except Exception as e:
+        logger.exception(
+            "SuggestNext proxy failed site=%s request_id=%s: %s",
+            payload.siteId,
+            x_request_id,
+            e,
+        )
         raise HTTPException(status_code=502, detail=f"Agent proxy failed: {e}")
     try:
         suggestions = data.get("suggestions", [])
+        logger.info(
+            "SuggestNext returning %s suggestion(s) site=%s request_id=%s",
+            len(suggestions),
+            payload.siteId,
+            x_request_id,
+        )
         return SuggestNextResponse(suggestions=suggestions)
     except Exception as e:
+        logger.exception(
+            "SuggestNext response parsing failed site=%s request_id=%s: %s",
+            payload.siteId,
+            x_request_id,
+            e,
+        )
         raise HTTPException(status_code=502, detail=f"Agent response invalid: {e}")

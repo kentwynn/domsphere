@@ -15,6 +15,9 @@ from agents.suggestion_nodes import (
     choice_manager_agent_node,
     template_agent_node,
 )
+from core.logging import get_agent_logger
+
+logger = get_agent_logger(__name__)
 
 
 class SuggestionAgent:
@@ -25,12 +28,27 @@ class SuggestionAgent:
         self.openai_token = os.getenv("OPENAI_TOKEN")
         self.http_timeout = float(os.getenv("HTTP_TIMEOUT", "300"))
         self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "300"))
+        logger.debug(
+            "SuggestionAgent initialized api_url=%s http_timeout=%s llm_timeout=%s",
+            self.api_url,
+            self.http_timeout,
+            self.llm_timeout,
+        )
 
     def _fetch_rule_info(self, site_id: str, rule_id: str) -> Dict[str, Any]:
-        with httpx.Client(timeout=self.http_timeout) as client:
-            response = client.get(f"{self.api_url}/rule/{rule_id}", params={"siteId": site_id})
-            response.raise_for_status()
-            return response.json() or {}
+        try:
+            logger.debug("Fetching rule info site=%s rule=%s", site_id, rule_id)
+            with httpx.Client(timeout=self.http_timeout) as client:
+                response = client.get(
+                    f"{self.api_url}/rule/{rule_id}", params={"siteId": site_id}
+                )
+                response.raise_for_status()
+                payload = response.json() or {}
+                logger.debug("Fetched rule info site=%s rule=%s", site_id, rule_id)
+                return payload
+        except Exception:
+            logger.exception("Failed to fetch rule info site=%s rule=%s", site_id, rule_id)
+            raise
 
     def _build_context(self, request: AgentSuggestNextRequest) -> Dict[str, Any]:
         normalized_url = normalize_url(request.url)
@@ -41,24 +59,56 @@ class SuggestionAgent:
         }
         rule_info = self._fetch_rule_info(request.siteId, request.ruleId)
         context["outputInstruction"] = rule_info.get("rule", {}).get("outputInstruction", "")
+        logger.debug(
+            "Built suggestion context site=%s rule=%s normalized_url=%s choices=%s",
+            request.siteId,
+            request.ruleId,
+            normalized_url,
+            bool(context["userChoices"]),
+        )
         return context
 
     def generate_suggestions(self, request: AgentSuggestNextRequest) -> List[Suggestion]:
+        logger.info(
+            "Generating suggestions site=%s rule=%s", request.siteId, request.ruleId
+        )
         context = self._build_context(request)
         node_result = template_agent_node(context, self.api_url, self.http_timeout)
         template_type = node_result.get("template_type")
         suggestion_data = node_result.get("suggestion_data")
         if not suggestion_data:
+            logger.warning(
+                "Template produced no suggestion data site=%s rule=%s template=%s",
+                request.siteId,
+                request.ruleId,
+                template_type,
+            )
             return []
 
         suggestion_data = self._normalize_suggestion(suggestion_data)
 
         if template_type == "choice":
+            logger.debug(
+                "Routing choice manager site=%s rule=%s", request.siteId, request.ruleId
+            )
             choice_result = choice_manager_agent_node(
                 context, suggestion_data, self.api_url, self.http_timeout
             )
-            return [choice_result.get("suggestion_data")]
+            final_choice = choice_result.get("suggestion_data")
+            logger.info(
+                "Choice suggestion processed site=%s rule=%s final=%s",
+                request.siteId,
+                request.ruleId,
+                choice_result.get("final", True),
+            )
+            return [final_choice]
 
+        logger.info(
+            "Generated suggestion site=%s rule=%s template=%s",
+            request.siteId,
+            request.ruleId,
+            template_type or "unknown",
+        )
         return [suggestion_data]
 
     def _parse_suggestions(self, suggestions_data: List[dict], context: dict) -> List[Suggestion]:

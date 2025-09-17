@@ -4,22 +4,31 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from contracts.version import CONTRACT_VERSION
+from .logging import get_api_logger
+
+logger = get_api_logger(__name__)
 
 def _env_suffix() -> str:
     # Pick one that’s present; default to local
-    return (
+    suffix = (
         os.getenv("BUILD_ENV")
         or os.getenv("ENV")
         or os.getenv("NX_TASK_TARGET_CONFIGURATION")
         or ("development" if os.getenv("NODE_ENV") == "development" else "local")
     )
+    logger.debug("Resolved environment suffix=%s", suffix)
+    return suffix
 
 def _load_env() -> None:
     suffix = _env_suffix()
     # repo root relative to this file
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
     env_path = os.path.join(repo_root, f".env.build.{suffix}")
-    load_dotenv(env_path)
+    loaded = load_dotenv(env_path)
+    if loaded:
+        logger.info("Loaded API environment from %s", env_path)
+    else:
+        logger.debug("No API env file found at %s", env_path)
 
 _load_env()
 
@@ -42,4 +51,8 @@ def wire_common(app: FastAPI) -> None:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    logger.info(
+        "Configured FastAPI instance origins=%s",
+        API_ALLOWED_ORIGINS if API_ALLOWED_ORIGINS else "*",
     )

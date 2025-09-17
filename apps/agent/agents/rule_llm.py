@@ -8,6 +8,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from contracts.common import CONDITION_OPS, DOM_EVENT_TYPES
 from helper.suggestion import parse_json_object
+from core.logging import get_agent_logger
+
+logger = get_agent_logger(__name__)
 
 
 @dataclass
@@ -32,9 +35,11 @@ def run_llm_generation(
         from langchain_core.tools import tool
         from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
     except Exception:
+        logger.warning("LangChain not available for rule generation site=%s", site_id)
         return None
 
     if not toolkit.api_key:
+        logger.warning("Missing OpenAI API key for rule generation site=%s", site_id)
         return None
 
     @tool("get_output_schema", return_direct=False)
@@ -88,6 +93,12 @@ def run_llm_generation(
         )
     )
 
+    logger.info(
+        "Running rule LLM generation site=%s model=%s",
+        site_id,
+        toolkit.model_name,
+    )
+
     messages: List[Any] = [sys, human]
     for _ in range(6):
         ai = llm.invoke(messages)
@@ -96,7 +107,16 @@ def run_llm_generation(
             data = parse_json_object(getattr(ai, "content", ""))
             triggers = data.get("triggers")
             if isinstance(triggers, list) and all(isinstance(item, dict) for item in triggers):
+                logger.info(
+                    "Rule LLM generation succeeded site=%s count=%s",
+                    site_id,
+                    len(triggers),
+                )
                 return triggers
+            logger.warning(
+                "Rule LLM generation returned unexpected payload site=%s",
+                site_id,
+            )
             return []
 
         messages.append(ai)
@@ -109,7 +129,7 @@ def run_llm_generation(
                     if isinstance(parsed_args, dict):
                         args = parsed_args
                 except Exception:
-                    pass
+                    logger.debug("Tool argument parse failed name=%s site=%s", name, site_id)
             try:
                 if name == "get_output_schema":
                     result = tool_get_output_schema.invoke(args)
@@ -120,6 +140,11 @@ def run_llm_generation(
                 else:
                     result = {"error": f"unknown tool {name}"}
             except Exception as exc:  # noqa: F841 - preserve behaviour
+                logger.exception(
+                    "Rule LLM tool call failed name=%s site=%s",
+                    name,
+                    site_id,
+                )
                 result = {"error": str(exc)}
             messages.append(
                 ToolMessage(
@@ -130,4 +155,5 @@ def run_llm_generation(
                 )
             )
 
+    logger.warning("Rule LLM generation exhausted attempts site=%s", site_id)
     return []

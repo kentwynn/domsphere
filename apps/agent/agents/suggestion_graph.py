@@ -11,10 +11,18 @@ from agents.suggestion_nodes import (
     planner_agent_node,
     template_agent_node,
 )
+from core.logging import get_agent_logger
+
+logger = get_agent_logger(__name__)
 
 
 def build_suggestion_graph(api_url: str, timeout: float) -> StateGraph:
     """Build a LangGraph multi-agent graph for the suggestion agent."""
+    logger.debug(
+        "Building suggestion graph api_url=%s timeout=%s",
+        api_url,
+        timeout,
+    )
 
     class State:
         def __init__(
@@ -42,17 +50,36 @@ def build_suggestion_graph(api_url: str, timeout: float) -> StateGraph:
 
     def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
         context = state["context"]
+        logger.debug(
+            "Suggestion graph planner node site=%s",
+            context.get("siteId"),
+        )
         planner_result = planner_agent_node(context, api_url, timeout)
         template_type = planner_result.get("template_type", "action")
+        logger.info(
+            "Suggestion graph planner chose template=%s site=%s",
+            template_type,
+            context.get("siteId"),
+        )
         return {**state, "template_type": template_type}
 
     def template_node(state: Dict[str, Any]) -> Dict[str, Any]:
         context = state["context"]
         template_type = state.get("template_type")
+        logger.debug(
+            "Suggestion graph template node running site=%s template_hint=%s",
+            context.get("siteId"),
+            template_type,
+        )
         node_result = template_agent_node(context, api_url, timeout)
         suggestion_data = node_result.get("suggestion_data")
         intermediate = node_result.get("intermediate", False)
         ttype = template_type or node_result.get("template_type")
+        logger.info(
+            "Suggestion graph template node produced data=%s intermediate=%s",
+            bool(suggestion_data),
+            intermediate,
+        )
         return {
             **state,
             "suggestion_data": suggestion_data,
@@ -63,7 +90,15 @@ def build_suggestion_graph(api_url: str, timeout: float) -> StateGraph:
     def choice_manager_node(state: Dict[str, Any]) -> Dict[str, Any]:
         context = state["context"]
         suggestion_data = state.get("suggestion_data")
+        logger.debug(
+            "Suggestion graph choice manager evaluating site=%s",
+            context.get("siteId"),
+        )
         result = choice_manager_agent_node(context, suggestion_data, api_url, timeout)
+        logger.info(
+            "Suggestion graph choice manager final=%s",
+            result.get("final", True),
+        )
         return {
             **state,
             "suggestion_data": result.get("suggestion_data"),
@@ -72,7 +107,15 @@ def build_suggestion_graph(api_url: str, timeout: float) -> StateGraph:
 
     def validator_node(state: Dict[str, Any]) -> Dict[str, Any]:
         suggestion_data = state.get("suggestion_data")
+        logger.debug(
+            "Suggestion graph validator consolidating suggestions present=%s",
+            bool(suggestion_data),
+        )
         suggestions = [suggestion_data] if suggestion_data else []
+        logger.info(
+            "Suggestion graph validator emitting %s suggestion(s)",
+            len(suggestions),
+        )
         return {**state, "suggestions": suggestions}
 
     graph = StateGraph()

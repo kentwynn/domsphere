@@ -13,6 +13,9 @@ from helper.suggestion import (
     parse_json_object,
 )
 from templates.suggestion import get_templates
+from core.logging import get_agent_logger
+
+logger = get_agent_logger(__name__)
 
 
 def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
@@ -32,16 +35,33 @@ def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
         )
     )
     human = HumanMessage(content=json.dumps(context))
+
+    logger.debug(
+        "Planner evaluating template type site=%s url=%s",
+        context.get("siteId"),
+        context.get("url"),
+    )
     ai = llm.invoke([sys, human])
 
     try:
         data = parse_json_object(ai.content)
         if isinstance(data, dict) and "template_type" in data:
+            logger.info(
+                "Planner selected template=%s site=%s",
+                data.get("template_type"),
+                context.get("siteId"),
+            )
             return data
     except Exception:
-        pass
+        logger.warning(
+            "Planner response parse failed site=%s",
+            context.get("siteId"),
+        )
 
+    logger.info("Planner defaulted to action template site=%s", context.get("siteId"))
     return {"template_type": "action"}
+
+
 def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     """Choose a template and fill in fields using available tools."""
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -117,6 +137,12 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     human = HumanMessage(content=json.dumps(context))
     messages: List[Any] = [sys, human]
 
+    logger.debug(
+        "Template agent invoked site=%s url=%s",
+        context.get("siteId"),
+        context.get("url"),
+    )
+
     for _ in range(4):
         ai = llm.invoke(messages)
         tool_calls = getattr(ai, "tool_calls", None) or []
@@ -125,9 +151,21 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
             try:
                 data = parse_json_object(ai.content)
                 if isinstance(data, dict) and "template_type" in data:
+                    logger.info(
+                        "Template agent produced template=%s site=%s",
+                        data.get("template_type"),
+                        context.get("siteId"),
+                    )
                     return data
             except Exception:
-                pass
+                logger.warning(
+                    "Template agent parse failed site=%s",
+                    context.get("siteId"),
+                )
+            logger.warning(
+                "Template agent returned empty response site=%s",
+                context.get("siteId"),
+            )
             return {}
 
         messages.append(ai)
@@ -140,7 +178,7 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
                     if isinstance(parsed, dict):
                         args = parsed
                 except Exception:
-                    pass
+                    logger.debug("Tool args parse failed name=%s", name)
             try:
                 if name == "get_sitemap":
                     result = tool_get_sitemap.invoke(args)
@@ -154,7 +192,12 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
                     result = {"error": f"unknown tool {name}"}
                 if hasattr(result, "model_dump"):
                     result = result.model_dump()
-            except Exception as exc:  # noqa: F841 - preserve original behaviour
+            except Exception as exc:
+                logger.exception(
+                    "Template agent tool call failed name=%s site=%s",
+                    name,
+                    context.get("siteId"),
+                )
                 result = {"error": str(exc)}
             messages.append(
                 ToolMessage(
@@ -165,6 +208,7 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
                 )
             )
 
+    logger.warning("Template agent exhausted attempts site=%s", context.get("siteId"))
     return {}
 
 
@@ -175,9 +219,24 @@ def choice_manager_agent_node(context: dict, suggestion: dict, api_url: str, tim
 
     user_choices = context.get("userChoices") or {}
     if not user_choices:
+        logger.debug(
+            "Choice manager awaiting user input site=%s",
+            context.get("siteId"),
+        )
         return {"final": False, "suggestion_data": suggestion}
 
     step = suggestion.get("meta", {}).get("step", 1)
     if step >= 2:
+        logger.info(
+            "Choice manager finalizing suggestion site=%s step=%s",
+            context.get("siteId"),
+            step,
+        )
         return {"final": True, "suggestion_data": suggestion}
+
+    logger.debug(
+        "Choice manager continuing flow site=%s step=%s",
+        context.get("siteId"),
+        step,
+    )
     return {"final": False, "suggestion_data": suggestion}

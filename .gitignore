@@ -58,3 +58,9 @@ out
 __pycache__/
 *.py[cod]
 *$py.class
+
+# --- Agent logs
+apps/agent/logs/
+
+# --- API logs
+apps/api/logs/

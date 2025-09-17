@@ -9,10 +9,14 @@ from contracts.client_api import (
     SiteAtlasResponse,
 )
 from contracts.common import DomAtlasSnapshot, DomAtlasElement
+from core.logging import get_api_logger
+
+logger = get_api_logger(__name__)
 
 
 AGENT_URL = os.getenv("AGENT_BASE_URL", "http://localhost:5001").rstrip("/")
 AGENT_TIMEOUT = float(os.getenv("AGENT_TIMEOUT", "300"))
+logger.info("API proxy configured agent_url=%s timeout=%s", AGENT_URL, AGENT_TIMEOUT)
 
 # ----------------------------------------------------------------------------
 # Mock: Rules DB used by /api/rule/check (flat eventType + when conditions)
@@ -396,6 +400,7 @@ def _rule_matches(rule: Dict[str, Any], payload: RuleCheckRequest) -> bool:
     allowed = rule.get("eventType")
     evt_type = getattr(payload.event, "type", None) or "unknown"
     if allowed and str(evt_type) not in set(map(str, allowed)):
+        logger.debug("Rule match skipped rule=%s event=%s (not allowed)", rule.get("id"), evt_type)
         return False
     scope = {
         "event": payload.event,
@@ -411,7 +416,16 @@ def _rule_matches(rule: Dict[str, Any], payload: RuleCheckRequest) -> bool:
         if isinstance(left, str) and left.isdigit():
             left = int(left)
         if _op_eval(left, op, val) is False:
+            logger.debug(
+                "Rule condition failed rule=%s field=%s op=%s left=%s right=%s",
+                rule.get("id"),
+                field,
+                op,
+                left,
+                val,
+            )
             return False
+    logger.debug("Rule matched rule=%s event=%s", rule.get("id"), evt_type)
     return True
 
 
@@ -441,6 +455,7 @@ def update_rule_fields(
     """
     site = RULES_DB.get(site_id)
     if not site:
+        logger.debug("update_rule_fields missing site=%s", site_id)
         return None
     updated: Optional[Dict[str, Any]] = None
     rich_rules = (site.get("rulesJson") or {}).get("rules") or []
@@ -462,6 +477,8 @@ def update_rule_fields(
             if fr.get("id") == rule_id:
                 fr["enabled"] = enabled
                 break
+    if updated:
+        logger.info("Updated rule fields site=%s rule=%s", site_id, rule_id)
     return updated
 
 
@@ -471,6 +488,7 @@ def list_rules(siteId: str) -> List[Dict[str, Any]]:
     rj = site.get("rulesJson") or {}
     rich = rj.get("rules") or []
     if rich:
+        logger.debug("list_rules returning rich rules site=%s count=%s", siteId, len(rich))
         return rich
     # fallback to flat rules; project minimal fields
     flat = site.get("rules") or []
@@ -483,6 +501,7 @@ def list_rules(siteId: str) -> List[Dict[str, Any]]:
             "ruleInstruction": r.get("ruleInstruction"),
             "outputInstruction": r.get("outputInstruction"),
         })
+    logger.debug("list_rules returning flat rules site=%s count=%s", siteId, len(out))
     return out
 
 
@@ -491,6 +510,7 @@ def _ensure_site(site_id: str) -> Dict[str, Any]:
     if not site:
         site = {"version": "ruleset-local", "rulesJson": {"ruleset": "local", "rules": []}}
         RULES_DB[site_id] = site
+        logger.info("Created new site container site=%s", site_id)
     if "rulesJson" not in site or not isinstance(site["rulesJson"], dict):
         site["rulesJson"] = {"rules": []}
     if "rules" not in site["rulesJson"] or not isinstance(site["rulesJson"]["rules"], list):
@@ -522,16 +542,24 @@ def create_rule(site_id: str, rule_instruction: str, output_instruction: Optiona
         "triggers": [],
     }
     site["rulesJson"]["rules"].append(rule)
+    logger.info("Created rule site=%s rule=%s", site_id, cand)
     return rule
 
 
 def update_rule_triggers(site_id: str, rule_id: str, triggers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     site = RULES_DB.get(site_id)
     if not site:
+        logger.debug("update_rule_triggers missing site=%s", site_id)
         return None
     rich_rules = (site.get("rulesJson") or {}).get("rules") or []
     for r in rich_rules:
         if r.get("id") == rule_id:
             r["triggers"] = triggers or []
+            logger.info(
+                "Updated triggers site=%s rule=%s count=%s",
+                site_id,
+                rule_id,
+                len(triggers),
+            )
             return r
     return None
