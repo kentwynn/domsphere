@@ -1,5 +1,6 @@
 """Agent implementations exposed by the agent service layer."""
 
+from .rule import RuleAgent
 from .suggestion import SuggestionAgent
 from .suggestion_graph import build_suggestion_graph
 from .suggestion_nodes import (
@@ -9,6 +10,7 @@ from .suggestion_nodes import (
 )
 
 __all__ = [
+    "RuleAgent",
     "SuggestionAgent",
     "build_suggestion_graph",
     "planner_agent_node",

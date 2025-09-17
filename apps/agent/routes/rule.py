@@ -2,7 +2,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Header, HTTPException
 from contracts.agent_api import AgentRuleRequest, AgentRuleResponse
 from contracts.common import RuleTrigger
-from services.rule_agent import RuleAgent
+from agents import RuleAgent
 
 router = APIRouter(prefix="/agent", tags=["rule"])
 
