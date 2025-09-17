@@ -11,8 +11,7 @@
     "composite": true
   },
   "include": [
-    "src/index.ts",
-    "src/gen/schema.ts"   // <-- must match the codegen output filename
+    "src/**/*.ts"
   ],
   "exclude": ["**/*.spec.ts", "**/*.test.ts"]
 }

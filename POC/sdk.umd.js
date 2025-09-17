@@ -318,10 +318,12 @@
             // Build primary + secondary actions with de-duplication.
             // Display the primaryCta as the main action; primaryActions is a hidden pipeline run by the SDK.
             const primary = s.primaryCta ? [s.primaryCta] : [];
-            const secondaryFromSchema = s.secondaryCtas;
+            const secondaryFromSchema = s.secondaryCta ? [s.secondaryCta] : [];
             const secondaryFromNew = s.secondaryActions;
             const secondaryFallback = (_b = s.actions) !== null && _b !== void 0 ? _b : [];
-            const secondary = (secondaryFromNew || secondaryFromSchema || secondaryFallback).slice(0, 5);
+            const secondary = (secondaryFromNew ||
+                secondaryFromSchema ||
+                secondaryFallback).slice(0, 5);
             const sig = (c) => {
                 var _a, _b, _c, _d;
                 const kind = (_a = c.kind) !== null && _a !== void 0 ? _a : '';
@@ -948,7 +950,7 @@
                             const p = s.primaryCta;
                             const primArr = s.primaryActions;
                             const second = (s.secondaryActions ||
-                                s.secondaryCtas ||
+                                (s.secondaryCta ? [s.secondaryCta] : []) ||
                                 s.actions ||
                                 []);
                             if (p && this.sigForCta(p) === targetSig)
@@ -1231,7 +1233,9 @@
                     }
                 });
                 // If we have newly triggered thresholds and path matches
-                if (newlyTriggeredThresholds.length > 0 && this.pathMatches('time_spent') && !this.inflight) {
+                if (newlyTriggeredThresholds.length > 0 &&
+                    this.pathMatches('time_spent') &&
+                    !this.inflight) {
                     // Mark these thresholds as triggered
                     newlyTriggeredThresholds.forEach(({ value }) => {
                         this.triggeredTimeThresholds.add(value);
