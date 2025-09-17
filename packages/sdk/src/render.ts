@@ -51,13 +51,25 @@ export function renderFinalSuggestions(
     const primary: CtaSpec[] = s.primaryCta ? [s.primaryCta as CtaSpec] : [];
 
     const secondaryFromSchema = s.secondaryCta ? [s.secondaryCta] : [];
-    const secondaryFromNew = s.secondaryActions;
+    const secondaryFromNew = s.secondaryActions ?? [];
     const secondaryFallback = s.actions ?? [];
-    const secondary: CtaSpec[] = (
-      secondaryFromNew ||
-      secondaryFromSchema ||
-      secondaryFallback
-    ).slice(0, 5);
+
+    const pickFirstPopulated = (
+      lists: CtaSpec[][]
+    ): CtaSpec[] => {
+      for (const list of lists) {
+        if (Array.isArray(list) && list.length) {
+          return list;
+        }
+      }
+      return [];
+    };
+
+    const secondary: CtaSpec[] = pickFirstPopulated([
+      secondaryFromNew,
+      secondaryFromSchema,
+      secondaryFallback,
+    ]).slice(0, 5);
     const sig = (c: CtaSpec): string => {
       const kind = c.kind ?? '';
       const label = c.label ?? '';

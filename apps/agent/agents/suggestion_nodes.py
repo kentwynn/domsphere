@@ -18,6 +18,14 @@ from core.logging import get_agent_logger
 logger = get_agent_logger(__name__)
 
 
+def _coerce_step(raw: Any) -> int:
+    try:
+        step = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return step if step > 0 else 1
+
+
 def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     """LLM-based planner that selects which template type to use."""
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -128,6 +136,10 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
             "- <fill-in-primaryActions>: array of DOM operations (only if primaryCta.kind is 'noop') "
             "- <fill-in-step>: 1 for first step, 2 for continuation steps "
             "- For choices: <fill-in-name> is the field name, <fill-in-value-1/2/3> are different option values "
+            "STATE RULES: "
+            "- meta.step MUST be a string (\"1\", \"2\", ...) and increase as the flow progresses. "
+            "- When context['userChoices'] is non-empty, treat them as confirmed selections and produce a final recommendation (type 'info' or 'action') unless absolutely necessary to ask again. "
+            "- If you do need another choice step, increment meta.step and explain clearly what additional input is required. "
             "Analyze the outputInstruction to determine if it needs multiple DOM operations (use multi-step) or single operation (use single-step) or user choices (use choice). "
             "Return valid JSON: {\"template_type\": \"<chosen_type>\", \"suggestion_data\": <filled_template>, \"intermediate\": false}. "
             "Ensure proper JSON formatting with no trailing commas or syntax errors."
@@ -214,8 +226,19 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
 
 def choice_manager_agent_node(context: dict, suggestion: dict, api_url: str, timeout: float) -> dict:
     """Manage multi-step flows for choice suggestions."""
+
+    if not isinstance(suggestion, dict):
+        return {"final": True, "suggestion_data": suggestion, "template_type": "choice"}
+
+    suggestion.setdefault("meta", {})
+    suggestion["meta"]["step"] = str(_coerce_step(suggestion["meta"].get("step", 1)))
+
     if suggestion.get("type") != "choice":
-        return {"final": True, "suggestion_data": suggestion}
+        return {
+            "final": True,
+            "suggestion_data": suggestion,
+            "template_type": suggestion.get("type"),
+        }
 
     user_choices = context.get("userChoices") or {}
     if not user_choices:
@@ -223,20 +246,89 @@ def choice_manager_agent_node(context: dict, suggestion: dict, api_url: str, tim
             "Choice manager awaiting user input site=%s",
             context.get("siteId"),
         )
-        return {"final": False, "suggestion_data": suggestion}
+        return {
+            "final": False,
+            "suggestion_data": suggestion,
+            "template_type": "choice",
+        }
 
-    step = suggestion.get("meta", {}).get("step", 1)
-    if step >= 2:
+    max_rounds = int(os.getenv("CHOICE_FLOW_MAX_ROUNDS", "3"))
+    current = suggestion
+    current_step = _coerce_step(current["meta"].get("step", 1))
+    history: List[Dict[str, Any]] = [current]
+
+    if current_step >= 2:
         logger.info(
-            "Choice manager finalizing suggestion site=%s step=%s",
+            "Choice manager finalizing existing step site=%s step=%s",
             context.get("siteId"),
-            step,
+            current_step,
         )
-        return {"final": True, "suggestion_data": suggestion}
+        return {
+            "final": True,
+            "suggestion_data": current,
+            "template_type": "choice",
+        }
 
-    logger.debug(
-        "Choice manager continuing flow site=%s step=%s",
-        context.get("siteId"),
-        step,
-    )
-    return {"final": False, "suggestion_data": suggestion}
+    for attempt in range(max_rounds):
+        logger.debug(
+            "Choice manager requesting follow-up suggestion site=%s attempt=%s",
+            context.get("siteId"),
+            attempt + 1,
+        )
+        attempt_context = dict(context)
+        attempt_context["choiceHistory"] = history[:]
+        attempt_context["previousSuggestion"] = current
+        next_result = template_agent_node(attempt_context, api_url, timeout)
+        next_type = next_result.get("template_type") or current.get("type", "choice")
+        next_data = next_result.get("suggestion_data")
+
+        if not isinstance(next_data, dict):
+            logger.warning(
+                "Choice manager received empty follow-up site=%s attempt=%s",
+                context.get("siteId"),
+                attempt + 1,
+            )
+            return {
+                "final": True,
+                "suggestion_data": current,
+                "template_type": next_type,
+                "exhausted": True,
+            }
+
+        next_data.setdefault("meta", {})
+        next_step = _coerce_step(next_data["meta"].get("step", current_step + 1))
+        if next_step <= current_step:
+            next_step = current_step + 1
+        next_data["meta"]["step"] = str(next_step)
+
+        history.append(next_data)
+        current = next_data
+        current_step = next_step
+
+        if next_type != "choice":
+            logger.info(
+                "Choice manager resolved flow site=%s final_type=%s step=%s",
+                context.get("siteId"),
+                next_type,
+                current_step,
+            )
+            return {
+                "final": True,
+                "suggestion_data": current,
+                "template_type": next_type,
+            }
+
+        if current_step >= 2 and not next_result.get("intermediate", False):
+            logger.debug(
+                "Choice manager stopping after reaching step=%s site=%s",
+                current_step,
+                context.get("siteId"),
+            )
+            break
+
+    return {
+        "final": True,
+        "suggestion_data": current,
+        "template_type": current.get("type", "choice"),
+        "exhausted": True,
+    }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -13,8 +14,10 @@ from contracts.suggestion import Suggestion
 from helper.suggestion import normalize_url
 from agents.suggestion_nodes import (
     choice_manager_agent_node,
+    planner_agent_node,
     template_agent_node,
 )
+from templates.suggestion import get_templates
 from core.logging import get_agent_logger
 
 logger = get_agent_logger(__name__)
@@ -73,8 +76,17 @@ class SuggestionAgent:
             "Generating suggestions site=%s rule=%s", request.siteId, request.ruleId
         )
         context = self._build_context(request)
+        planner_result = planner_agent_node(context, self.api_url, self.http_timeout)
+        planner_template = planner_result.get("template_type") or "info"
+        logger.info(
+            "Planner selected template=%s site=%s rule=%s",
+            planner_template,
+            request.siteId,
+            request.ruleId,
+        )
+
         node_result = template_agent_node(context, self.api_url, self.http_timeout)
-        template_type = node_result.get("template_type")
+        template_type = node_result.get("template_type") or planner_template
         suggestion_data = node_result.get("suggestion_data")
         if not suggestion_data:
             logger.warning(
@@ -83,9 +95,13 @@ class SuggestionAgent:
                 request.ruleId,
                 template_type,
             )
-            return []
-
-        suggestion_data = self._normalize_suggestion(suggestion_data)
+            fallback = self._fallback_info_suggestion(request, context)
+            logger.info(
+                "Returning fallback info suggestion site=%s rule=%s",
+                request.siteId,
+                request.ruleId,
+            )
+            return [fallback]
 
         if template_type == "choice":
             logger.debug(
@@ -94,15 +110,54 @@ class SuggestionAgent:
             choice_result = choice_manager_agent_node(
                 context, suggestion_data, self.api_url, self.http_timeout
             )
-            final_choice = choice_result.get("suggestion_data")
+            final_raw = choice_result.get("suggestion_data")
+            final_template_type = choice_result.get("template_type") or template_type
+            is_final = choice_result.get("final", True)
+            final_choice = (
+                self._normalize_suggestion(final_raw)
+                if isinstance(final_raw, dict)
+                else None
+            )
             logger.info(
-                "Choice suggestion processed site=%s rule=%s final=%s",
+                "Choice suggestion processed site=%s rule=%s final=%s template=%s",
                 request.siteId,
                 request.ruleId,
-                choice_result.get("final", True),
+                is_final,
+                final_template_type,
             )
-            return [final_choice]
 
+            if not final_choice:
+                ack = self._choice_acknowledgement(request, context)
+                logger.info(
+                    "Choice fallback generated (empty follow-up) site=%s rule=%s",
+                    request.siteId,
+                    request.ruleId,
+                )
+                return [ack]
+
+            if (
+                final_template_type == "choice"
+                and context.get("userChoices")
+                and choice_result.get("exhausted")
+            ):
+                ack = self._choice_acknowledgement(request, context)
+                logger.info(
+                    "Choice acknowledgement fallback site=%s rule=%s",
+                    request.siteId,
+                    request.ruleId,
+                )
+                return [ack]
+
+            if (
+                final_template_type == "choice"
+                and context.get("userChoices")
+                and self._extract_step(final_choice) <= 1
+            ):
+                final_choice.setdefault("meta", {})["step"] = "2"
+
+            return [final_choice] if final_choice else []
+
+        suggestion_data = self._normalize_suggestion(suggestion_data)
         logger.info(
             "Generated suggestion site=%s rule=%s template=%s",
             request.siteId,
@@ -110,6 +165,78 @@ class SuggestionAgent:
             template_type or "unknown",
         )
         return [suggestion_data]
+
+    def _fallback_info_suggestion(
+        self,
+        request: AgentSuggestNextRequest,
+        context: Dict[str, Any],
+        *,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        source: str = "fallback",
+        step: int | str = 1,
+        suggestion_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        templates = get_templates()
+        info_template = deepcopy(templates.get("info", {}))
+        if not info_template:
+            info_template = {
+                "type": "info",
+                "id": "fallback-info",
+                "title": "Suggestion Unavailable",
+                "description": "We couldn't generate a suggestion right now.",
+                "meta": {},
+            }
+
+        instruction = context.get("outputInstruction") or "Suggestion Unavailable"
+        info_template["id"] = suggestion_id or f"fallback-info-{request.ruleId}"
+        info_template["title"] = title or instruction[:120] or "Suggestion Unavailable"
+        info_template["description"] = description or instruction
+
+        meta = info_template.get("meta") or {}
+        meta["source"] = source
+        meta["step"] = str(step)
+        info_template["meta"] = meta
+
+        return info_template
+
+    def _choice_acknowledgement(
+        self, request: AgentSuggestNextRequest, context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        user_choices = context.get("userChoices") or {}
+        summary = ", ".join(
+            f"{key} = {value}" for key, value in user_choices.items()
+        )
+        if not summary:
+            summary = "your selection"
+
+        instruction = context.get("outputInstruction") or "Selection received"
+        description = (
+            f"We'll tailor the next steps using {summary}."
+        )
+
+        info = self._fallback_info_suggestion(
+            request,
+            context,
+            title=instruction[:120] or "Selection received",
+            description=description,
+            source="choice_ack",
+            step=2,
+            suggestion_id=f"choice-ack-{request.ruleId}",
+        )
+        # Remove any template placeholders that might remain
+        info.setdefault("type", "info")
+        return info
+
+    def _extract_step(self, suggestion: Optional[Dict[str, Any]]) -> int:
+        if not isinstance(suggestion, dict):
+            return 1
+        meta = suggestion.get("meta") or {}
+        raw_step = meta.get("step", 1)
+        try:
+            return int(raw_step)
+        except (TypeError, ValueError):
+            return 1
 
     def _parse_suggestions(self, suggestions_data: List[dict], context: dict) -> List[Suggestion]:
         return suggestions_data

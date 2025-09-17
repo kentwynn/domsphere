@@ -296,7 +296,7 @@
         }
         const frag = document.createDocumentFragment();
         suggestions.forEach((s0) => {
-            var _a, _b;
+            var _a, _b, _c;
             const s = s0;
             const card = document.createElement('div');
             card.setAttribute('data-testid', 'assistant-card');
@@ -319,11 +319,21 @@
             // Display the primaryCta as the main action; primaryActions is a hidden pipeline run by the SDK.
             const primary = s.primaryCta ? [s.primaryCta] : [];
             const secondaryFromSchema = s.secondaryCta ? [s.secondaryCta] : [];
-            const secondaryFromNew = s.secondaryActions;
-            const secondaryFallback = (_b = s.actions) !== null && _b !== void 0 ? _b : [];
-            const secondary = (secondaryFromNew ||
-                secondaryFromSchema ||
-                secondaryFallback).slice(0, 5);
+            const secondaryFromNew = (_b = s.secondaryActions) !== null && _b !== void 0 ? _b : [];
+            const secondaryFallback = (_c = s.actions) !== null && _c !== void 0 ? _c : [];
+            const pickFirstPopulated = (lists) => {
+                for (const list of lists) {
+                    if (Array.isArray(list) && list.length) {
+                        return list;
+                    }
+                }
+                return [];
+            };
+            const secondary = pickFirstPopulated([
+                secondaryFromNew,
+                secondaryFromSchema,
+                secondaryFallback,
+            ]).slice(0, 5);
             const sig = (c) => {
                 var _a, _b, _c, _d;
                 const kind = (_a = c.kind) !== null && _a !== void 0 ? _a : '';
