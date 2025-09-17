@@ -97,10 +97,9 @@ class Suggestion(BaseModel):
 
     # CTAs
     primaryCta: Optional[CtaSpec] = None
-    # New schema: arrays for pipelines/collections
     primaryActions: Optional[List[CtaSpec]] = None
+    secondaryCta: Optional[CtaSpec] = None
     secondaryActions: Optional[List[CtaSpec]] = None
-    secondaryCtas: Optional[List[CtaSpec]] = None
     links: Optional[List[CtaSpec]] = None
     actions: Optional[List[CtaSpec]] = None
 

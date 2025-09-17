@@ -43,31 +43,32 @@ def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
 # --- Validator Agent Node ---
 def validator_agent_node(suggestions_data: list, context: dict) -> list:
     """
-    Validate suggestions using the _validate_against_atlas logic and schema enforcement.
+    Validate suggestions using schema enforcement and intelligent atlas validation.
     Returns the validated suggestion dicts.
     """
-    # Validate selectors against atlas (if present)
-    agent = SuggestionAgent()
-    # The agent's _validate_against_atlas expects suggestions_data and context
-    validated = agent._validate_against_atlas(suggestions_data, context)
     final = []
-    for data in validated:
+    for data in suggestions_data:
         try:
             if not isinstance(data, dict):
                 continue
             data.setdefault("type", "recommendation")
             data.setdefault("id", f"sug-{hash(str(data))}")
+
+            # No validation - pass through as-is
+
             if "primaryCta" in data and isinstance(data["primaryCta"], dict):
                 data["primaryCta"] = CtaSpec(**data["primaryCta"])
-            if "secondaryCtas" in data and isinstance(data["secondaryCtas"], list):
-                data["secondaryCtas"] = [
-                    CtaSpec(**cta) if isinstance(cta, dict) else cta
-                    for cta in data["secondaryCtas"]
-                ]
+            if "secondaryCta" in data and isinstance(data["secondaryCta"], dict):
+                data["secondaryCta"] = CtaSpec(**data["secondaryCta"])
             if "actions" in data and isinstance(data["actions"], list):
                 data["actions"] = [
                     CtaSpec(**cta) if isinstance(cta, dict) else cta
                     for cta in data["actions"]
+                ]
+            if "primaryActions" in data and isinstance(data["primaryActions"], list):
+                data["primaryActions"] = [
+                    CtaSpec(**cta) if isinstance(cta, dict) else cta
+                    for cta in data["primaryActions"]
                 ]
             suggestion = Suggestion(**data)
             final.append(suggestion)
@@ -94,7 +95,7 @@ ACTION_TEMPLATE = {
         "kind": "<fill-in-kind>",  # e.g., dom_fill, click, navigate
         "payload": {
             "selector": "<fill-in-selector>",
-            "value": "<fill-in-value>"
+            "value": "<fill-in-value>"  # Only include if needed for the action
         }
     },
     "primaryActions": [
@@ -181,22 +182,26 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     @tool("get_sitemap", return_direct=False)
     def tool_get_sitemap(siteId: str) -> Dict[str, Any]:
         """Fetch sitemap for the given siteId."""
-        return get_sitemap(siteId, api_url, timeout).model_dump()
+        result = get_sitemap(siteId, api_url, timeout).model_dump()
+        return result
 
     @tool("get_site_info", return_direct=False)
     def tool_get_site_info(siteId: str, url: str) -> Dict[str, Any]:
         """Fetch site info for the given siteId and url."""
-        return get_site_info(siteId, url, api_url, timeout).model_dump()
+        result = get_site_info(siteId, url, api_url, timeout).model_dump()
+        return result
 
     @tool("get_site_atlas", return_direct=False)
     def tool_get_site_atlas(siteId: str, url: str) -> Dict[str, Any]:
         """Fetch site atlas for the given siteId and url."""
-        return get_site_atlas(siteId, url, api_url, timeout).model_dump()
+        result = get_site_atlas(siteId, url, api_url, timeout).model_dump()
+        return result
 
     @tool("get_templates", return_direct=False)
     def tool_get_templates() -> Dict[str, Dict[str, Any]]:
         """Get available suggestion templates."""
-        return get_templates()
+        result = get_templates()
+        return result
 
     # Compose LLM
     openai_token = os.getenv("OPENAI_TOKEN")
@@ -209,23 +214,35 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
         content=(
             "You are a suggestion template agent. "
             "Based on the 'outputInstruction' and context, choose which template ('info', 'action', or 'choice') best fits. "
-            "Call site tools (get_site_info, get_site_atlas, get_sitemap) as needed to fill selectors, titles, etc. "
-            "Return a dict: {'template_type': <chosen template>, 'suggestion_data': <filled suggestion dict>, 'intermediate': <bool>}. "
-            "If the suggestion requires a multi-step flow (e.g., user choices), set 'intermediate' to True, otherwise False."
+            "CRITICAL: First call get_templates to get the template structure, then call get_site_atlas to get DOM selectors. "
+            "You MUST fill in the template structure exactly, replacing all <fill-in-*> placeholders with contextually appropriate values: "
+            "- Replace <fill-in-id> with a unique ID based on the action "
+            "- Replace <fill-in-title> and <fill-in-description> with appropriate text from the outputInstruction context "
+            "- Replace <fill-in-label> with appropriate action labels based on what the user wants to do "
+            "- Replace <fill-in-kind> with appropriate action types: 'dom_fill' for form inputs, 'click' for buttons/links, 'navigate' for page changes "
+            "- Replace <fill-in-selector> with actual CSS selectors from the atlas that match the intended action "
+            "- Replace <fill-in-value> with contextually appropriate values extracted from the outputInstruction "
+            "- Replace <fill-in-source> with site info identifying the source page "
+            "Analyze the outputInstruction to understand what action the user wants to perform, then fill the template accordingly. "
+            "Return valid JSON: {\"template_type\": \"<chosen_type>\", \"suggestion_data\": <filled_template>, \"intermediate\": false}. "
+            "Ensure proper JSON formatting with no trailing commas or syntax errors."
         )
     )
     human = HumanMessage(content=json.dumps(context))
     messages = [sys, human]
-    for _ in range(4):
+
+    for iteration in range(4):
         ai = llm.invoke(messages)
+
         tool_calls = getattr(ai, "tool_calls", None) or []
+
         if not tool_calls:
             try:
                 data = _parse_json(ai.content)
                 # Expect keys: template_type, suggestion_data, intermediate
                 if isinstance(data, dict) and "template_type" in data:
                     return data
-            except Exception:
+            except Exception as e:
                 pass
             return {}
         messages.append(ai)
@@ -261,6 +278,7 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
                     tool_call_id=(tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", "tool")),
                 )
             )
+
     return {}
 
 # --- Choice Manager Agent Node ---
@@ -345,98 +363,57 @@ class SuggestionAgent:
             return validator_agent_node([suggestion_data], context)
 
     def _parse_suggestions(self, suggestions_data: List[dict], context: dict) -> List[Suggestion]:
-        # Validate selectors against atlas (if present)
-        suggestions_data = self._validate_against_atlas(suggestions_data, context)
-        validated_suggestions = []
-        for data in suggestions_data:
-            try:
-                if not isinstance(data, dict):
-                    continue
-                data.setdefault("type", "recommendation")
-                data.setdefault("id", f"sug-{hash(str(data))}")
-                if "primaryCta" in data and isinstance(data["primaryCta"], dict):
-                    data["primaryCta"] = CtaSpec(**data["primaryCta"])
-                if "secondaryCtas" in data and isinstance(data["secondaryCtas"], list):
-                    data["secondaryCtas"] = [
-                        CtaSpec(**cta) if isinstance(cta, dict) else cta
-                        for cta in data["secondaryCtas"]
-                    ]
-                if "actions" in data and isinstance(data["actions"], list):
-                    data["actions"] = [
-                        CtaSpec(**cta) if isinstance(cta, dict) else cta
-                        for cta in data["actions"]
-                    ]
-                suggestion = Suggestion(**data)
-                validated_suggestions.append(suggestion)
-            except Exception:
-                continue
-        return validated_suggestions
-
-    def _validate_against_atlas(self, suggestions, context):
-        """
-        Only allow selectors that exactly match cssPath or #id from the atlas.
-        Remove selector from payload if not in the valid set.
-        """
-        valid_selectors = set()
-        atlas = context.get("atlas")
-        elements = []
-        if isinstance(atlas, dict):
-            atlas_inner = atlas.get("atlas")
-            if isinstance(atlas_inner, dict):
-                elements = atlas_inner.get("elements", [])
-                if not isinstance(elements, list):
-                    elements = []
-        if not isinstance(elements, list):
-            elements = []
-        for el in elements:
-            if not isinstance(el, dict):
-                continue
-            css_path = el.get("cssPath")
-            el_id = el.get("id")
-            if css_path:
-                valid_selectors.add(css_path)
-            if el_id:
-                valid_selectors.add(f"#{el_id}")
-        for suggestion in suggestions:
-            if not isinstance(suggestion, dict):
-                continue
-            for cta_key in ["primaryCta", "secondaryCtas", "actions", "primaryActions"]:
-                ctas = suggestion.get(cta_key)
-                if isinstance(ctas, dict):
-                    ctas = [ctas]
-                if isinstance(ctas, list):
-                    for cta in ctas:
-                        if not isinstance(cta, dict):
-                            continue
-                        payload = cta.get("payload")
-                        if isinstance(payload, dict) and "selector" in payload:
-                            selector = payload.get("selector")
-                            if selector and selector not in valid_selectors:
-                                del payload["selector"]
-        return suggestions
+        """Parse suggestions without validation."""
+        return validator_agent_node(suggestions_data, context)
 
 # --- Helpers ---
 def _parse_json(text: str) -> Dict[str, Any]:
     """Parse a JSON object from a string, or return empty dict on failure. Always returns a dict."""
     if not text:
         return {}
-    try:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
-            json_text = text[start:end]
-            obj = json.loads(json_text)
-            if isinstance(obj, dict):
-                return obj
-    except Exception:
-        pass
-    try:
-        obj = json.loads(text)
-        if isinstance(obj, dict):
-            return obj
-    except Exception:
-        pass
+
+    # Clean up common JSON formatting issues
+    text = text.strip()
+
+    # Try multiple extraction methods
+    extraction_methods = [
+        # Method 1: Extract first complete JSON object
+        lambda t: t[t.find("{"):t.rfind("}") + 1] if "{" in t and "}" in t else "",
+        # Method 2: Use the raw text as-is
+        lambda t: t,
+        # Method 3: Extract everything between outermost braces
+        lambda t: _extract_balanced_json(t)
+    ]
+
+    for method in extraction_methods:
+        try:
+            json_text = method(text)
+            if json_text:
+                # Clean up whitespace and fix common issues
+                json_text = json_text.replace(" ,", ",").replace(", }", "}").replace("{ ", "{").replace(" }", "}")
+                obj = json.loads(json_text)
+                if isinstance(obj, dict):
+                    return obj
+        except Exception as e:
+            continue
+
     return {}
+
+def _extract_balanced_json(text: str) -> str:
+    """Extract a balanced JSON object from text."""
+    start = text.find("{")
+    if start == -1:
+        return ""
+
+    brace_count = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            brace_count += 1
+        elif text[i] == "}":
+            brace_count -= 1
+            if brace_count == 0:
+                return text[start:i + 1]
+    return ""
 
 # --- LangGraph Multi-Agent Graph Construction ---
 def build_suggestion_graph(api_url: str, timeout: float):

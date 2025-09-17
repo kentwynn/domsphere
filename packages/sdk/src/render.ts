@@ -3,7 +3,7 @@ import type { CtaSpec, Suggestion } from './types';
 type SuggestionExt = Suggestion & {
   primaryActions?: CtaSpec[];
   secondaryActions?: CtaSpec[];
-  secondaryCtas?: CtaSpec[];
+  secondaryCta?: CtaSpec;
   actions?: CtaSpec[];
 };
 
@@ -50,10 +50,14 @@ export function renderFinalSuggestions(
     // Display the primaryCta as the main action; primaryActions is a hidden pipeline run by the SDK.
     const primary: CtaSpec[] = s.primaryCta ? [s.primaryCta as CtaSpec] : [];
 
-    const secondaryFromSchema = s.secondaryCtas;
+    const secondaryFromSchema = s.secondaryCta ? [s.secondaryCta] : [];
     const secondaryFromNew = s.secondaryActions;
     const secondaryFallback = s.actions ?? [];
-    const secondary: CtaSpec[] = (secondaryFromNew || secondaryFromSchema || secondaryFallback).slice(0, 5);
+    const secondary: CtaSpec[] = (
+      secondaryFromNew ||
+      secondaryFromSchema ||
+      secondaryFallback
+    ).slice(0, 5);
     const sig = (c: CtaSpec): string => {
       const kind = c.kind ?? '';
       const label = c.label ?? '';

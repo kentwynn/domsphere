@@ -523,7 +523,7 @@ export class AutoAssistant {
       type SuggestionExt = Suggestion & {
         primaryActions?: CtaSpec[];
         secondaryActions?: CtaSpec[];
-        secondaryCtas?: CtaSpec[];
+        secondaryCta?: CtaSpec;
         actions?: CtaSpec[];
       };
       const getParentSuggestion = (): SuggestionExt | null => {
@@ -534,7 +534,7 @@ export class AutoAssistant {
           const p = s.primaryCta as CtaSpec | undefined;
           const primArr = s.primaryActions as CtaSpec[] | undefined;
           const second = (s.secondaryActions ||
-            s.secondaryCtas ||
+            (s.secondaryCta ? [s.secondaryCta] : []) ||
             s.actions ||
             []) as CtaSpec[];
           if (p && this.sigForCta(p) === targetSig) return s;
