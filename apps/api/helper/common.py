@@ -420,7 +420,6 @@ def store_site_embedding(
         "text": text,
         "meta": meta or {},
     }
-    logger.info(site_store[url])
 
 
 def get_site_embeddings(site_id: str) -> Dict[str, Dict[str, Any]]:
