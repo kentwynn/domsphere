@@ -60,7 +60,7 @@ class RuleAgent:
     # LLM integration
     # ------------------------------------------------------------------
     def _create_toolkit(self) -> RuleLLMToolkit:
-        model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")
+        model_name = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
         return RuleLLMToolkit(
             get_output_schema=self.tool_get_output_schema,
             plan_sitemap_query=self.tool_plan_sitemap_query,

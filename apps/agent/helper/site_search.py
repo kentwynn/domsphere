@@ -37,7 +37,7 @@ def generate_sitemap_query(
         logger.exception("Sitemap query planner cannot import LangChain dependencies")
         return ""
 
-    model_name = model or os.getenv("OPENAI_MODEL", "gpt-5-nano")
+    model_name = model or os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
     llm = ChatOpenAI(api_key=api_key, model=model_name, temperature=0)
     messages = [
