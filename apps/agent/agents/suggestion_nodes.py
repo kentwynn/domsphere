@@ -104,12 +104,9 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
             "site_id": context.get("siteId"),
         }
 
-        # Keep rule instruction only for logging/debugging context, not primary signal.
-        rule_text = ruleInstruction or context.get("ruleInstruction")
-        if isinstance(rule_text, str) and rule_text.strip():
-            payload["rule_context"] = rule_text
-
         condensed_payload = {k: v for k, v in payload.items() if isinstance(v, str) and v.strip()}
+        if not condensed_payload and isinstance(path_hint, str) and path_hint.strip():
+            condensed_payload = {"page_hint": path_hint, "site_id": context.get("siteId")}
 
         return generate_sitemap_query(
             json.dumps(condensed_payload) if condensed_payload else "",
