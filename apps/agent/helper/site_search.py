@@ -43,13 +43,14 @@ def generate_sitemap_query(
     messages = [
         SystemMessage(
             content=(
-                "You extract the most relevant sitemap keywords for the instruction provided. "
+                "You receive a JSON object describing a task along with optional page hints. "
                 "Return exactly one lowercase string containing 1-3 short keywords separated by single spaces. "
-                "Only include concrete page or feature names (e.g. 'cart', 'checkout cart', 'checkout confirmation'). "
-                "Do not include filler words, numbers, or explanations. Respond with keywords only."
+                "If 'page_hint' is present, derive the keywords primarily from that path or URL segment "
+                "(e.g. '/cart' → 'cart'). If the hint is missing, use the instructions to infer the most relevant page. "
+                "Do not include filler words, numbers, or explanations—keywords only."
             )
         ),
-        HumanMessage(content=json.dumps({"instruction": text})),
+        HumanMessage(content=json.dumps({"context": text})),
     ]
 
     try:

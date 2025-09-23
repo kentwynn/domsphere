@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from helper.suggestion import (
     get_site_atlas,
@@ -77,14 +78,41 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     from langchain_openai import ChatOpenAI
 
     @tool("plan_sitemap_query", return_direct=False)
-    def tool_plan_sitemap_query(
+    def tool_plan_sitemap_query(  # type: ignore[override]
         instruction: Optional[str] = None,
         outputInstruction: Optional[str] = None,
         ruleInstruction: Optional[str] = None,
-    ) -> str:  # type: ignore[override]
-        """Generate a focused sitemap search query from the output instruction."""
+    ) -> str:
+        """Generate a focused sitemap search query driven by the suggestion's output instruction."""
+        path_hint = None
+        url_hint = context.get("url") or context.get("pageUrl")
+        if isinstance(url_hint, str) and url_hint:
+            parsed = urlparse(url_hint)
+            path_hint = parsed.path or url_hint
+        else:
+            telemetry = context.get("telemetry") if isinstance(context, dict) else None
+            attrs = telemetry.get("attributes") if isinstance(telemetry, dict) else None
+            path_hint = attrs.get("path") if isinstance(attrs, dict) else None
+
+        payload: Dict[str, Optional[str]] = {
+            "output_instruction": (
+                outputInstruction
+                or context.get("outputInstruction")
+                or instruction
+            ),
+            "page_hint": path_hint,
+            "site_id": context.get("siteId"),
+        }
+
+        # Keep rule instruction only for logging/debugging context, not primary signal.
+        rule_text = ruleInstruction or context.get("ruleInstruction")
+        if isinstance(rule_text, str) and rule_text.strip():
+            payload["rule_context"] = rule_text
+
+        condensed_payload = {k: v for k, v in payload.items() if isinstance(v, str) and v.strip()}
+
         return generate_sitemap_query(
-            instruction or outputInstruction or ruleInstruction or "",
+            json.dumps(condensed_payload) if condensed_payload else "",
             api_key=os.getenv("OPENAI_TOKEN"),
             model=os.getenv("OPENAI_MODEL"),
         )
@@ -92,7 +120,35 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     @tool("search_sitemap", return_direct=False)
     def tool_search_sitemap(siteId: str, query: str) -> Dict[str, Any]:  # type: ignore[override]
         """Search the sitemap for pages relevant to the provided query."""
-        return {"results": search_sitemap(siteId, query, api_url, timeout)}
+        results = search_sitemap(siteId, query, api_url, timeout)
+        pages = [
+            {
+                "url": item.get("url"),
+                "meta": item.get("meta") or {},
+                "score": item.get("score"),
+            }
+            for item in results
+            if isinstance(item, dict)
+        ]
+        top_url = pages[0]["url"] if pages and isinstance(pages[0].get("url"), str) else None
+        top_info = None
+        top_atlas = None
+        if top_url:
+            try:
+                top_info = get_site_info(siteId, top_url, api_url, timeout).model_dump()
+            except Exception:
+                logger.debug("search_sitemap top_url info fetch failed site=%s", siteId)
+            try:
+                top_atlas = get_site_atlas(siteId, top_url, api_url, timeout).model_dump()
+            except Exception:
+                logger.debug("search_sitemap top_url atlas fetch failed site=%s", siteId)
+        return {
+            "results": results,
+            "pages": pages,
+            "top_url": top_url,
+            "top_site_info": top_info,
+            "top_site_atlas": top_atlas,
+        }
 
     @tool("get_site_info", return_direct=False)
     def tool_get_site_info(siteId: str, url: str) -> Dict[str, Any]:
@@ -127,8 +183,10 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
             "You are a suggestion template agent. "
             "Based on the 'outputInstruction' and context, choose which template ('info', 'action', or 'choice') best fits. "
             "CRITICAL: Start by calling plan_sitemap_query to extract concise keywords, then use search_sitemap "
-            "to locate relevant pages. Next, call get_templates to load template structures and get_site_atlas "
-            "for DOM selectors before filling in the template. "
+            "to locate relevant pages (inspect the returned 'pages', 'top_url', 'top_site_info', and 'top_site_atlas'). "
+            "The tool already fetches the top page's info/atlas for you—use them directly or fetch additional data if required. "
+            "If you need a different page, call search_sitemap again with a refined query. Next, call get_templates to load template structures "
+            "and use the atlas data to fill selectors before returning the final template. "
             "You MUST fill in the template structure exactly, replacing all <fill-in-*> placeholders with contextually appropriate values. "
             "For ACTION templates, follow these patterns: "
             "MULTI-STEP PATTERN (when multiple DOM operations needed): "
