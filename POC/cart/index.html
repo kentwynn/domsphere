@@ -11,12 +11,38 @@
       body {
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         margin: 2rem;
+        background: var(--surface-background);
+        color: var(--text-color);
+        transition: background 200ms ease, color 200ms ease;
+        --primary-color: #2563eb;
+        --surface-background: #f8fafc;
+        --surface-elevated: #ffffff;
+        --text-color: #0f172a;
+        --muted-text: #475569;
+        --border-color: rgba(15, 23, 42, 0.12);
+        --control-bg: #ffffff;
+        --control-border: rgba(148, 163, 184, 0.65);
+        --control-text: #0f172a;
+        --accent-color: var(--primary-color);
+      }
+      body[data-theme='dark'] {
+        color-scheme: dark;
+        --primary-color: #60a5fa;
+        --surface-background: #0f172a;
+        --surface-elevated: rgba(15, 23, 42, 0.92);
+        --text-color: #e2e8f0;
+        --muted-text: #94a3b8;
+        --border-color: rgba(148, 163, 184, 0.4);
+        --control-bg: rgba(30, 41, 59, 0.75);
+        --control-border: rgba(148, 163, 184, 0.45);
+        --control-text: #e2e8f0;
+        --accent-color: var(--primary-color);
       }
       h1 {
         margin-top: 0;
       }
       a {
-        color: #2563eb;
+        color: var(--primary-color);
       }
       .row {
         margin-top: 12px;
@@ -24,15 +50,67 @@
         gap: 8px;
         align-items: center;
       }
+      .demo-card {
+        background: var(--surface-elevated);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 1.25rem;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+        transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+      }
+      body[data-theme='dark'] .demo-card {
+        box-shadow: 0 16px 32px rgba(0, 0, 0, 0.3);
+      }
       input,
       button {
         padding: 8px 10px;
         border-radius: 8px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--control-border);
+        background: var(--control-bg);
+        color: var(--control-text);
+        transition: background 150ms ease, color 150ms ease, border-color 150ms ease,
+          box-shadow 150ms ease;
+      }
+      button {
+        cursor: pointer;
+        font-weight: 500;
+      }
+      button.primary {
+        background: var(--primary-color);
+        color: #ffffff;
+        border-color: var(--primary-color);
+      }
+      button:hover,
+      button:focus-visible {
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+      }
+      button.primary:hover,
+      button.primary:focus-visible {
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+      }
+      body[data-theme='dark'] button:hover,
+      body[data-theme='dark'] button:focus-visible {
+        box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
+      }
+      .theme-toggle {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 1rem;
+      }
+      #assistant-panel {
+        margin-top: 2rem;
+        display: grid;
+        gap: 1rem;
+      }
+      #promo-msg {
+        color: var(--primary-color);
       }
     </style>
   </head>
   <body>
+    <div class="theme-toggle">
+      <button id="theme-toggle" type="button">Switch to dark mode</button>
+    </div>
     <h1>Your Cart</h1>
     <nav style="margin-bottom: 12px; display: flex; gap: 10px">
       <a href="../">Home</a>
@@ -40,7 +118,7 @@
       <a href="./">Cart</a>
       <a href="../checkout/">Checkout</a>
     </nav>
-    <section>
+    <section class="demo-card">
       <div>
         Items:
         <input
@@ -65,11 +143,74 @@
         style="margin-top: 6px; font-size: 14px; color: #065f46; display: none"
       ></div>
       <div class="row">
-        <button id="checkout">Checkout</button>
+        <button id="checkout" class="primary">Checkout</button>
       </div>
     </section>
     <div id="assistant-panel"></div>
     <script src="../sdk.umd.min.js"></script>
+    <script>
+      (() => {
+        const key = 'demoThemePreference';
+        const prefersDark = window.matchMedia(
+          '(prefers-color-scheme: dark)'
+        );
+
+        const applyTheme = (mode) => {
+          const theme = mode === 'dark' ? 'dark' : 'light';
+          document.body.setAttribute('data-theme', theme);
+          const toggle = document.getElementById('theme-toggle');
+          if (toggle instanceof HTMLButtonElement) {
+            toggle.textContent =
+              theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+          }
+        };
+
+        const loadInitialTheme = () => {
+          try {
+            const stored = localStorage.getItem(key);
+            if (stored === 'light' || stored === 'dark') {
+              return stored;
+            }
+          } catch {}
+          return prefersDark.matches ? 'dark' : 'light';
+        };
+
+        const currentTheme = loadInitialTheme();
+        applyTheme(currentTheme);
+        document.addEventListener('DOMContentLoaded', () => {
+
+          const toggle = document.getElementById('theme-toggle');
+          if (toggle instanceof HTMLButtonElement) {
+            toggle.addEventListener('click', () => {
+              const next =
+                document.body.getAttribute('data-theme') === 'dark'
+                  ? 'light'
+                  : 'dark';
+              applyTheme(next);
+              try {
+                localStorage.setItem(key, next);
+              } catch {}
+            });
+          }
+
+          const listenForPreference = (listener) => {
+            if (typeof prefersDark.addEventListener === 'function') {
+              prefersDark.addEventListener('change', listener);
+            } else if (typeof prefersDark.addListener === 'function') {
+              prefersDark.addListener(listener);
+            }
+          };
+
+          listenForPreference((evt) => {
+            const stored = localStorage.getItem(key);
+            if (stored === 'light' || stored === 'dark') {
+              return;
+            }
+            applyTheme(evt.matches ? 'dark' : 'light');
+          });
+        });
+      })();
+    </script>
     <script>
       // Simple counter controls to trigger rules dynamically
       window.addEventListener('DOMContentLoaded', () => {
@@ -131,7 +272,7 @@
           }
           // Success state: show message, hide input/apply, show try-another
           promoMsg.textContent = `Promo code ${code} has been applied.`;
-          promoMsg.style.color = '#065f46';
+          promoMsg.style.color = '#10b981';
           promoMsg.style.display = 'block';
           if (promoInput instanceof HTMLInputElement) {
             promoInput.style.display = 'none';
