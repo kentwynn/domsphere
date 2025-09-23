@@ -57,6 +57,18 @@ class AgentSuggestNextResponse(BaseModel):
     suggestions: List[Dict[str, Any]]
 
 # ==============================================================================
+# /agent/embedding (generate vector embeddings for provided text)
+# ==============================================================================
+
+class AgentEmbeddingRequest(BaseModel):
+    text: str
+
+
+class AgentEmbeddingResponse(BaseModel):
+    model: str
+    embedding: List[float]
+
+# ==============================================================================
 # /agent/health
 # ==============================================================================
 
@@ -75,6 +87,9 @@ __all__ = [
     # suggest (stateless)
     "AgentSuggestNextRequest",
     "AgentSuggestNextResponse",
+    # embedding
+    "AgentEmbeddingRequest",
+    "AgentEmbeddingResponse",
     # health
     "AgentHealthResponse",
 ]

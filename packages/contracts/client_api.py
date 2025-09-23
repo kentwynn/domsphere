@@ -115,6 +115,39 @@ class SiteMapResponse(BaseModel):
 
 
 # ==============================================================================
+# /site/map/embed & related embedding/search helpers
+# ==============================================================================
+
+class SiteMapEmbeddingRequest(BaseModel):
+    siteId: str
+
+
+class SiteMapUrlEmbeddingRequest(BaseModel):
+    siteId: str
+    urls: List[str]
+
+
+class SiteMapEmbeddingResponse(BaseModel):
+    siteId: str
+    totalUrls: int
+    embeddedUrls: int
+    failedUrls: List[str] = Field(default_factory=list)
+    message: Optional[str] = None
+
+
+class SiteMapSearchResult(BaseModel):
+    url: str
+    score: float
+    meta: Optional[Dict[str, Any]] = None
+
+
+class SiteMapSearchResponse(BaseModel):
+    siteId: str
+    query: str
+    results: List[SiteMapSearchResult] = Field(default_factory=list)
+
+
+# ==============================================================================
 # /site/info
 # ==============================================================================
 
