@@ -160,6 +160,57 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/site/map/embed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Embed Site Map */
+        post: operations["embed_site_map_site_map_embed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site/map/embed/urls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Embed Specific Urls */
+        post: operations["embed_specific_urls_site_map_embed_urls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site/map/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Site Map */
+        get: operations["search_site_map_site_map_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/site/info": {
         parameters: {
             query?: never;
@@ -200,48 +251,6 @@ export type paths = {
 export type webhooks = Record<string, never>;
 export type components = {
     schemas: {
-        /** CtaSpec */
-        CtaSpec: {
-            /** Label */
-            label: string;
-            /**
-             * Kind
-             * @default link
-             */
-            kind: string;
-            /** Href */
-            href?: string | null;
-            /** Url */
-            url?: string | null;
-            /** Route */
-            route?: string | null;
-            /** Sku */
-            sku?: string | null;
-            /** Payload */
-            payload?: {
-                [key: string]: unknown;
-            } | null;
-            /** Target */
-            target?: string | null;
-            /** Confirm */
-            confirm?: boolean | null;
-            /** Meta */
-            meta?: {
-                [key: string]: unknown;
-            } | null;
-            /** Nextstep */
-            nextStep?: number | null;
-            /** Nextid */
-            nextId?: string | null;
-            /** Nextclose */
-            nextClose?: boolean | null;
-            /** Nextmode */
-            nextMode?: ("replace" | "append") | null;
-            /** Nextinput */
-            nextInput?: {
-                [key: string]: unknown;
-            } | null;
-        };
         /**
          * DomAtlasElement
          * @description A compact node for selector learning.
@@ -402,6 +411,24 @@ export type components = {
                 [key: string]: unknown;
             } | null;
         };
+        /** SiteMapEmbeddingRequest */
+        SiteMapEmbeddingRequest: {
+            /** Siteid */
+            siteId: string;
+        };
+        /** SiteMapEmbeddingResponse */
+        SiteMapEmbeddingResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Totalurls */
+            totalUrls: number;
+            /** Embeddedurls */
+            embeddedUrls: number;
+            /** Failedurls */
+            failedUrls?: string[];
+            /** Message */
+            message?: string | null;
+        };
         /** SiteMapPage */
         SiteMapPage: {
             /** Url */
@@ -434,6 +461,33 @@ export type components = {
             siteId: string;
             /** Pages */
             pages: components["schemas"]["SiteMapPage"][];
+        };
+        /** SiteMapSearchResponse */
+        SiteMapSearchResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Query */
+            query: string;
+            /** Results */
+            results?: components["schemas"]["SiteMapSearchResult"][];
+        };
+        /** SiteMapSearchResult */
+        SiteMapSearchResult: {
+            /** Url */
+            url: string;
+            /** Score */
+            score: number;
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SiteMapUrlEmbeddingRequest */
+        SiteMapUrlEmbeddingRequest: {
+            /** Siteid */
+            siteId: string;
+            /** Urls */
+            urls: string[];
         };
         /** SiteRegisterRequest */
         SiteRegisterRequest: {
@@ -469,7 +523,9 @@ export type components = {
         /** SuggestGetResponse */
         SuggestGetResponse: {
             /** Suggestions */
-            suggestions: components["schemas"]["Suggestion"][];
+            suggestions: {
+                [key: string]: unknown;
+            }[];
         };
         /** SuggestNextRequest */
         SuggestNextRequest: {
@@ -487,56 +543,9 @@ export type components = {
         /** SuggestNextResponse */
         SuggestNextResponse: {
             /** Suggestions */
-            suggestions: components["schemas"]["Suggestion"][];
-        };
-        /** Suggestion */
-        Suggestion: {
-            /** Type */
-            type: string;
-            /** Id */
-            id?: string | null;
-            /** Score */
-            score?: number | null;
-            /** Tracking */
-            tracking?: {
+            suggestions: {
                 [key: string]: unknown;
-            } | null;
-            /** Title */
-            title?: string | null;
-            /** Subtitle */
-            subtitle?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Image */
-            image?: string | null;
-            /** Gallery */
-            gallery?: string[] | null;
-            /** Alt */
-            alt?: string | null;
-            /** Price */
-            price?: number | null;
-            /** Currency */
-            currency?: string | null;
-            /** Rating */
-            rating?: number | null;
-            /** Attributes */
-            attributes?: {
-                [key: string]: unknown;
-            } | null;
-            primaryCta?: components["schemas"]["CtaSpec"] | null;
-            /** Primaryactions */
-            primaryActions?: components["schemas"]["CtaSpec"][] | null;
-            secondaryCta?: components["schemas"]["CtaSpec"] | null;
-            /** Secondaryactions */
-            secondaryActions?: components["schemas"]["CtaSpec"][] | null;
-            /** Links */
-            links?: components["schemas"]["CtaSpec"][] | null;
-            /** Actions */
-            actions?: components["schemas"]["CtaSpec"][] | null;
-            /** Meta */
-            meta?: {
-                [key: string]: unknown;
-            } | null;
+            }[];
         };
         /**
          * Telemetry
@@ -976,6 +985,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SiteMapResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    embed_site_map_site_map_embed_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteMapEmbeddingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteMapEmbeddingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    embed_specific_urls_site_map_embed_urls_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteMapUrlEmbeddingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteMapEmbeddingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_site_map_site_map_search_get: {
+        parameters: {
+            query: {
+                siteId: string;
+                query: string;
+            };
+            header?: {
+                "X-Contract-Version"?: string | null;
+                "X-Request-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteMapSearchResponse"];
                 };
             };
             /** @description Validation Error */
