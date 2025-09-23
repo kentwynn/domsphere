@@ -7,6 +7,15 @@ type SuggestionExt = Suggestion & {
   actions?: CtaSpec[];
 };
 
+function ctaRecord(cta: CtaSpec): Record<string, unknown> {
+  return (cta as unknown as Record<string, unknown>) || {};
+}
+
+function ctaString(cta: CtaSpec, key: string, fallback = ''): string {
+  const value = ctaRecord(cta)[key];
+  return value == null ? fallback : String(value);
+}
+
 function createButton(
   label: string | undefined,
   variant: 'primary' | 'secondary'
@@ -25,11 +34,7 @@ function createButton(
 export function renderFinalSuggestions(
   container: HTMLElement,
   suggestions: Suggestion[],
-  onCta: (
-    cta:
-      | NonNullable<Suggestion['actions']>[number]
-      | NonNullable<Suggestion['primaryCta']>
-  ) => void
+  onCta: (cta: CtaSpec) => void
 ): void {
   container.innerHTML = '';
   container.removeAttribute('data-assistant-theme');
@@ -42,30 +47,42 @@ export function renderFinalSuggestions(
 
   suggestions.forEach((original) => {
     const s = original as SuggestionExt;
+    const sRec = (s as unknown as Record<string, unknown>) || {};
+    const type = typeof sRec['type'] === 'string' ? (sRec['type'] as string) : '';
+    const titleText =
+      typeof sRec['title'] === 'string' && sRec['title']
+        ? (sRec['title'] as string)
+        : type;
+    const descriptionText =
+      typeof sRec['description'] === 'string' ? (sRec['description'] as string) : '';
     const card = document.createElement('article');
     card.setAttribute('data-testid', 'assistant-card');
     card.dataset['role'] = 'assistant-card';
-    if (s.type) {
-      card.dataset['assistantOrigin'] = `suggestion-${s.type}`;
+    if (type) {
+      card.dataset['assistantOrigin'] = `suggestion-${type}`;
     }
 
     const title = document.createElement('h3');
     title.dataset['role'] = 'assistant-title';
-    title.textContent = s.title ?? s.type ?? '';
+    title.textContent = titleText ?? '';
     card.appendChild(title);
 
-    if (s.description) {
+    if (descriptionText) {
       const desc = document.createElement('p');
       desc.dataset['role'] = 'assistant-description';
-      desc.textContent = s.description;
+      desc.textContent = descriptionText;
       card.appendChild(desc);
     }
 
-    const primary: CtaSpec[] = s.primaryCta ? [s.primaryCta as CtaSpec] : [];
+    const primary: CtaSpec[] = sRec['primaryCta']
+      ? [sRec['primaryCta'] as CtaSpec]
+      : [];
 
-    const secondaryFromSchema = s.secondaryCta ? [s.secondaryCta] : [];
-    const secondaryFromNew = s.secondaryActions ?? [];
-    const secondaryFallback = s.actions ?? [];
+    const secondaryFromSchema = sRec['secondaryCta']
+      ? [sRec['secondaryCta'] as CtaSpec]
+      : [];
+    const secondaryFromNew = (sRec['secondaryActions'] as CtaSpec[]) ?? [];
+    const secondaryFallback = (sRec['actions'] as CtaSpec[]) ?? [];
 
     const pickFirstPopulated = (
       lists: CtaSpec[][]
@@ -85,10 +102,10 @@ export function renderFinalSuggestions(
     ]).slice(0, 5);
 
     const sig = (cta: CtaSpec): string => {
-      const kind = cta.kind ?? '';
-      const text = cta.label ?? '';
-      const payload = cta.payload ?? null;
-      const url = cta.url ?? '';
+      const kind = ctaString(cta, 'kind');
+      const text = ctaString(cta, 'label');
+      const payload = ctaRecord(cta)['payload'] ?? null;
+      const url = ctaString(cta, 'url');
       return `${kind}|${text}|${JSON.stringify(payload) || ''}|${url}`;
     };
 
@@ -101,14 +118,17 @@ export function renderFinalSuggestions(
 
       if (primary.length) {
         const p = primary[0];
-        const btn = createButton(p.label, 'primary');
-        btn.setAttribute('data-cta-kind', String(p.kind || ''));
+        const btn = createButton(ctaString(p, 'label'), 'primary');
+        btn.setAttribute(
+          'data-cta-kind',
+          ctaString(p, 'kind')
+        );
         btn.onclick = () => onCta(p);
         row.appendChild(btn);
       }
 
       dedupedSecondary.forEach((cta, index) => {
-        const btn = createButton(cta.label, 'secondary');
+        const btn = createButton(ctaString(cta, 'label'), 'secondary');
         btn.setAttribute('data-cta-idx', String(index));
         btn.onclick = () => onCta(cta);
         row.appendChild(btn);

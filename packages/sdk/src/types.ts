@@ -1,15 +1,20 @@
 import type { components } from '@domsphere/api-client';
 
-// OpenAPI Type Aliases
-export type EventSchema = components['schemas']['Event'];
-export type RuleCheckRequest = components['schemas']['RuleCheckRequest'];
-export type RuleCheckResponse = components['schemas']['RuleCheckResponse'];
-export type SuggestGetRequest = components['schemas']['SuggestGetRequest'];
-export type SuggestGetResponse = components['schemas']['SuggestGetResponse'];
-export type SuggestNextRequest = components['schemas']['SuggestNextRequest'];
-export type SuggestNextResponse = components['schemas']['SuggestNextResponse'];
-export type Suggestion = components['schemas']['Suggestion'];
-export type CtaSpec = components['schemas']['CtaSpec'];
+type SchemaMap = components['schemas'];
+type ExtractSchema<K extends string, Fallback> = SchemaMap extends Record<K, infer T>
+  ? T
+  : Fallback;
+
+// OpenAPI Type Aliases with fallbacks when schema entries are missing
+export type EventSchema = ExtractSchema<'Event', Record<string, unknown>>;
+export type RuleCheckRequest = ExtractSchema<'RuleCheckRequest', Record<string, unknown>>;
+export type RuleCheckResponse = ExtractSchema<'RuleCheckResponse', Record<string, unknown>>;
+export type SuggestGetRequest = ExtractSchema<'SuggestGetRequest', Record<string, unknown>>;
+export type SuggestGetResponse = ExtractSchema<'SuggestGetResponse', Record<string, unknown>>;
+export type SuggestNextRequest = ExtractSchema<'SuggestNextRequest', Record<string, unknown>>;
+export type SuggestNextResponse = ExtractSchema<'SuggestNextResponse', Record<string, unknown>>;
+export type Suggestion = ExtractSchema<'Suggestion', Record<string, unknown>>;
+export type CtaSpec = ExtractSchema<'CtaSpec', Record<string, unknown>>;
 
 // Minimal type for the rule-track profile
 // Use the OpenAPI contract type for rule tracking (request shape is compatible for our read usage)
@@ -42,3 +47,15 @@ export type RuleListItem = {
   [k: string]: unknown;
 };
 export type RuleListResponse = { siteId: string; rules: RuleListItem[] };
+
+export type SiteStyleResponse = {
+  siteId: string;
+  css?: string | null;
+  updatedAt?: string | null;
+  source?: string | null;
+};
+
+export type SiteStylePayload = {
+  siteId: string;
+  css: string;
+};

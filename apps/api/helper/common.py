@@ -1,6 +1,7 @@
 import math
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List, Sequence, Tuple
 
 import numpy as np
@@ -146,6 +147,59 @@ RULES_DB: Dict[str, Dict[str, Any]] = {
         },
     }
 }
+
+# ----------------------------------------------------------------------------
+# Mock: SDK style configurations per site (raw CSS strings)
+# ----------------------------------------------------------------------------
+
+SITE_STYLES: Dict[str, str] = {
+    "demo-site": """
+[data-assistant-theme] .assistant-card {
+  --borderWidth: 3px;
+  position: relative;
+  background: #1d1f20;
+  color: #ffffff;
+  border-radius: 16px;
+  padding: 1.5rem;
+  overflow: hidden;
+}
+
+[data-assistant-theme] .assistant-card::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--borderWidth));
+  border-radius: calc(16px + var(--borderWidth));
+  background: linear-gradient(60deg, #f79533, #f37055, #ef4e7b, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82);
+  z-index: -1;
+  animation: assistant-gradient 3s ease alternate infinite;
+  background-size: 300% 300%;
+}
+
+@keyframes assistant-gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+""".strip()
+}
+
+SITE_STYLES_UPDATED_AT: Dict[str, str] = {
+    site_id: datetime.now(timezone.utc).isoformat()
+    for site_id in SITE_STYLES.keys()
+}
+
+
+def get_site_style(site_id: str) -> Tuple[Optional[str], Optional[str]]:
+    style = SITE_STYLES.get(site_id)
+    updated = SITE_STYLES_UPDATED_AT.get(site_id)
+    return style, updated
+
+
+def store_site_style(site_id: str, css: str) -> str:
+    SITE_STYLES[site_id] = css
+    timestamp = datetime.now(timezone.utc).isoformat()
+    SITE_STYLES_UPDATED_AT[site_id] = timestamp
+    return timestamp
 
 # ----------------------------------------------------------------------------
 # Typed mocks that conform to contract interfaces

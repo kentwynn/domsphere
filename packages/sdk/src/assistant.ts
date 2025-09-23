@@ -67,6 +67,9 @@ export class AutoAssistant {
   private lastMatchSig?: string;
   private triggeredRules = new Set<string>();
   private choiceInput: Record<string, unknown> = {};
+  private styleCss: string | null | undefined = undefined;
+  private styleFetchPromise: Promise<string | null> | null = null;
+  private styleTag?: HTMLStyleElement;
 
   // Time-based rule tracking
   private lastTimeBasedTrigger = 0;
@@ -85,14 +88,34 @@ export class AutoAssistant {
   private timeBasedTimers = new Map<string, NodeJS.Timeout>();
 
   // Local helper types to avoid `any` casting for extended fields not yet in the OpenAPI client
+  private ctaRecord(cta: CtaSpec): Record<string, unknown> {
+    return (cta as unknown as Record<string, unknown>) || {};
+  }
+
+  private ctaString(cta: CtaSpec, key: string, fallback = ''): string {
+    const value = this.ctaRecord(cta)[key];
+    return value == null ? fallback : String(value);
+  }
+
+  private suggestionRecord(s: Suggestion): Record<string, unknown> {
+    return (s as unknown as Record<string, unknown>) || {};
+  }
+
+  private suggestionString(
+    s: Suggestion,
+    key: string,
+    fallback = ''
+  ): string {
+    const value = this.suggestionRecord(s)[key];
+    return value == null ? fallback : String(value);
+  }
+
   private sigForCta(c: CtaSpec): string {
-    const kind = (c as CtaSpec).kind ?? '';
-    const label = (c as CtaSpec).label ?? '';
-    const payload = (c as CtaSpec).payload ?? null;
-    const url = (c as CtaSpec).url ?? '';
-    return `${String(kind)}|${String(label)}|${
-      JSON.stringify(payload) || ''
-    }|${String(url)}`;
+    const kind = this.ctaString(c, 'kind');
+    const label = this.ctaString(c, 'label');
+    const payload = this.ctaRecord(c)['payload'] ?? null;
+    const url = this.ctaString(c, 'url');
+    return `${kind}|${label}|${JSON.stringify(payload) || ''}|${url}`;
   }
 
   constructor(options: AutoAssistantOptions) {
@@ -112,6 +135,7 @@ export class AutoAssistant {
   }
 
   async start() {
+    void this.ensureSiteStyle();
     // 1) Load rules to choose focus vs rich tracking
     try {
       const res = (await this.api.ruleListGet(
@@ -388,6 +412,56 @@ export class AutoAssistant {
     this.debTimer = window.setTimeout(fn, this.opts.debounceMs);
   }
 
+  private applySiteStyle(css: string) {
+    if (typeof document === 'undefined' || !css) return;
+    const existing = this.styleTag
+      ? this.styleTag
+      : (document.querySelector(
+          `style[data-assistant-style="${this.opts.siteId}"]`
+        ) as HTMLStyleElement | null);
+    if (existing) {
+      existing.textContent = css;
+      this.styleTag = existing;
+      return;
+    }
+    const tag = document.createElement('style');
+    tag.type = 'text/css';
+    tag.setAttribute('data-assistant-style', this.opts.siteId);
+    tag.textContent = css;
+    document.head?.appendChild(tag);
+    this.styleTag = tag;
+  }
+
+  private async ensureSiteStyle(): Promise<string | null> {
+    if (this.styleCss !== undefined) {
+      return this.styleCss;
+    }
+    if (this.styleFetchPromise) {
+      return this.styleFetchPromise;
+    }
+    const promise = this.api
+      .styleGet(this.opts.siteId)
+      .then((res) => {
+        const css = typeof res?.css === 'string' ? res.css : '';
+        const normalized = css.trim().length ? css : null;
+        this.styleCss = normalized;
+        if (normalized) {
+          this.applySiteStyle(normalized);
+        }
+        return this.styleCss;
+      })
+      .catch((err) => {
+        console.warn('[AutoAssistant] style fetch failed', err);
+        this.styleCss = null;
+        return null;
+      })
+      .finally(() => {
+        this.styleFetchPromise = null;
+      });
+    this.styleFetchPromise = promise;
+    return promise;
+  }
+
   private canOpenPanel(): boolean {
     return Date.now() >= this.cooldownUntil;
   }
@@ -404,11 +478,16 @@ export class AutoAssistant {
     const panel = this.panelEl();
     if (!panel) return;
     this.lastSuggestions = suggestions;
+    void this.ensureSiteStyle();
     // Determine the initial step to render
     const steps = suggestions
       .map((s) => {
-        const m = (s.meta || {}) as Record<string, unknown>;
-        const step = Number(m['step'] ?? 1);
+        const metaObj =
+          ((s as unknown as Record<string, unknown>)['meta'] || {}) as Record<
+            string,
+            unknown
+          >;
+        const step = Number(metaObj['step'] ?? 1);
         return Number.isFinite(step) ? (step as number) : 1;
       })
       .filter((n) => n > 0);
@@ -420,8 +499,12 @@ export class AutoAssistant {
     const panel = this.panelEl();
     if (!panel) return;
     const toShow = this.lastSuggestions.filter((s) => {
-      const m = (s.meta || {}) as Record<string, unknown>;
-      const step = Number(m['step'] ?? 1);
+      const metaObj =
+        ((s as unknown as Record<string, unknown>)['meta'] || {}) as Record<
+          string,
+          unknown
+        >;
+      const step = Number(metaObj['step'] ?? 1);
       return (
         (Number.isFinite(step) ? (step as number) : 1) === this.currentStep
       );
@@ -436,7 +519,7 @@ export class AutoAssistant {
     const prevInflight = this.inflight;
     this.inflight = true;
     try {
-      const kind = String(cta.kind || '').toLowerCase();
+      const kind = this.ctaString(cta, 'kind').toLowerCase();
       // Prefer app-provided CTA executor to avoid SDK-level hardcoding
       if (typeof this.opts.ctaExecutor === 'function') {
         this.opts.ctaExecutor(cta);
@@ -444,9 +527,12 @@ export class AutoAssistant {
       }
       const handlers: Record<string, (c: CtaSpec) => void | Promise<void>> = {
         dom_fill: (c) => {
-          const p = (c.payload ?? {}) as Record<string, unknown>;
-          const sel = String((p as Record<string, unknown>)['selector'] || '');
-          const val = String((p as Record<string, unknown>)['value'] ?? '');
+          const payload = (this.ctaRecord(c)['payload'] ?? {}) as Record<
+            string,
+            unknown
+          >;
+          const sel = String((payload['selector'] || '') as string);
+          const val = String(payload['value'] ?? '');
           const el = sel
             ? (document.querySelector(sel) as
                 | HTMLInputElement
@@ -463,29 +549,36 @@ export class AutoAssistant {
           }
         },
         click: (c) => {
-          const p = (c.payload ?? {}) as Record<string, unknown>;
-          const sel = String((p as Record<string, unknown>)['selector'] || '');
+          const payload = (this.ctaRecord(c)['payload'] ?? {}) as Record<
+            string,
+            unknown
+          >;
+          const sel = String((payload['selector'] || '') as string);
           const el = sel
             ? (document.querySelector(sel) as HTMLElement | null)
             : null;
           el?.click();
         },
         open: (c) => {
-          const url = typeof c.url === 'string' && c.url ? c.url : '';
+          const url = this.ctaString(c, 'url');
           if (url) window.location.href = url as string;
         },
         choose: async (c) => {
-          const p = (c.payload ?? {}) as Record<string, unknown>;
+          const payload = (this.ctaRecord(c)['payload'] ?? {}) as Record<
+            string,
+            unknown
+          >;
           const name = String(
-            (p['name'] as string) || (p['key'] as string) || ''
+            (payload['name'] as string) || (payload['key'] as string) || ''
           ).trim();
-          const value = (p['value'] as unknown) ?? null;
+          const value = payload['value'] ?? null;
           if (!name) return;
           try {
             // Merge prior choices so the agent sees cumulative input
             const extra =
-              (c as CtaSpec & { nextInput?: Record<string, unknown> })
-                .nextInput || {};
+              (this.ctaRecord(c)['nextInput'] as
+                | Record<string, unknown>
+                | undefined) || {};
             const input = {
               ...this.choiceInput,
               [name]: value,
@@ -512,7 +605,7 @@ export class AutoAssistant {
       const runPipeline = async (steps: CtaSpec[] | undefined) => {
         if (!Array.isArray(steps) || steps.length === 0) return;
         for (const step of steps) {
-          const k = String(step.kind || '').toLowerCase() as
+          const k = this.ctaString(step, 'kind').toLowerCase() as
             | keyof typeof handlers
             | string;
           const fn = handlers[k as keyof typeof handlers];
@@ -530,24 +623,31 @@ export class AutoAssistant {
         // Find the suggestion that owns this CTA by signature
         const targetSig = this.sigForCta(cta);
         for (const s0 of this.lastSuggestions) {
-          const s = s0 as SuggestionExt;
-          const p = s.primaryCta as CtaSpec | undefined;
-          const primArr = s.primaryActions as CtaSpec[] | undefined;
-          const second = (s.secondaryActions ||
-            (s.secondaryCta ? [s.secondaryCta] : []) ||
-            s.actions ||
-            []) as CtaSpec[];
-          if (p && this.sigForCta(p) === targetSig) return s;
+          const rec = this.suggestionRecord(s0);
+          const primaryCta = rec['primaryCta'] as CtaSpec | undefined;
+          if (primaryCta && this.sigForCta(primaryCta) === targetSig) {
+            return s0 as SuggestionExt;
+          }
+          const primaryActions = rec['primaryActions'] as CtaSpec[] | undefined;
           if (
-            Array.isArray(second) &&
-            second.some((c) => this.sigForCta(c) === targetSig)
-          )
-            return s;
+            Array.isArray(primaryActions) &&
+            primaryActions.some((c) => this.sigForCta(c) === targetSig)
+          ) {
+            return s0 as SuggestionExt;
+          }
+          const secondaryPieces: CtaSpec[] = [];
+          const secondaryActions = rec['secondaryActions'] as CtaSpec[] | undefined;
+          if (Array.isArray(secondaryActions)) secondaryPieces.push(...secondaryActions);
+          const secondaryCta = rec['secondaryCta'] as CtaSpec | undefined;
+          if (secondaryCta) secondaryPieces.push(secondaryCta);
+          const fallback = rec['actions'] as CtaSpec[] | undefined;
+          if (Array.isArray(fallback)) secondaryPieces.push(...fallback);
           if (
-            Array.isArray(primArr) &&
-            primArr.some((c) => this.sigForCta(c) === targetSig)
-          )
-            return s;
+            secondaryPieces.length &&
+            secondaryPieces.some((c) => this.sigForCta(c) === targetSig)
+          ) {
+            return s0 as SuggestionExt;
+          }
         }
         return null;
       };
@@ -555,51 +655,57 @@ export class AutoAssistant {
       // Work out if this CTA is the suggestion's primaryCta and has a primaryActions pipeline
       const parent = getParentSuggestion();
       const isPrimaryWithPipeline = (() => {
-        if (!parent || !parent.primaryCta) return false;
-        const prim = parent.primaryCta as CtaSpec;
+        if (!parent) return false;
+        const parentRec = this.suggestionRecord(parent);
+        const prim = parentRec['primaryCta'] as CtaSpec | undefined;
+        const steps = parentRec['primaryActions'] as CtaSpec[] | undefined;
+        if (!prim) return false;
         const match = this.sigForCta(prim) === this.sigForCta(cta);
-        const steps = (parent.primaryActions as CtaSpec[]) || [];
-        return match && Array.isArray(steps) && steps.length > 0;
+        return (
+          match && Array.isArray(steps) && steps.length > 0
+        );
       })();
 
       if (isPrimaryWithPipeline && parent) {
         // If a primaryActions pipeline is defined, run it INSTEAD of the primaryCta's own handler.
         // This lets the pipeline control ordering (e.g., fill then submit).
-        await runPipeline((parent.primaryActions as CtaSpec[]) || []);
+        const parentRec = this.suggestionRecord(parent);
+        await runPipeline(
+          (parentRec['primaryActions'] as CtaSpec[] | undefined) || []
+        );
       } else {
         // Otherwise, invoke the CTA handler and then any CTA-level run pipeline.
         {
           const fn = handlers[kind as keyof typeof handlers];
           if (fn) await Promise.resolve(fn(cta));
         }
-        const ctaRun = (cta as CtaSpec & { run?: CtaSpec[] }).run;
+        const ctaRun = this.ctaRecord(cta)['run'] as CtaSpec[] | undefined;
         await runPipeline(ctaRun);
       }
       // After executing a CTA, advance based on explicit next* navigation or fallbacks.
-      const nav = cta as CtaSpec & {
-        advanceTo?: number;
-        nextStep?: number;
-        nextId?: string;
-        nextClose?: boolean;
-        nextMode?: string;
-      };
-      if (nav.nextClose) {
+      const nav = this.ctaRecord(cta);
+      if (nav['nextClose']) {
         this.closePanel();
         return;
       }
-      if (nav.nextId) {
+      if (nav['nextId']) {
+        const nextId = String(nav['nextId']);
         const target = this.lastSuggestions.find(
-          (s) => (s as SuggestionExt).id === nav.nextId
+          (s) => this.suggestionString(s, 'id') === nextId
         ) as SuggestionExt | undefined;
-        const metaObj = (target?.meta || {}) as Record<string, unknown>;
-        const step = Number(metaObj['step'] ?? 0);
+        const metaObj =
+          ((target as unknown as Record<string, unknown>)['meta'] || {}) as
+            | Record<string, unknown>
+            | undefined;
+        const meta = metaObj || {};
+        const step = Number(meta['step'] ?? 0);
         if (Number.isFinite(step) && step > 0) {
           this.currentStep = step;
           this.renderStep();
           return;
         }
       }
-      const advNum = Number(nav.nextStep ?? nav.advanceTo);
+      const advNum = Number(nav['nextStep'] ?? nav['advanceTo']);
       if (Number.isFinite(advNum) && advNum > 0) {
         this.currentStep = advNum as number;
         this.renderStep();

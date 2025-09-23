@@ -1,4 +1,15 @@
-import { ClientOptions, RuleCheckRequest, RuleCheckResponse, SuggestGetRequest, SuggestGetResponse, RuleListResponse, SuggestNextRequest, SuggestNextResponse } from './types';
+import {
+  ClientOptions,
+  RuleCheckRequest,
+  RuleCheckResponse,
+  SuggestGetRequest,
+  SuggestGetResponse,
+  RuleListResponse,
+  SuggestNextRequest,
+  SuggestNextResponse,
+  SiteStyleResponse,
+  SiteStylePayload,
+} from './types';
 
 type HeadersLoose = Record<string, string | undefined>;
 
@@ -73,5 +84,18 @@ export function createApi(opts: ClientOptions) {
         headers()
       ),
     ruleListGet: (siteId: string) => getJson<RuleListResponse>(baseUrl, `/rule?siteId=${encodeURIComponent(siteId)}`, headers()),
+    styleGet: (siteId: string) =>
+      getJson<SiteStyleResponse>(
+        baseUrl,
+        `/sdk/style?siteId=${encodeURIComponent(siteId)}`,
+        headers()
+      ),
+    styleUpsert: (body: SiteStylePayload) =>
+      postJson<SiteStylePayload, SiteStyleResponse>(
+        baseUrl,
+        '/sdk/style',
+        body,
+        headers()
+      ),
   };
 }

@@ -247,6 +247,24 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sdk/style": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch Style */
+        get: operations["fetch_style_sdk_style_get"];
+        put?: never;
+        /** Upsert Style */
+        post: operations["upsert_style_sdk_style_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -510,6 +528,24 @@ export type components = {
             meta?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** SiteStylePayload */
+        SiteStylePayload: {
+            /** Siteid */
+            siteId: string;
+            /** Css */
+            css: string;
+        };
+        /** SiteStyleResponse */
+        SiteStyleResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Css */
+            css?: string | null;
+            /** Updatedat */
+            updatedAt?: string | null;
+            /** Source */
+            source?: string | null;
         };
         /** SuggestGetRequest */
         SuggestGetRequest: {
@@ -1222,6 +1258,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SiteAtlasResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fetch_style_sdk_style_get: {
+        parameters: {
+            query: {
+                siteId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteStyleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_style_sdk_style_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteStylePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteStyleResponse"];
                 };
             };
             /** @description Validation Error */

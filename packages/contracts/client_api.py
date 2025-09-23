@@ -182,6 +182,23 @@ class SiteAtlasResponse(BaseModel):
     queuedPlanRebuild: Optional[bool] = None
 
 # ==============================================================================
+# /sdk/style
+# ==============================================================================
+
+
+class SiteStylePayload(BaseModel):
+    siteId: str
+    css: str
+
+
+class SiteStyleResponse(BaseModel):
+    siteId: str
+    css: Optional[str] = None
+    updatedAt: Optional[str] = None
+    source: Optional[str] = None
+
+
+# ==============================================================================
 # /health
 # ==============================================================================
 
