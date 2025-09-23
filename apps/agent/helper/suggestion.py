@@ -7,23 +7,12 @@ from typing import Any, Dict
 
 import httpx
 
-from contracts.client_api import SiteAtlasResponse, SiteInfoResponse, SiteMapResponse
+from contracts.client_api import SiteAtlasResponse, SiteInfoResponse
 
 
 def normalize_url(url: str) -> str:
     """Normalize URLs by stripping trailing slashes when provided as strings."""
     return url.rstrip("/") if isinstance(url, str) else url
-
-
-def get_sitemap(site_id: str, api_url: str, timeout: float) -> SiteMapResponse:
-    """Fetch sitemap for the given site_id."""
-    with httpx.Client(timeout=timeout) as client:
-        response = client.get(f"{api_url}/site/map", params={"siteId": site_id})
-        response.raise_for_status()
-        data: Any = response.json() or {}
-        if not data:
-            return SiteMapResponse(siteId=site_id, pages=[])
-        return SiteMapResponse(**data)
 
 
 def get_site_info(site_id: str, url: str, api_url: str, timeout: float) -> SiteInfoResponse:

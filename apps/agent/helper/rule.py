@@ -2,129 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import os
-import re
-from typing import Any, Dict, List, Optional
-
 import httpx
+from typing import Any, Dict
 
 from contracts.common import CONDITION_OPS, DOM_EVENT_TYPES, RuleTrigger, TriggerCondition
-from core.logging import get_agent_logger
-
-
-logger = get_agent_logger(__name__)
-
-
-def generate_sitemap_query(
-    instruction: str,
-    *,
-    api_key: Optional[str],
-    model: Optional[str] = None,
-) -> str:
-    """Use an LLM to derive a single sitemap search query."""
-    text = (instruction or "").strip()
-    if not text:
-        logger.info("Sitemap query planner received empty instruction; returning blank query")
-        return ""
-
-    if not api_key:
-        logger.warning("Sitemap query planner missing OpenAI API key; returning blank query")
-        return ""
-
-    try:  # Lazy import to keep optional dependency
-        from langchain_openai import ChatOpenAI
-        from langchain_core.messages import SystemMessage, HumanMessage
-    except Exception:
-        logger.exception("Sitemap query planner cannot import LangChain dependencies")
-        return ""
-
-    model_name = model or os.getenv("OPENAI_MODEL", "gpt-5-nano")
-
-    llm = ChatOpenAI(api_key=api_key, model=model_name, temperature=0)
-    messages = [
-        SystemMessage(
-            content=(
-                "You extract the most relevant sitemap keywords for the rule instruction."
-                "Return a single lowercase string with 1-3 short keywords separated by spaces."
-                "Focus on concrete page or feature names (e.g. 'cart', 'checkout cart')."
-                "Do not include numbers, filler words, or explanations."
-            )
-        ),
-        HumanMessage(
-            content=json.dumps(
-                {
-                    "instruction": text,
-                }
-            )
-        ),
-    ]
-
-    try:
-        ai = llm.invoke(messages)
-        content = getattr(ai, "content", "")
-        if isinstance(content, str):
-            raw = content.strip()
-            cleaned_tokens: List[str] = []
-            if raw:
-                tokens = re.findall(r"[a-z0-9]+", raw.lower())
-                for token in tokens:
-                    if token in _STOPWORDS:
-                        continue
-                    if token.isdigit():
-                        continue
-                    if len(token) <= 2:
-                        continue
-                    if token in cleaned_tokens:
-                        continue
-                    cleaned_tokens.append(token)
-                    if len(cleaned_tokens) >= 3:
-                        break
-            if cleaned_tokens:
-                result = " ".join(cleaned_tokens)
-                logger.info(
-                    "Sitemap query planner returning query='%s' (raw='%s') for instruction preview='%s'",
-                    result,
-                    raw[:80],
-                    text[:80],
-                )
-                return result
-            if raw:
-                logger.info(
-                    "Sitemap query planner using raw query='%s' for instruction preview='%s'",
-                    raw,
-                    text[:80],
-                )
-                return raw
-        logger.warning(
-            "Sitemap query planner received empty content from LLM instruction preview='%s'",
-            text[:80],
-        )
-    except Exception:
-        logger.exception("Sitemap query planner failed for instruction preview='%s'", text[:80])
-        return ""
-
-    logger.info(
-        "Sitemap query planner produced no query for instruction preview='%s'", text[:80]
-    )
-    return ""
-
-
-def search_sitemap(site_id: str, query: str, api_url: str, timeout: float) -> List[Dict[str, Any]]:
-    """Return top matching sitemap entries for the supplied query."""
-    query = (query or "").strip()
-    if not query:
-        return []
-    with httpx.Client(timeout=timeout) as client:
-        response = client.get(
-            f"{api_url}/site/map/search", params={"siteId": site_id, "query": query}
-        )
-        response.raise_for_status()
-        data = response.json() or {}
-        results = data.get("results")
-        if isinstance(results, list):
-            return results
-        return []
+from helper.site_search import generate_sitemap_query, search_sitemap
 
 
 def fetch_site_atlas(site_id: str, url: str, api_url: str, timeout: float) -> Dict[str, Any]:
@@ -189,32 +71,6 @@ def build_output_schema() -> Dict[str, Any]:
                 },
                 "value": {"type": "any", "description": "Value to compare against"},
             },
-            "available_event_types": DOM_EVENT_TYPES,
-            "available_operators": CONDITION_OPS,
+    "available_event_types": DOM_EVENT_TYPES,
+    "available_operators": CONDITION_OPS,
         }
-_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "be",
-    "for",
-    "from",
-    "in",
-    "is",
-    "it",
-    "more",
-    "of",
-    "on",
-    "or",
-    "than",
-    "the",
-    "to",
-    "user",
-    "when",
-    "with",
-    "items",
-    "multiple",
-    "quantity",
-    "then",
-    "should",
-}

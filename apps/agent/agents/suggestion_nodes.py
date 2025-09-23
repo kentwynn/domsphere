@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from helper.suggestion import (
     get_site_atlas,
     get_site_info,
-    get_sitemap,
     parse_json_object,
 )
+from helper.site_search import generate_sitemap_query, search_sitemap
 from templates.suggestion import get_templates
 from core.logging import get_agent_logger
 
@@ -76,10 +76,23 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     from langchain_core.tools import tool
     from langchain_openai import ChatOpenAI
 
-    @tool("get_sitemap", return_direct=False)
-    def tool_get_sitemap(siteId: str) -> Dict[str, Any]:
-        """Fetch the sitemap for the provided site identifier."""
-        return get_sitemap(siteId, api_url, timeout).model_dump()
+    @tool("plan_sitemap_query", return_direct=False)
+    def tool_plan_sitemap_query(
+        instruction: Optional[str] = None,
+        outputInstruction: Optional[str] = None,
+        ruleInstruction: Optional[str] = None,
+    ) -> str:  # type: ignore[override]
+        """Generate a focused sitemap search query from the output instruction."""
+        return generate_sitemap_query(
+            instruction or outputInstruction or ruleInstruction or "",
+            api_key=os.getenv("OPENAI_TOKEN"),
+            model=os.getenv("OPENAI_MODEL"),
+        )
+
+    @tool("search_sitemap", return_direct=False)
+    def tool_search_sitemap(siteId: str, query: str) -> Dict[str, Any]:  # type: ignore[override]
+        """Search the sitemap for pages relevant to the provided query."""
+        return {"results": search_sitemap(siteId, query, api_url, timeout)}
 
     @tool("get_site_info", return_direct=False)
     def tool_get_site_info(siteId: str, url: str) -> Dict[str, Any]:
@@ -100,14 +113,22 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
     llm = ChatOpenAI(api_key=openai_token, model=model_name, temperature=0)
     llm = llm.bind_tools(
-        [tool_get_sitemap, tool_get_site_info, tool_get_site_atlas, tool_get_templates]
+        [
+            tool_plan_sitemap_query,
+            tool_search_sitemap,
+            tool_get_site_info,
+            tool_get_site_atlas,
+            tool_get_templates,
+        ]
     )
 
     sys = SystemMessage(
         content=(
             "You are a suggestion template agent. "
             "Based on the 'outputInstruction' and context, choose which template ('info', 'action', or 'choice') best fits. "
-            "CRITICAL: First call get_templates to get the template structure, then call get_site_atlas to get DOM selectors. "
+            "CRITICAL: Start by calling plan_sitemap_query to extract concise keywords, then use search_sitemap "
+            "to locate relevant pages. Next, call get_templates to load template structures and get_site_atlas "
+            "for DOM selectors before filling in the template. "
             "You MUST fill in the template structure exactly, replacing all <fill-in-*> placeholders with contextually appropriate values. "
             "For ACTION templates, follow these patterns: "
             "MULTI-STEP PATTERN (when multiple DOM operations needed): "
@@ -192,8 +213,10 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
                 except Exception:
                     logger.debug("Tool args parse failed name=%s", name)
             try:
-                if name == "get_sitemap":
-                    result = tool_get_sitemap.invoke(args)
+                if name == "plan_sitemap_query":
+                    result = tool_plan_sitemap_query.invoke(args)
+                elif name == "search_sitemap":
+                    result = tool_search_sitemap.invoke(args)
                 elif name == "get_site_info":
                     result = tool_get_site_info.invoke(args)
                 elif name == "get_site_atlas":
