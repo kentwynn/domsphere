@@ -5,9 +5,13 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
-from contracts.common import CONDITION_OPS, DOM_EVENT_TYPES
 
-from helper.rule import build_output_schema, fetch_site_atlas, fetch_sitemap
+from helper.rule import (
+    build_output_schema,
+    fetch_site_atlas,
+    generate_sitemap_query,
+    search_sitemap,
+)
 from .rule_graph import build_rule_graph
 from .rule_llm import RuleLLMToolkit
 from .rule_nodes import rule_validation_node
@@ -36,8 +40,15 @@ class RuleAgent:
     # ------------------------------------------------------------------
     # Tool adapters
     # ------------------------------------------------------------------
-    def tool_get_sitemap(self, site_id: str) -> List[Dict[str, Any]]:
-        return fetch_sitemap(site_id, self.api_url, self.http_timeout)
+    def tool_search_sitemap(self, site_id: str, query: str) -> List[Dict[str, Any]]:
+        return search_sitemap(site_id, query, self.api_url, self.http_timeout)
+
+    def tool_plan_sitemap_query(self, instruction: str) -> str:
+        return generate_sitemap_query(
+            instruction,
+            api_key=self.openai_token,
+            model=os.getenv("OPENAI_MODEL"),
+        )
 
     def tool_get_site_atlas(self, site_id: str, url: str) -> Dict[str, Any]:
         return fetch_site_atlas(site_id, url, self.api_url, self.http_timeout)
@@ -52,7 +63,8 @@ class RuleAgent:
         model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")
         return RuleLLMToolkit(
             get_output_schema=self.tool_get_output_schema,
-            get_sitemap=self.tool_get_sitemap,
+            plan_sitemap_query=self.tool_plan_sitemap_query,
+            search_sitemap=self.tool_search_sitemap,
             get_site_atlas=self.tool_get_site_atlas,
             api_key=self.openai_token,
             model_name=model_name,

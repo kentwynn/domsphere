@@ -18,7 +18,8 @@ class RuleLLMToolkit:
     """Dependencies required for LLM-based trigger generation."""
 
     get_output_schema: Callable[[], Dict[str, Any]]
-    get_sitemap: Callable[[str], List[Dict[str, Any]]]
+    plan_sitemap_query: Callable[[str], str]
+    search_sitemap: Callable[[str, str], List[Dict[str, Any]]]
     get_site_atlas: Callable[[str, str], Dict[str, Any]]
     api_key: Optional[str]
     model_name: str
@@ -47,10 +48,15 @@ def run_llm_generation(
         """Return the contract schema reference for triggers and conditions."""
         return toolkit.get_output_schema()
 
-    @tool("get_sitemap", return_direct=False)
-    def tool_get_sitemap(siteId: str) -> List[Dict[str, Any]]:  # type: ignore[override]
-        """Fetch the site's sitemap for context about available pages."""
-        return toolkit.get_sitemap(siteId)
+    @tool("plan_sitemap_query", return_direct=False)
+    def tool_plan_sitemap_query(ruleInstruction: str) -> str:  # type: ignore[override]
+        """Suggest a focused sitemap search query derived from the rule instruction."""
+        return toolkit.plan_sitemap_query(ruleInstruction)
+
+    @tool("search_sitemap", return_direct=False)
+    def tool_search_sitemap(siteId: str, query: str) -> List[Dict[str, Any]]:  # type: ignore[override]
+        """Search the site's sitemap for pages relevant to the query."""
+        return toolkit.search_sitemap(siteId, query)
 
     @tool("get_site_atlas", return_direct=False)
     def tool_get_site_atlas(siteId: str, url: str) -> Dict[str, Any]:  # type: ignore[override]
@@ -58,16 +64,24 @@ def run_llm_generation(
         return toolkit.get_site_atlas(siteId, url)
 
     llm = ChatOpenAI(api_key=toolkit.api_key, model=toolkit.model_name, temperature=0)
-    llm = llm.bind_tools([tool_get_output_schema, tool_get_sitemap, tool_get_site_atlas])
+    llm = llm.bind_tools(
+        [
+            tool_get_output_schema,
+            tool_plan_sitemap_query,
+            tool_search_sitemap,
+            tool_get_site_atlas,
+        ]
+    )
 
     sys = SystemMessage(
         content=(
             "Generate rule triggers using real DOM data and schema-defined patterns.\n\n"
             "PROCESS:\n"
             "1. get_output_schema → understand exact trigger interface\n"
-            "2. get_sitemap → find pages\n"
-            "3. get_site_atlas → get real elements\n"
-            "4. Generate triggers using schema fields and real DOM data\n\n"
+            "2. plan_sitemap_query → extract concise search keywords\n"
+            "3. search_sitemap → locate the most relevant pages\n"
+            "4. get_site_atlas → fetch DOM details for the selected URLs\n"
+            "5. Generate triggers using schema fields and real DOM data\n\n"
             "RULES:\n"
             "- Use schema to understand available eventTypes and operators\n"
             "- Use ONLY real IDs/paths from site atlas\n"
@@ -133,8 +147,10 @@ def run_llm_generation(
             try:
                 if name == "get_output_schema":
                     result = tool_get_output_schema.invoke(args)
-                elif name == "get_sitemap":
-                    result = tool_get_sitemap.invoke(args)
+                elif name == "plan_sitemap_query":
+                    result = tool_plan_sitemap_query.invoke(args)
+                elif name == "search_sitemap":
+                    result = tool_search_sitemap.invoke(args)
                 elif name == "get_site_atlas":
                     result = tool_get_site_atlas.invoke(args)
                 else:
