@@ -3,6 +3,8 @@ import os
 import re
 from typing import Any, Dict, Optional, List, Sequence, Tuple
 
+import numpy as np
+
 from contracts.client_api import (
     RuleCheckRequest,
     SiteMapResponse, SiteMapPage,
@@ -406,6 +408,45 @@ def build_page_embedding_text(
     return text, merged_meta
 
 
+def _vector_to_numpy(vector: Optional[Sequence[float]]) -> np.ndarray:
+    """Convert arbitrary sequence input into a 1-D float32 numpy array."""
+    if vector is None or isinstance(vector, (str, bytes)):
+        return np.array([], dtype=np.float32)
+    if isinstance(vector, Sequence):
+        seq = list(vector)
+    else:  # pragma: no cover - defensive
+        try:
+            seq = list(vector)
+        except TypeError:
+            return np.array([], dtype=np.float32)
+    if not seq:
+        return np.array([], dtype=np.float32)
+    try:
+        arr = np.asarray(seq, dtype=np.float32)
+    except (TypeError, ValueError):
+        return np.array([], dtype=np.float32)
+    arr = np.reshape(arr, (-1,))
+    return np.where(np.isfinite(arr), arr, 0.0)
+
+
+def _normalize_numpy(vector: Optional[Sequence[float]]) -> np.ndarray:
+    """Return a normalized float32 numpy vector (cosine-safe)."""
+    arr = _vector_to_numpy(vector)
+    if arr.size == 0:
+        return arr
+    norm = float(np.linalg.norm(arr))
+    if not math.isfinite(norm) or norm == 0.0:
+        return arr
+    return arr / norm
+
+
+def _normalize_to_list(vector: Optional[Sequence[float]]) -> List[float]:
+    normalized = _normalize_numpy(vector)
+    if normalized.size == 0:
+        return []
+    return [float(x) for x in normalized]
+
+
 def store_site_embedding(
     site_id: str,
     url: str,
@@ -416,7 +457,7 @@ def store_site_embedding(
 ) -> None:
     site_store = SITE_EMBEDDINGS.setdefault(site_id, {})
     site_store[url] = {
-        "embedding": list(embedding),
+        "embedding": _normalize_to_list(embedding),
         "text": text,
         "meta": meta or {},
     }
@@ -426,36 +467,55 @@ def get_site_embeddings(site_id: str) -> Dict[str, Dict[str, Any]]:
     return SITE_EMBEDDINGS.get(site_id, {})
 
 
-def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
-    if not a or not b:
-        return 0.0
-    if len(a) != len(b):
-        return 0.0
-    dot = sum(float(x) * float(y) for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(float(x) * float(x) for x in a))
-    norm_b = math.sqrt(sum(float(y) * float(y) for y in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
 def search_site_embeddings(
     site_id: str,
     query_embedding: Sequence[float],
     *,
     top_k: int = 3,
 ) -> List[Tuple[str, float, Dict[str, Any]]]:
+    if top_k <= 0:
+        return []
+
+    query_vector = _normalize_numpy(query_embedding)
+    if query_vector.size == 0:
+        return []
+
     records = get_site_embeddings(site_id)
-    scored: List[Tuple[str, float, Dict[str, Any]]] = []
+    if not records:
+        return []
+
+    urls: List[str] = []
+    payloads: List[Dict[str, Any]] = []
+    vectors: List[np.ndarray] = []
+    expected_dim = query_vector.shape[0]
+
     for url, payload in records.items():
         embedding = payload.get("embedding")
-        if not embedding:
+        normalized = _normalize_numpy(embedding)
+        if normalized.size == 0 or normalized.shape[0] != expected_dim:
             continue
-        score = cosine_similarity(query_embedding, embedding)
-        scored.append((url, score, payload))
+        payload["embedding"] = [float(x) for x in normalized]
+        urls.append(url)
+        payloads.append(payload)
+        vectors.append(normalized)
 
-    scored.sort(key=lambda item: item[1], reverse=True)
-    return scored[:top_k]
+    if not vectors:
+        return []
+
+    matrix = np.vstack(vectors)
+    scores = matrix @ query_vector
+    limit = min(top_k, scores.shape[0])
+
+    if limit <= 0:
+        return []
+
+    top_indices = np.argpartition(-scores, limit - 1)[:limit]
+    ordered = top_indices[np.argsort(scores[top_indices])[::-1]]
+
+    results: List[Tuple[str, float, Dict[str, Any]]] = []
+    for idx in ordered:
+        results.append((urls[idx], float(scores[idx]), payloads[idx]))
+    return results
 
 # AgentRuleResponse instance not needed; RULES_DB holds agent-style rules JSON
 
