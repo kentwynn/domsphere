@@ -233,6 +233,45 @@ Normalized suggestions returned to SuggestionAgent.generate_suggestions
 
 Like the rule agent, the toolkit isolates all external dependencies so the graph can bind LangChain tools on demand while the agent itself stays focused on context prep and API orchestration.
 
+### SDK Flow (AutoAssistant)
+
+DomSphere's embeddable SDK captures site telemetry, calls the agent services, and renders suggestions inside a host web app.
+
+```
+Host Application
+        │  import { AutoAssistant, createApi, renderFinalSuggestions } from '@domsphere/sdk'
+        ▼
+AutoAssistant(options)
+        │
+        ├─ createApi → wraps fetch for rule/suggestion endpoints
+        ├─ Emitter bus → 'rule:ready', 'rule:checked', 'suggest:ready', 'error'
+        ├─ start()
+        │     ├─ api.ruleListGet(siteId)
+        │     │       └─ focus.collectFocusFromRules → allowed EventKind + FocusMap
+        │     └─ register DOM listeners (page_load, time_spent, click, input, submit, route_change)
+        ├─ handleEvent(kind, target)
+        │     ├─ telemetry payload (cssPath, xPath, attrMap, ancestorBrief, etc.)
+        │     ├─ focus.evaluateAdvancedConditions
+        │     ├─ api.ruleCheckPost → track matches, debounce, cooldown
+        │     ├─ api.suggestNextPost (handles choice flows, session context)
+        │     └─ renderFinalSuggestions → inject cards/panel + CTA handlers
+        ├─ Choice/session helpers
+        │     ├─ choiceInput + currentStep for multi-step flows
+        │     └─ sessionData / time-based timers (click counts, scroll depth, thresholds)
+        └─ Public API
+               • on(event, listener)
+               • stop() detach listeners/timers
+               • renderFinalSuggestions export for manual rendering
+
+Supporting modules:
+    focus.ts      → selector matching, focus maps, advanced condition evaluation
+    telemetry.ts  → DOM introspection helpers (cssPath, nearbyText, attrMap)
+    render.ts     → suggestion card/panel rendering + CTA plumbing
+    api.ts        → base URL/auth configuration and JSON fetch wrappers
+    emitter.ts    → lightweight event emitter used by the SDK lifecycle
+    types.ts      → shared DTOs (RuleList, SuggestNext, Suggestion, CTA specs)
+```
+
 ## 🚀 Enhanced Features & Advanced Capabilities
 
 DomSphere's rule agent and assistant support sophisticated targeting and interaction patterns that go far beyond simple ID-based matching. The system works across **any website** by leveraging universal web standards and intelligent pattern recognition.
