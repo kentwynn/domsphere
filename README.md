@@ -1,6 +1,6 @@
 # DomSphere
 
-DomSphere is a full-stack platform for building, deploying, and sharing intelligent web agents—combining a modern Next.js frontend, a FastAPI backend powered by LangServe, and a robust SDK for seamless integration. The project uses a monorepo (managed by Nx) to unify all core apps and packages, enabling tight integration, shared code, and streamlined development across the web UI, backend API, SDK, and reusable UI components.
+DomSphere is a full-stack platform for building, deploying, and sharing intelligent web agents. The Nx-managed monorepo bundles the Next.js operations dashboard, FastAPI services (public API plus the dedicated agent runtime), and shared TypeScript/Python packages—including the embeddable SDK, contracts, and UI kits—so every surface ships from the same source of truth. Under the hood, our agent workflows are orchestrated with LangGraph, giving each LLM-driven planner/template/validator stage a clean, testable hand-off.
 
 ## 🏗️ Architecture Overview
 
