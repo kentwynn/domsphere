@@ -167,6 +167,38 @@ class TriggerCondition(BaseModel):
 - ✅ **Maintainable** - Single source of truth for trigger format
 - ✅ **Extensible** - Easy to add new operators and field paths
 
+### Rule Agent Flow (Current)
+
+The rule agent uses a LangGraph pipeline so that the orchestration logic lives outside the agent class.
+
+```
+AgentSuggestNextRequest
+        │
+        ▼
+RuleAgent.generate_triggers
+        │  (apps/agent/agents/rule.py)
+        ▼
+RuleAgent._llm_generate
+        │  ↳ build_rule_graph(self._create_toolkit)
+        ▼
+LangGraph: build_rule_graph
+        ├─ Node "generate" → rule_generation_node
+        │        │
+        │        └─ run_llm_generation (LLM + tools)
+        │                ├─ get_output_schema
+        │                ├─ plan_sitemap_query
+        │                ├─ search_sitemap
+        │                └─ get_site_atlas
+        ▼
+        └─ Node "validate" → rule_validation_node
+                 │
+                 └─ Filters triggers against allowed event types & operators
+        ▼
+Validated triggers returned to RuleAgent.generate_triggers
+```
+
+This structure keeps the agent thin, makes the LangGraph reusable, and cleanly separates concerns between LLM generation, tool access, and schema validation.
+
 ## 🚀 Enhanced Features & Advanced Capabilities
 
 DomSphere's rule agent and assistant support sophisticated targeting and interaction patterns that go far beyond simple ID-based matching. The system works across **any website** by leveraging universal web standards and intelligent pattern recognition.
