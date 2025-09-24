@@ -4,17 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
-from helper.suggestion import (
-    get_site_atlas,
-    get_site_info,
-    parse_json_object,
-)
-from helper.site_search import generate_sitemap_query, search_sitemap
-from templates.suggestion import get_templates
+from helper.suggestion import parse_json_object
 from core.logging import get_agent_logger
+from .suggestion_llm import SuggestionLLMToolkit
 
 logger = get_agent_logger(__name__)
 
@@ -27,7 +22,7 @@ def _coerce_step(raw: Any) -> int:
     return step if step > 0 else 1
 
 
-def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
+def planner_agent_node(context: dict) -> dict:
     """LLM-based planner that selects which template type to use."""
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_openai import ChatOpenAI
@@ -71,7 +66,7 @@ def planner_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     return {"template_type": "action"}
 
 
-def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
+def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
     """Choose a template and fill in fields using available tools."""
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
     from langchain_core.tools import tool
@@ -108,16 +103,13 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
         if not condensed_payload and isinstance(path_hint, str) and path_hint.strip():
             condensed_payload = {"page_hint": path_hint, "site_id": context.get("siteId")}
 
-        return generate_sitemap_query(
-            json.dumps(condensed_payload) if condensed_payload else "",
-            api_key=os.getenv("OPENAI_TOKEN"),
-            model=os.getenv("OPENAI_MODEL"),
-        )
+        payload_for_tool = json.dumps(condensed_payload) if condensed_payload else ""
+        return toolkit.plan_sitemap_query(payload_for_tool)
 
     @tool("search_sitemap", return_direct=False)
     def tool_search_sitemap(siteId: str, query: str) -> Dict[str, Any]:  # type: ignore[override]
         """Search the sitemap for pages relevant to the provided query."""
-        results = search_sitemap(siteId, query, api_url, timeout)
+        results = toolkit.search_sitemap(siteId, query)
         pages = [
             {
                 "url": item.get("url"),
@@ -132,11 +124,13 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
         top_atlas = None
         if top_url:
             try:
-                top_info = get_site_info(siteId, top_url, api_url, timeout).model_dump()
+                raw_info = toolkit.get_site_info(siteId, top_url)
+                top_info = raw_info.model_dump() if hasattr(raw_info, "model_dump") else raw_info
             except Exception:
                 logger.debug("search_sitemap top_url info fetch failed site=%s", siteId)
             try:
-                top_atlas = get_site_atlas(siteId, top_url, api_url, timeout).model_dump()
+                raw_atlas = toolkit.get_site_atlas(siteId, top_url)
+                top_atlas = raw_atlas.model_dump() if hasattr(raw_atlas, "model_dump") else raw_atlas
             except Exception:
                 logger.debug("search_sitemap top_url atlas fetch failed site=%s", siteId)
         return {
@@ -150,20 +144,22 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     @tool("get_site_info", return_direct=False)
     def tool_get_site_info(siteId: str, url: str) -> Dict[str, Any]:
         """Fetch site info for a given site identifier and URL."""
-        return get_site_info(siteId, url, api_url, timeout).model_dump()
+        result = toolkit.get_site_info(siteId, url)
+        return result.model_dump() if hasattr(result, "model_dump") else result
 
     @tool("get_site_atlas", return_direct=False)
     def tool_get_site_atlas(siteId: str, url: str) -> Dict[str, Any]:
         """Fetch the site atlas containing DOM selectors for the page."""
-        return get_site_atlas(siteId, url, api_url, timeout).model_dump()
+        result = toolkit.get_site_atlas(siteId, url)
+        return result.model_dump() if hasattr(result, "model_dump") else result
 
     @tool("get_templates", return_direct=False)
     def tool_get_templates() -> Dict[str, Dict[str, Any]]:
         """Return the available suggestion templates keyed by type."""
-        return get_templates()
+        return toolkit.get_templates()
 
-    openai_token = os.getenv("OPENAI_TOKEN")
-    model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+    openai_token = toolkit.api_key or os.getenv("OPENAI_TOKEN")
+    model_name = toolkit.model_name or os.getenv("OPENAI_MODEL", "gpt-4o")
     llm = ChatOpenAI(api_key=openai_token, model=model_name, temperature=0)
     llm = llm.bind_tools(
         [
@@ -302,7 +298,11 @@ def template_agent_node(context: dict, api_url: str, timeout: float) -> dict:
     return {}
 
 
-def choice_manager_agent_node(context: dict, suggestion: dict, api_url: str, timeout: float) -> dict:
+def choice_manager_agent_node(
+    context: dict,
+    suggestion: dict,
+    toolkit_factory: Callable[[], SuggestionLLMToolkit],
+) -> dict:
     """Manage multi-step flows for choice suggestions."""
 
     if not isinstance(suggestion, dict):
@@ -356,7 +356,8 @@ def choice_manager_agent_node(context: dict, suggestion: dict, api_url: str, tim
         attempt_context = dict(context)
         attempt_context["choiceHistory"] = history[:]
         attempt_context["previousSuggestion"] = current
-        next_result = template_agent_node(attempt_context, api_url, timeout)
+        next_toolkit = toolkit_factory()
+        next_result = template_agent_node(attempt_context, next_toolkit)
         next_type = next_result.get("template_type") or current.get("type", "choice")
         next_data = next_result.get("suggestion_data")
 

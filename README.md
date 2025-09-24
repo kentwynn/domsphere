@@ -199,6 +199,40 @@ Validated triggers returned to RuleAgent.generate_triggers
 
 This structure keeps the agent thin, makes the LangGraph reusable, and cleanly separates concerns between LLM generation, tool access, and schema validation.
 
+### Suggestion Agent Flow (Current)
+
+The suggestion agent mirrors the same graph-driven architecture, letting LangGraph orchestrate planning, template filling, choice flows, and final output cleanup.
+
+```
+AgentSuggestNextRequest
+        │
+        ▼
+SuggestionAgent.generate_suggestions
+        │
+        ▼
+SuggestionAgent._run_suggestion_graph
+        │  ↳ build_suggestion_graph(self._create_toolkit, request_meta)
+        ▼
+LangGraph: build_suggestion_graph
+        ├─ Node "planner" → planner_agent_node
+        │        └─ LLM prompt selects template_type hint
+        ├─ Node "template" → template_agent_node
+        │        ├─ Uses SuggestionLLMToolkit tools (plan query, sitemap search, atlas/info, templates)
+        │        └─ Returns suggestion_data + intermediate flag
+        ├─ Conditional router "template_router"
+        │        ├─ template_type == "choice" → "choice_manager"
+        │        └─ otherwise → "validator"
+        ├─ Node "choice_manager" → choice_manager_agent_node
+        │        └─ Drives multi-step choice flows using fresh toolkits
+        └─ Node "validator" → finalize_suggestion_state
+                 ├─ Applies fallbacks / acknowledgements when needed
+                 └─ Normalizes suggestion + emits suggestions list
+        ▼
+Normalized suggestions returned to SuggestionAgent.generate_suggestions
+```
+
+Like the rule agent, the toolkit isolates all external dependencies so the graph can bind LangChain tools on demand while the agent itself stays focused on context prep and API orchestration.
+
 ## 🚀 Enhanced Features & Advanced Capabilities
 
 DomSphere's rule agent and assistant support sophisticated targeting and interaction patterns that go far beyond simple ID-based matching. The system works across **any website** by leveraging universal web standards and intelligent pattern recognition.
