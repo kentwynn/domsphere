@@ -4,7 +4,6 @@ import httpx
 from fastapi import APIRouter, Header, HTTPException
 from contracts.agent_api import AgentRuleRequest
 from helper.common import (
-    RULES_DB,
     _rule_matches,
     update_rule_fields,
     create_rule,
@@ -13,6 +12,7 @@ from helper.common import (
     AGENT_TIMEOUT,
     _fwd_headers,
     list_rules,
+    get_rule as fetch_rule,
 )
 from contracts.client_api import RuleCheckRequest, RuleCheckResponse, RuleCreatePayload, RuleUpdatePayload
 from core.logging import get_api_logger
@@ -34,40 +34,35 @@ def rule_check(
         getattr(payload.event, "type", None),
         x_request_id,
     )
-    site_rules = RULES_DB.get(payload.siteId)
     evt_type = getattr(payload.event, "type", None) or "unknown"
-    if not site_rules:
+    rules = list_rules(payload.siteId)
+    if not rules:
         logger.warning(
-            "No ruleset found site=%s request_id=%s",
+            "No rules found site=%s request_id=%s",
             payload.siteId,
             x_request_id,
         )
         return RuleCheckResponse(eventType=evt_type, matchedRules=[], shouldProceed=False, reason="SITE_RULES_NOT_FOUND")
 
     matched: list[str] = []
-
-    # Prefer flat rules if present
-    flat_rules = site_rules.get("rules", [])
-    if flat_rules:
-        matched = [
-            r["id"]
-            for r in flat_rules
-            if r.get("enabled", True) and _rule_matches(r, payload)
-        ]
-    else:
-        # Fallback: evaluate compiled-style rulesJson with triggers
-        rj = (site_rules or {}).get("rulesJson", {})
-        for r in rj.get("rules", []):
-            if not r.get("enabled", True):
-                continue
-            for trg in r.get("triggers", []):
-                trg_rule = {
-                    "eventType": [trg.get("eventType")],
-                    "when": trg.get("when", []),
-                }
-                if _rule_matches(trg_rule, payload):
-                    matched.append(r.get("id"))
-                    break
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        triggers = rule.get("triggers") or []
+        if not triggers:
+            # fallback to flat rule structure
+            if _rule_matches(rule, payload):
+                matched.append(rule.get("id"))
+            continue
+        for trg in triggers:
+            trg_rule = {
+                "id": rule.get("id"),
+                "eventType": [trg.get("eventType")],
+                "when": trg.get("when", []),
+            }
+            if _rule_matches(trg_rule, payload):
+                matched.append(rule.get("id"))
+                break
 
     response = RuleCheckResponse(
         eventType=evt_type,
@@ -99,9 +94,6 @@ def create_rule_route(payload: RuleCreatePayload, siteId: str = "demo-site"):
 
 @router.get("", response_model=dict)
 def get_rules(siteId: str = "demo-site"):
-    if siteId not in RULES_DB:
-        logger.warning("Rules requested for unknown site=%s", siteId)
-        raise HTTPException(status_code=404, detail="SITE_RULES_NOT_FOUND")
     rules = list_rules(siteId)
     logger.info("Returning %s rule(s) for site=%s", len(rules), siteId)
     return {"siteId": siteId, "rules": rules}
@@ -109,22 +101,16 @@ def get_rules(siteId: str = "demo-site"):
 
 @router.get("/{ruleId}", response_model=dict)
 def get_rule(ruleId: str, siteId: str = "demo-site"):
-    if siteId not in RULES_DB:
-        logger.warning("Rule %s requested for unknown site=%s", ruleId, siteId)
-        raise HTTPException(status_code=404, detail="SITE_RULES_NOT_FOUND")
-    for r in list_rules(siteId):
-        if r.get("id") == ruleId:
-            logger.info("Returning rule %s site=%s", ruleId, siteId)
-            return {"siteId": siteId, "rule": r}
+    rule = fetch_rule(siteId, ruleId)
+    if rule:
+        logger.info("Returning rule %s site=%s", ruleId, siteId)
+        return {"siteId": siteId, "rule": rule}
     logger.warning("Rule %s not found site=%s", ruleId, siteId)
     raise HTTPException(status_code=404, detail="RULE_NOT_FOUND")
 
 
 @router.put("/{ruleId}", response_model=dict)
 def update_rule(ruleId: str, payload: RuleUpdatePayload, siteId: str = "demo-site"):
-    if siteId not in RULES_DB:
-        logger.warning("Update requested for unknown site=%s rule=%s", siteId, ruleId)
-        raise HTTPException(status_code=404, detail="SITE_RULES_NOT_FOUND")
     updated = update_rule_fields(
         site_id=siteId,
         rule_id=ruleId,
@@ -147,13 +133,7 @@ def generate_rule_triggers(
     x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
     x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ):
-    # Find rule and get instruction
-    site = RULES_DB.get(siteId)
-    if not site:
-        logger.warning("Trigger generation requested for unknown site=%s rule=%s", siteId, ruleId)
-        raise HTTPException(status_code=404, detail="SITE_RULES_NOT_FOUND")
-    rich_rules = (site.get("rulesJson") or {}).get("rules") or []
-    target = next((r for r in rich_rules if r.get("id") == ruleId), None)
+    target = fetch_rule(siteId, ruleId)
     if not target:
         logger.warning("Rule %s not found for trigger generation site=%s", ruleId, siteId)
         raise HTTPException(status_code=404, detail="RULE_NOT_FOUND")

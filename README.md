@@ -159,6 +159,24 @@ class TriggerCondition(BaseModel):
 2. **Public API** (`/rule`) - Stores and validates triggers
 3. **SDK** - Evaluates triggers in real-time and fires rules when conditions are met
 
+## 🗄️ Database Setup
+
+The FastAPI stack expects the Postgres service defined in `docker-compose.yml`. After `docker compose up -d postgres` reports healthy, initialize the schema and optional demo data directly with `psql`:
+
+```bash
+# Create tables only (idempotent)
+docker compose exec -T postgres \
+  psql -U domsphere -d domsphere -v ON_ERROR_STOP=1 \
+  -f /dev/stdin < apps/api/db/init.sql
+
+# Populate the demo dataset (rules, sitemap, embeddings, atlas, styles)
+docker compose exec -T postgres \
+  psql -U domsphere -d domsphere -v ON_ERROR_STOP=1 \
+  -f /dev/stdin < apps/api/db/seed.sql
+```
+
+Running `init.sql` once is enough to create the tables; you can re-run it or `seed.sql` safely thanks to the defensive `CREATE TABLE IF NOT EXISTS` and `ON CONFLICT` clauses. Execute the commands from the repository root so the relative paths resolve correctly.
+
 **Benefits:**
 
 - ✅ **Type Safety** - Pydantic models ensure valid structure

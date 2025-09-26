@@ -12,9 +12,6 @@ from contracts.client_api import (
     SiteMapUrlEmbeddingRequest, SiteMapSearchResponse, SiteMapSearchResult,
 )
 from helper.common import (
-    SITE_MAP,
-    SITE_INFO,
-    SITE_ATLAS,
     AGENT_URL,
     AGENT_TIMEOUT,
     build_page_embedding_text,
@@ -22,6 +19,9 @@ from helper.common import (
     search_site_embeddings,
     get_site_embeddings,
     _fwd_headers,
+    get_site_map_response,
+    lookup_site_info,
+    get_site_atlas_response,
 )
 from core.logging import get_api_logger
 
@@ -118,13 +118,12 @@ def register_site(payload: SiteRegisterRequest) -> SiteRegisterResponse:
 # ------------------------------------------------------------------------
 @router.get("/map", response_model=SiteMapResponse)
 def get_site_map(siteId: str) -> SiteMapResponse:
-    # Return mock sitemap if available; otherwise an empty map
-    sm = SITE_MAP.get(siteId)
-    if sm:
+    sm = get_site_map_response(siteId)
+    if sm.pages:
         logger.info("Returning sitemap site=%s pages=%s", siteId, len(sm.pages))
-        return sm
-    logger.warning("Sitemap not found site=%s", siteId)
-    return SiteMapResponse(siteId=siteId, pages=[])
+    else:
+        logger.warning("Sitemap not found site=%s", siteId)
+    return sm
 
 @router.post("/map", response_model=SiteMapResponse)
 def build_site_map(
@@ -146,8 +145,8 @@ def embed_site_map(
     x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
     x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
 ) -> SiteMapEmbeddingResponse:
-    site_map = SITE_MAP.get(payload.siteId)
-    if not site_map or not site_map.pages:
+    site_map = get_site_map_response(payload.siteId)
+    if not site_map.pages:
         logger.warning(
             "Embed sitemap requested but sitemap missing site=%s request_id=%s",
             payload.siteId,
@@ -184,8 +183,8 @@ def embed_specific_urls(
     if not payload.urls:
         raise HTTPException(status_code=400, detail="At least one URL is required")
 
-    site_map = SITE_MAP.get(payload.siteId)
-    pages_by_url = {page.url: page for page in (site_map.pages if site_map else [])}
+    site_map = get_site_map_response(payload.siteId)
+    pages_by_url = {page.url: page for page in site_map.pages}
 
     pages: List[SiteMapPage] = []
     for url in payload.urls:
@@ -268,11 +267,10 @@ def search_site_map(
 # ------------------------------------------------------------------------
 @router.get("/info", response_model=SiteInfoResponse)
 def get_site_info(siteId: str, url: str) -> SiteInfoResponse:
-    # Return mock site info entry if available; otherwise minimal info
-    for info in SITE_INFO:
-        if info.siteId == siteId and info.url == url:
-            logger.info("Returning site info site=%s url=%s", siteId, url)
-            return info
+    info = lookup_site_info(siteId, url)
+    if info:
+        logger.info("Returning site info site=%s url=%s", siteId, url)
+        return info
     logger.warning("Site info not found site=%s url=%s", siteId, url)
     return SiteInfoResponse(siteId=siteId, url=url, meta=None, normalized=None)
 
@@ -287,16 +285,21 @@ def drag_site_info(payload: SiteInfoRequest) -> SiteInfoResponse:
 # ------------------------------------------------------------------------
 @router.get("/atlas", response_model=SiteAtlasResponse)
 def get_site_atlas(siteId: str, url: str) -> SiteAtlasResponse:
-    # Return mock atlas snapshot if available; otherwise minimal response
-    sa = SITE_ATLAS.get(url)
-    if sa:
+    atlas = get_site_atlas_response(siteId, url)
+    if atlas:
+        atlas_payload = atlas.atlas
+        element_count = None
+        if isinstance(atlas_payload, dict):
+            element_count = atlas_payload.get("elementCount")
+        else:
+            element_count = getattr(atlas_payload, "elementCount", None)
         logger.info(
             "Returning site atlas site=%s url=%s elements=%s",
             siteId,
             url,
-            sa.atlas.elementCount if sa.atlas else 0,
+            element_count if element_count is not None else 0,
         )
-        return sa
+        return atlas
     logger.warning("Site atlas not found site=%s url=%s", siteId, url)
     return SiteAtlasResponse(siteId=siteId, url=url, atlas=None, queuedPlanRebuild=None)
 
