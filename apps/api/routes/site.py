@@ -20,8 +20,14 @@ from helper.common import (
     get_site_embeddings,
     _fwd_headers,
     get_site_map_response,
+    store_site_map_pages,
+    generate_site_map,
+    register_site,
+    resolve_site_url,
+    refresh_site_info,
     lookup_site_info,
     get_site_atlas_response,
+    refresh_site_atlas,
 )
 from core.logging import get_api_logger
 
@@ -111,32 +117,68 @@ def register_site(payload: SiteRegisterRequest) -> SiteRegisterResponse:
         payload.parentUrl,
         site_id,
     )
+    register_site(
+        site_id,
+        parent_url=payload.parentUrl,
+        meta=payload.meta,
+    )
     return SiteRegisterResponse(siteId=site_id, parentUrl=payload.parentUrl, meta=payload.meta)
 
 # ------------------------------------------------------------------------
 # /site/map (GET = fetch current; POST = request build)
 # ------------------------------------------------------------------------
 @router.get("/map", response_model=SiteMapResponse)
-def get_site_map(siteId: str) -> SiteMapResponse:
+def get_site_map(
+    siteId: str,
+    url: str | None = None,
+    depth: int = 1,
+    force: bool = False,
+) -> SiteMapResponse:
     sm = get_site_map_response(siteId)
-    if sm.pages:
-        logger.info("Returning sitemap site=%s pages=%s", siteId, len(sm.pages))
-    else:
-        logger.warning("Sitemap not found site=%s", siteId)
-    return sm
+    if sm.pages and not force:
+        logger.info("Returning cached sitemap site=%s pages=%s", siteId, len(sm.pages))
+        return sm
+
+    start_url = resolve_site_url(siteId, url)
+    if not start_url:
+        if sm.pages:
+            return sm
+        logger.warning("Sitemap not found and no start URL provided site=%s", siteId)
+        return SiteMapResponse(siteId=siteId, pages=[])
+
+    generated = generate_site_map(siteId, start_url=start_url, depth=depth)
+    logger.info(
+        "Generated sitemap site=%s pages=%s depth=%s force=%s",
+        siteId,
+        len(generated.pages),
+        depth,
+        force,
+    )
+    return generated
 
 @router.post("/map", response_model=SiteMapResponse)
 def build_site_map(
     payload: SiteMapRequest,
     x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
 ) -> SiteMapResponse:
-    # no mock generation; just return correct shape
+    start_url = resolve_site_url(payload.siteId, payload.url)
+    if not start_url:
+        logger.warning(
+            "Build sitemap missing start URL site=%s request_id=%s",
+            payload.siteId,
+            x_request_id,
+        )
+        raise HTTPException(status_code=400, detail="START_URL_REQUIRED")
+
     logger.info(
-        "Build sitemap requested site=%s request_id=%s",
+        "Building sitemap site=%s depth=%s request_id=%s",
         payload.siteId,
+        payload.depth,
         x_request_id,
     )
-    return SiteMapResponse(siteId=payload.siteId, pages=[])
+    depth = payload.depth or 1
+    sm = generate_site_map(payload.siteId, start_url=start_url, depth=depth)
+    return sm
 
 
 @router.post("/map/embed", response_model=SiteMapEmbeddingResponse)
@@ -199,6 +241,8 @@ def embed_specific_urls(
                 x_request_id,
             )
             pages.append(SiteMapPage(url=url, meta=None))
+
+    store_site_map_pages(payload.siteId, pages)
 
     logger.info(
         "Embedding specific URLs site=%s count=%s request_id=%s",
@@ -266,45 +310,93 @@ def search_site_map(
 # /site/info (GET = fetch; POST = drag)
 # ------------------------------------------------------------------------
 @router.get("/info", response_model=SiteInfoResponse)
-def get_site_info(siteId: str, url: str) -> SiteInfoResponse:
-    info = lookup_site_info(siteId, url)
+def get_site_info(
+    siteId: str,
+    url: str | None = None,
+    path: str | None = None,
+    force: bool = False,
+) -> SiteInfoResponse:
+    if not url and not path:
+        raise HTTPException(status_code=400, detail="URL_OR_PATH_REQUIRED")
+
+    target_url = resolve_site_url(siteId, url, path)
+    if not target_url:
+        raise HTTPException(status_code=400, detail="UNRESOLVED_URL")
+
+    info = None if force else lookup_site_info(siteId, target_url)
+    if info is None:
+        info = refresh_site_info(siteId, url=target_url, force=True)
+
     if info:
-        logger.info("Returning site info site=%s url=%s", siteId, url)
+        logger.info("Returning site info site=%s url=%s", siteId, target_url)
         return info
-    logger.warning("Site info not found site=%s url=%s", siteId, url)
-    return SiteInfoResponse(siteId=siteId, url=url, meta=None, normalized=None)
+
+    logger.warning("Site info not available site=%s url=%s", siteId, target_url)
+    return SiteInfoResponse(siteId=siteId, url=target_url, meta=None, normalized=None)
 
 @router.post("/info", response_model=SiteInfoResponse)
 def drag_site_info(payload: SiteInfoRequest) -> SiteInfoResponse:
-    # no mock meta/normalized; just reflect inputs
-    logger.info("Drag site info request site=%s url=%s", payload.siteId, payload.url)
-    return SiteInfoResponse(siteId=payload.siteId, url=payload.url, meta=None, normalized=None)
+    target_url = resolve_site_url(payload.siteId, payload.url, payload.path)
+    if not target_url:
+        raise HTTPException(status_code=400, detail="URL_OR_PATH_REQUIRED")
+
+    logger.info("Refreshing site info site=%s url=%s", payload.siteId, target_url)
+    info = refresh_site_info(payload.siteId, url=target_url, force=True)
+    if info:
+        return info
+    return SiteInfoResponse(siteId=payload.siteId, url=target_url, meta=None, normalized=None)
 
 # ------------------------------------------------------------------------
 # /site/atlas (GET = fetch; POST = drag)
 # ------------------------------------------------------------------------
 @router.get("/atlas", response_model=SiteAtlasResponse)
-def get_site_atlas(siteId: str, url: str) -> SiteAtlasResponse:
-    atlas = get_site_atlas_response(siteId, url)
-    if atlas:
-        atlas_payload = atlas.atlas
+def get_site_atlas(siteId: str, url: str, force: bool = False) -> SiteAtlasResponse:
+    if not url:
+        raise HTTPException(status_code=400, detail="URL_REQUIRED")
+
+    if not force:
+        atlas = get_site_atlas_response(siteId, url)
+        if atlas:
+            atlas_payload = atlas.atlas
+            element_count = None
+            if isinstance(atlas_payload, dict):
+                element_count = atlas_payload.get("elementCount")
+            else:
+                element_count = getattr(atlas_payload, "elementCount", None)
+            logger.info(
+                "Returning cached site atlas site=%s url=%s elements=%s",
+                siteId,
+                url,
+                element_count if element_count is not None else 0,
+            )
+            return atlas
+
+    refreshed = refresh_site_atlas(siteId, url, force=True)
+    if refreshed:
+        atlas_payload = refreshed.atlas
         element_count = None
         if isinstance(atlas_payload, dict):
             element_count = atlas_payload.get("elementCount")
         else:
             element_count = getattr(atlas_payload, "elementCount", None)
         logger.info(
-            "Returning site atlas site=%s url=%s elements=%s",
+            "Refreshed site atlas site=%s url=%s elements=%s",
             siteId,
             url,
             element_count if element_count is not None else 0,
         )
-        return atlas
-    logger.warning("Site atlas not found site=%s url=%s", siteId, url)
+        return refreshed
+
+    logger.warning("Site atlas not available site=%s url=%s", siteId, url)
     return SiteAtlasResponse(siteId=siteId, url=url, atlas=None, queuedPlanRebuild=None)
 
 @router.post("/atlas", response_model=SiteAtlasResponse)
 def drag_site_atlas(payload: SiteAtlasRequest) -> SiteAtlasResponse:
-    # no mock atlas content; just reflect inputs
-    logger.info("Drag site atlas request site=%s url=%s", payload.siteId, payload.url)
+    if not payload.url:
+        raise HTTPException(status_code=400, detail="URL_REQUIRED")
+
+    logger.info("Refreshing site atlas site=%s url=%s", payload.siteId, payload.url)
+    atlas = refresh_site_atlas(payload.siteId, payload.url, force=True)
+    if atlas:
+        return atlas
     return SiteAtlasResponse(siteId=payload.siteId, url=payload.url, atlas=None, queuedPlanRebuild=None)

@@ -31,6 +31,11 @@ def _ensure_site(session: Session, site_id: str) -> Site:
     return site
 
 
+def get_site(site_id: str) -> Optional[Site]:
+    with session_scope() as session:
+        return session.get(Site, site_id)
+
+
 def upsert_site(
     site_id: str,
     *,
@@ -96,6 +101,32 @@ def insert_rule(
         session.flush()
         logger.info("Inserted rule site_id=%s rule_id=%s", site_id, rule_id)
         return rule
+
+
+def upsert_site_info_record(
+    site_id: str,
+    url: str,
+    *,
+    meta: Optional[dict] = None,
+    normalized: Optional[dict] = None,
+) -> SiteInfo:
+    with session_scope() as session:
+        _ensure_site(session, site_id)
+        stmt: Select[SiteInfo] = (
+            select(SiteInfo)
+            .where(SiteInfo.site_id == site_id, SiteInfo.url == url)
+            .with_for_update()
+        )
+        record = session.execute(stmt).scalar_one_or_none()
+        if record is None:
+            record = SiteInfo(site_id=site_id, url=url, meta=meta, normalized=normalized)
+            session.add(record)
+        else:
+            record.meta = meta
+            record.normalized = normalized
+        session.flush()
+        logger.info("Upserted site info site_id=%s url=%s", site_id, url)
+        return record
 
 
 def update_rule_fields(

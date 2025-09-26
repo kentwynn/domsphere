@@ -1,12 +1,19 @@
+import hashlib
 import math
 import os
 import re
-from typing import Any, Dict, Optional, List, Sequence, Tuple
+from collections import deque
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, List, Sequence, Tuple, Set
+from urllib.parse import urljoin, urlparse
 
+import httpx
 import numpy as np
+from bs4 import BeautifulSoup
 
 from db.crud import (
     get_rule as db_get_rule,
+    get_site as db_get_site,
     get_site_atlas as db_get_site_atlas,
     get_site_info as db_get_site_info,
     get_site_style as db_get_site_style,
@@ -15,7 +22,11 @@ from db.crud import (
     list_site_embeddings as db_list_site_embeddings,
     list_site_map_pages as db_list_site_map_pages,
     list_site_info as db_list_site_info,
+    upsert_site as db_upsert_site,
     upsert_site_embedding as db_upsert_site_embedding,
+    upsert_site_info_record as db_upsert_site_info_record,
+    upsert_site_map_pages as db_upsert_site_map_pages,
+    upsert_site_atlas as db_upsert_site_atlas,
     upsert_site_style as db_upsert_site_style,
     update_rule_fields as db_update_rule_fields,
     update_rule_triggers as db_update_rule_triggers,
@@ -86,6 +97,282 @@ def _site_atlas_model_to_response(model: SiteAtlasModel) -> SiteAtlasResponse:
         atlas=model.atlas,
         queuedPlanRebuild=model.queued_plan_rebuild,
     )
+
+
+_HTTP_HEADERS = {
+    "User-Agent": os.getenv("API_FETCH_USER_AGENT", "DomSphereAPI/1.0"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+
+def _get_site(site_id: str):
+    _ensure_db_ready()
+    return db_get_site(site_id)
+
+
+def register_site(site_id: str, *, parent_url: Optional[str], meta: Optional[Dict[str, Any]]) -> None:
+    _ensure_db_ready()
+    db_upsert_site(site_id, parent_url=parent_url, meta=meta)
+
+
+def _normalize_internal_url(url: str) -> Optional[str]:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    normalized_path = parsed.path or "/"
+    normalized = parsed._replace(path=normalized_path, fragment="", params="")
+    return normalized.geturl()
+
+
+def _resolve_target_url(site_id: str, url: Optional[str], path: Optional[str]) -> Optional[str]:
+    if url:
+        return url
+    if not path:
+        return None
+    site = _get_site(site_id)
+    base = getattr(site, "parent_url", None)
+    if not base:
+        return None
+    return urljoin(base.rstrip("/") + "/", path.lstrip("/"))
+
+
+def resolve_site_url(site_id: str, url: Optional[str], path: Optional[str] = None) -> Optional[str]:
+    resolved = _resolve_target_url(site_id, url, path)
+    if resolved:
+        return resolved
+    site = _get_site(site_id)
+    base = getattr(site, "parent_url", None)
+    return base
+
+
+def _fetch_html(url: str) -> Optional[str]:
+    if not url:
+        return None
+    try:
+        with httpx.Client(timeout=AGENT_TIMEOUT, headers=_HTTP_HEADERS) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            return response.text
+    except Exception as exc:
+        logger.warning("Failed to fetch url=%s: %s", url, exc)
+        return None
+
+
+def _extract_meta_from_soup(url: str, soup: BeautifulSoup) -> Dict[str, Any]:
+    title_tag = soup.find("title")
+    title = title_tag.get_text(strip=True) if title_tag else None
+    desc = None
+    keywords = None
+    for meta in soup.find_all("meta"):
+        name = meta.get("name") or meta.get("property")
+        if not name:
+            continue
+        name_lower = name.lower()
+        if desc is None and name_lower in {"description", "og:description"}:
+            desc = meta.get("content")
+        if keywords is None and name_lower == "keywords":
+            keywords = meta.get("content")
+    meta: Dict[str, Any] = {"url": url}
+    if title:
+        meta["title"] = title
+    if desc:
+        meta["description"] = desc
+    if keywords:
+        meta["keywords"] = keywords
+    return meta
+
+
+def _normalize_metadata(meta: Dict[str, Any], url: str) -> Dict[str, Any]:
+    parsed = urlparse(url)
+    normalized: Dict[str, Any] = {
+        "path": parsed.path or "/",
+        "hostname": parsed.hostname,
+    }
+    if "title" in meta:
+        normalized["title"] = meta["title"]
+    if "description" in meta:
+        normalized["description"] = meta["description"]
+    return normalized
+
+
+def _css_path(node: Any) -> Optional[str]:
+    segments: List[str] = []
+    current = node
+    while current is not None and getattr(current, "name", None):
+        segment = current.name
+        node_id = current.attrs.get("id") if hasattr(current, "attrs") else None
+        classes = current.attrs.get("class") if hasattr(current, "attrs") else None
+        if node_id:
+            segment += f"#{node_id}"
+        elif classes:
+            segment += "." + ".".join(classes)
+        segments.append(segment)
+        current = current.parent
+    if not segments:
+        return None
+    return " ".join(reversed(segments))
+
+
+def _build_dom_atlas(site_id: str, url: str, soup: BeautifulSoup, html: str) -> Dict[str, Any]:
+    elements: List[Dict[str, Any]] = []
+    node_index: Dict[int, int] = {}
+    for idx, node in enumerate(soup.find_all(True, limit=200)):
+        attrs = getattr(node, "attrs", {})
+        class_list = attrs.get("class")
+        role = attrs.get("role")
+        data_attrs = {k: v for k, v in attrs.items() if isinstance(k, str) and k.startswith("data-")}
+        text_sample = node.get_text(strip=True) if hasattr(node, "get_text") else None
+        parent_idx = None
+        parent = node.parent
+        while parent is not None and getattr(parent, "name", None):
+            parent_idx = node_index.get(id(parent))
+            if parent_idx is not None:
+                break
+            parent = parent.parent
+        element = {
+            "idx": idx,
+            "tag": node.name,
+            "id": attrs.get("id"),
+            "classList": class_list,
+            "role": role,
+            "dataAttrs": data_attrs or None,
+            "textSample": (text_sample[:160] if text_sample else None),
+            "cssPath": _css_path(node),
+            "parentIdx": parent_idx,
+        }
+        elements.append(element)
+        node_index[id(node)] = idx
+
+    atlas_payload = {
+        "atlasId": f"atlas-{hashlib.sha1(f'{site_id}:{url}'.encode('utf-8')).hexdigest()[:16]}",
+        "siteId": site_id,
+        "url": url,
+        "domHash": hashlib.sha1(html.encode("utf-8", errors="ignore")).hexdigest(),
+        "capturedAt": datetime.now(timezone.utc).isoformat(),
+        "elementCount": len(elements),
+        "elements": elements,
+    }
+    return atlas_payload
+
+
+def store_site_map_pages(site_id: str, pages: List[SiteMapPage]) -> None:
+    if not pages:
+        return
+    payload = [{"url": page.url, "meta": page.meta} for page in pages]
+    db_upsert_site_map_pages(site_id, payload)
+
+
+def refresh_site_info(
+    site_id: str,
+    *,
+    url: Optional[str] = None,
+    path: Optional[str] = None,
+    force: bool = False,
+) -> Optional[SiteInfoResponse]:
+    target_url = _resolve_target_url(site_id, url, path)
+    if not target_url:
+        logger.warning("Site info refresh missing target url site=%s", site_id)
+        return None
+
+    _ensure_db_ready()
+    existing = None if force else db_get_site_info(site_id, target_url)
+    if existing and not force:
+        return _site_info_model_to_response(existing)
+
+    html = _fetch_html(target_url)
+    if html is None:
+        if existing:
+            return _site_info_model_to_response(existing)
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    meta = _extract_meta_from_soup(target_url, soup)
+    normalized = _normalize_metadata(meta, target_url)
+    record = db_upsert_site_info_record(site_id, target_url, meta=meta, normalized=normalized)
+    return _site_info_model_to_response(record)
+
+
+def generate_site_map(
+    site_id: str,
+    *,
+    start_url: str,
+    depth: int = 1,
+    limit: int = 25,
+) -> SiteMapResponse:
+    depth = max(0, depth)
+    limit = max(1, limit)
+
+    normalized_start = _normalize_internal_url(start_url)
+    if not normalized_start:
+        return SiteMapResponse(siteId=site_id, pages=[])
+
+    parsed_base = urlparse(normalized_start)
+    base_netloc = parsed_base.netloc
+    seen: Set[str] = set()
+    queue: deque[Tuple[str, int]] = deque([(normalized_start, 0)])
+
+    pages: List[SiteMapPage] = []
+
+    while queue and len(pages) < limit:
+        current, level = queue.popleft()
+        if current in seen:
+            continue
+        seen.add(current)
+
+        html = _fetch_html(current)
+        if html is None:
+            continue
+
+        soup = BeautifulSoup(html, "html.parser")
+        meta = _extract_meta_from_soup(current, soup)
+        page_meta = {k: v for k, v in meta.items() if k != "url"}
+        pages.append(SiteMapPage(url=current, meta=page_meta or None))
+
+        if level >= depth:
+            continue
+
+        for anchor in soup.find_all("a", href=True):
+            href = anchor.get("href")
+            if not href:
+                continue
+            candidate = urljoin(current, href)
+            candidate = _normalize_internal_url(candidate)
+            if not candidate:
+                continue
+            parsed_candidate = urlparse(candidate)
+            if parsed_candidate.scheme not in {"http", "https"}:
+                continue
+            if parsed_candidate.netloc != base_netloc:
+                continue
+            if candidate in seen:
+                continue
+            if len(queue) >= limit * 2:
+                continue
+            queue.append((candidate, level + 1))
+
+    store_site_map_pages(site_id, pages)
+    return SiteMapResponse(siteId=site_id, pages=pages)
+
+
+def refresh_site_atlas(site_id: str, url: str, *, force: bool = False) -> Optional[SiteAtlasResponse]:
+    _ensure_db_ready()
+    existing = None if force else db_get_site_atlas(site_id, url)
+    if existing and not force:
+        return _site_atlas_model_to_response(existing)
+
+    html = _fetch_html(url)
+    if html is None:
+        if existing:
+            return _site_atlas_model_to_response(existing)
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    atlas_payload = _build_dom_atlas(site_id, url, soup, html)
+    record = db_upsert_site_atlas(site_id, url, atlas_payload, queued=False)
+    return _site_atlas_model_to_response(record)
 
 
 def get_site_style(site_id: str) -> Tuple[Optional[str], Optional[str]]:
