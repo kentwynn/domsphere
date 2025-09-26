@@ -53,6 +53,7 @@ class Site(TimestampMixin, Base):
     sitemap_pages = relationship("SiteMapPage", back_populates="site", cascade="all, delete-orphan")
     embeddings = relationship("SiteEmbedding", back_populates="site", cascade="all, delete-orphan")
     atlas_entries = relationship("SiteAtlas", back_populates="site", cascade="all, delete-orphan")
+    pages = relationship("SitePage", back_populates="site", cascade="all, delete-orphan")
 
 
 class SiteStyle(TimestampMixin, Base):
@@ -120,6 +121,32 @@ class SiteMapPage(TimestampMixin, Base):
     meta: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
     site = relationship("Site", back_populates="sitemap_pages")
+
+
+class SitePage(TimestampMixin, Base):
+    __tablename__ = "site_pages"
+    __table_args__ = (
+        UniqueConstraint("site_id", "url", name="uq_site_pages_site_url"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[str] = mapped_column(
+        ForeignKey("sites.site_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    info_last_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    atlas_last_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    embeddings_last_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    site = relationship("Site", back_populates="pages")
 
 
 class SiteEmbedding(TimestampMixin, Base):

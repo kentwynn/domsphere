@@ -17,6 +17,25 @@ CREATE TABLE IF NOT EXISTS site_styles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS site_pages (
+    id SERIAL PRIMARY KEY,
+    site_id VARCHAR(128) NOT NULL REFERENCES sites(site_id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'active',
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_crawled_at TIMESTAMPTZ,
+    meta JSONB,
+    content_hash TEXT,
+    info_last_refreshed_at TIMESTAMPTZ,
+    atlas_last_refreshed_at TIMESTAMPTZ,
+    embeddings_last_refreshed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_site_pages_site_url UNIQUE(site_id, url)
+);
+CREATE INDEX IF NOT EXISTS ix_site_pages_site_status ON site_pages(site_id, status);
+
 CREATE TABLE IF NOT EXISTS rules (
     id VARCHAR(96) PRIMARY KEY,
     site_id VARCHAR(128) NOT NULL REFERENCES sites(site_id) ON DELETE CASCADE,

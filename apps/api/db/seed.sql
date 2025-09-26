@@ -114,6 +114,24 @@ INSERT INTO site_styles (site_id, css) VALUES ('demo-site', '#assistant-panel {
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }') ON CONFLICT (site_id) DO UPDATE SET css = EXCLUDED.css;
+
+INSERT INTO site_pages (site_id, url, status, meta, info_last_refreshed_at, atlas_last_refreshed_at, embeddings_last_refreshed_at)
+VALUES
+  ('demo-site', 'http://localhost:3000/', 'active', '{"title": "Home"}'::jsonb, NOW(), NOW(), NOW()),
+  ('demo-site', 'http://localhost:3000/products', 'active', '{"title": "Products"}'::jsonb, NOW(), NOW(), NOW()),
+  ('demo-site', 'http://localhost:3000/product/sku-abc', 'active', '{"title": "Product SKU ABC"}'::jsonb, NOW(), NOW(), NOW()),
+  ('demo-site', 'http://localhost:3000/product/sku-def', 'active', '{"title": "Product SKU DEF"}'::jsonb, NOW(), NOW(), NOW()),
+  ('demo-site', 'http://localhost:3000/cart', 'active', '{"title": "Cart"}'::jsonb, NOW(), NOW(), NOW()),
+  ('demo-site', 'http://localhost:3000/checkout', 'active', '{"title": "Checkout"}'::jsonb, NOW(), NOW(), NOW()),
+  ('demo-site', 'http://localhost:3000/success', 'active', '{"title": "Order Success"}'::jsonb, NOW(), NOW(), NOW())
+ON CONFLICT (site_id, url) DO UPDATE SET
+  status = EXCLUDED.status,
+  meta = EXCLUDED.meta,
+  last_seen_at = NOW(),
+  last_crawled_at = NOW(),
+  info_last_refreshed_at = EXCLUDED.info_last_refreshed_at,
+  atlas_last_refreshed_at = EXCLUDED.atlas_last_refreshed_at,
+  embeddings_last_refreshed_at = EXCLUDED.embeddings_last_refreshed_at;
 INSERT INTO rules (id, site_id, enabled, tracking, rule_instruction, output_instruction, triggers) VALUES ('promo_cart_gte_2', 'demo-site', true, true, 'Show suggestions when cart has 2 or more items', 'Given PromoCode SAVE10', '[{"eventType": "page_load", "when": [{"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"}, {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"}, {"field": "telemetry.elementText", "op": "gte", "value": 2}]}, {"eventType": "input_change", "when": [{"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"}, {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"}, {"field": "telemetry.elementText", "op": "gte", "value": 2}]}, {"eventType": "dom_click", "when": [{"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"}, {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"}, {"field": "telemetry.elementText", "op": "gte", "value": 2}]}]'::jsonb) ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, tracking = EXCLUDED.tracking, rule_instruction = EXCLUDED.rule_instruction, output_instruction = EXCLUDED.output_instruction, triggers = EXCLUDED.triggers;
 INSERT INTO rules (id, site_id, enabled, tracking, rule_instruction, output_instruction, triggers) VALUES ('promo_cart_gte_5', 'demo-site', true, true, 'Show suggestions when cart has 5 or more items', 'Generate premium, loyalty-focused suggestions that make customers feel valued and exclusive', '[{"eventType": "page_load", "when": [{"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"}, {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"}, {"field": "telemetry.elementText", "op": "gte", "value": 5}]}, {"eventType": "input_change", "when": [{"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"}, {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"}, {"field": "telemetry.elementText", "op": "gte", "value": 5}]}, {"eventType": "dom_click", "when": [{"field": "telemetry.attributes.path", "op": "equals", "value": "/cart"}, {"field": "telemetry.attributes.id", "op": "equals", "value": "cart-count"}, {"field": "telemetry.elementText", "op": "gte", "value": 5}]}]'::jsonb) ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, tracking = EXCLUDED.tracking, rule_instruction = EXCLUDED.rule_instruction, output_instruction = EXCLUDED.output_instruction, triggers = EXCLUDED.triggers;
 INSERT INTO rules (id, site_id, enabled, tracking, rule_instruction, output_instruction, triggers) VALUES ('products_birthday_20y', 'demo-site', true, true, 'Show suggestions when user visits products page', 'Generate celebratory, milestone-focused suggestions with historical context and special offers', '[{"eventType": "page_load", "when": [{"field": "telemetry.attributes.path", "op": "equals", "value": "/products"}]}]'::jsonb) ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, tracking = EXCLUDED.tracking, rule_instruction = EXCLUDED.rule_instruction, output_instruction = EXCLUDED.output_instruction, triggers = EXCLUDED.triggers;

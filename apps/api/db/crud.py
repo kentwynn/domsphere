@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Sequence
+from datetime import datetime, timezone
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ from .models import (
     SiteEmbedding,
     SiteInfo,
     SiteMapPage,
+    SitePage,
     SiteStyle,
 )
 from .session import session_scope
@@ -61,6 +63,111 @@ def upsert_site(
         logger.debug("Upserted site site_id=%s", site_id)
         return site
 
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def list_site_pages(
+    site_id: str,
+    *,
+    status: Optional[str] = None,
+) -> List[SitePage]:
+    with session_scope() as session:
+        stmt: Select[SitePage] = select(SitePage).where(SitePage.site_id == site_id)
+        if status:
+            stmt = stmt.where(SitePage.status == status)
+        stmt = stmt.order_by(SitePage.last_seen_at.desc())
+        return list(session.execute(stmt).scalars())
+
+
+def bulk_upsert_site_pages(
+    site_id: str,
+    pages: Sequence[dict],
+    *,
+    mark_missing: bool = True,
+) -> Tuple[int, int]:
+    if not pages:
+        return 0, 0
+
+    now = _now()
+    seen_urls = {page.get("url") for page in pages if page.get("url")}
+    seen_urls = {url for url in seen_urls if url}
+
+    with session_scope() as session:
+        _ensure_site(session, site_id)
+        existing_stmt: Select[SitePage] = select(SitePage).where(SitePage.site_id == site_id)
+        existing = {row.url: row for row in session.execute(existing_stmt).scalars()}
+        touched = 0
+
+        for page in pages:
+            url = page.get("url")
+            if not url:
+                continue
+            meta = page.get("meta")
+            content_hash = page.get("content_hash")
+            last_crawled_at = page.get("last_crawled_at") or now
+            record = existing.get(url)
+            if record is None:
+                record = SitePage(
+                    site_id=site_id,
+                    url=url,
+                    status="active",
+                    meta=meta,
+                    content_hash=content_hash,
+                    first_seen_at=now,
+                    last_seen_at=now,
+                    last_crawled_at=last_crawled_at,
+                )
+                session.add(record)
+            else:
+                record.status = "active"
+                record.last_seen_at = now
+                record.last_crawled_at = last_crawled_at
+                if meta is not None:
+                    record.meta = meta
+                if content_hash is not None:
+                    record.content_hash = content_hash
+            touched += 1
+
+        marked_gone = 0
+        if existing and mark_missing:
+            for url, record in existing.items():
+                if url in seen_urls:
+                    continue
+                if record.status != "gone":
+                    record.status = "gone"
+                    record.updated_at = now
+                    marked_gone += 1
+
+        logger.info(
+            "Upserted %s sitemap page(s) site_id=%s marked_gone=%s",
+            touched,
+            site_id,
+            marked_gone,
+        )
+        return touched, marked_gone
+
+
+def mark_site_pages_status(
+    site_id: str,
+    urls: Sequence[str],
+    *,
+    status: str,
+) -> int:
+    if not urls:
+        return 0
+    with session_scope() as session:
+        stmt: Select[SitePage] = select(SitePage).where(
+            SitePage.site_id == site_id,
+            SitePage.url.in_(urls),
+        ).with_for_update()
+        rows = list(session.execute(stmt).scalars())
+        for row in rows:
+            row.status = status
+            row.updated_at = _now()
+        logger.debug("Marked %s site page(s) status=%s site_id=%s", len(rows), status, site_id)
+        return len(rows)
 
 def list_rules(site_id: str) -> List[Rule]:
     with session_scope() as session:
@@ -127,6 +234,29 @@ def upsert_site_info_record(
         session.flush()
         logger.info("Upserted site info site_id=%s url=%s", site_id, url)
         return record
+
+
+def touch_site_page_info(site_id: str, url: str) -> None:
+    with session_scope() as session:
+        stmt: Select[SitePage] = (
+            select(SitePage)
+            .where(SitePage.site_id == site_id, SitePage.url == url)
+            .with_for_update()
+        )
+        record = session.execute(stmt).scalar_one_or_none()
+        if record is None:
+            record = SitePage(
+                site_id=site_id,
+                url=url,
+                status="active",
+                first_seen_at=_now(),
+                last_seen_at=_now(),
+            )
+            session.add(record)
+        record.info_last_refreshed_at = _now()
+        record.last_seen_at = _now()
+        if record.status == "gone":
+            record.status = "active"
 
 
 def update_rule_fields(
@@ -222,7 +352,7 @@ def list_site_map_pages(site_id: str) -> List[SiteMapPage]:
         return list(session.execute(stmt).scalars())
 
 
-def upsert_site_map_pages(site_id: str, pages: Sequence[dict]) -> None:
+def upsert_site_map_pages(site_id: str, pages: Sequence[dict], *, replace: bool = True) -> None:
     with session_scope() as session:
         _ensure_site(session, site_id)
         current_stmt: Select[SiteMapPage] = select(SiteMapPage).where(SiteMapPage.site_id == site_id)
@@ -239,10 +369,16 @@ def upsert_site_map_pages(site_id: str, pages: Sequence[dict]) -> None:
                 existing.meta = meta
             else:
                 session.add(SiteMapPage(site_id=site_id, url=url, meta=meta))
-        for url, obj in current.items():
-            if url not in urls_seen:
-                session.delete(obj)
-        logger.info("Upserted sitemap pages site_id=%s count=%s", site_id, len(urls_seen))
+        if replace:
+            for url, obj in current.items():
+                if url not in urls_seen:
+                    session.delete(obj)
+        logger.info(
+            "Upserted sitemap pages site_id=%s count=%s replace=%s",
+            site_id,
+            len(urls_seen),
+            replace,
+        )
 
 
 def list_site_embeddings(site_id: str) -> List[SiteEmbedding]:
@@ -283,6 +419,32 @@ def upsert_site_embedding(
         return record
 
 
+def touch_site_page_embedding(site_id: str, url: str) -> None:
+    with session_scope() as session:
+        stmt: Select[SitePage] = (
+            select(SitePage)
+            .where(SitePage.site_id == site_id, SitePage.url == url)
+            .with_for_update()
+        )
+        record = session.execute(stmt).scalar_one_or_none()
+        now = _now()
+        if record is None:
+            record = SitePage(
+                site_id=site_id,
+                url=url,
+                status="active",
+                first_seen_at=now,
+                last_seen_at=now,
+                embeddings_last_refreshed_at=now,
+            )
+            session.add(record)
+        else:
+            record.embeddings_last_refreshed_at = now
+            record.last_seen_at = now
+            if record.status == "gone":
+                record.status = "active"
+
+
 def get_site_atlas(site_id: str, url: str) -> Optional[SiteAtlas]:
     with session_scope() as session:
         stmt: Select[SiteAtlas] = select(SiteAtlas).where(
@@ -314,3 +476,29 @@ def upsert_site_atlas(
         session.flush()
         logger.debug("Upserted atlas site_id=%s url=%s", site_id, url)
         return record
+
+
+def touch_site_page_atlas(site_id: str, url: str) -> None:
+    with session_scope() as session:
+        stmt: Select[SitePage] = (
+            select(SitePage)
+            .where(SitePage.site_id == site_id, SitePage.url == url)
+            .with_for_update()
+        )
+        record = session.execute(stmt).scalar_one_or_none()
+        now = _now()
+        if record is None:
+            record = SitePage(
+                site_id=site_id,
+                url=url,
+                status="active",
+                first_seen_at=now,
+                last_seen_at=now,
+                atlas_last_refreshed_at=now,
+            )
+            session.add(record)
+        else:
+            record.atlas_last_refreshed_at = now
+            record.last_seen_at = now
+            if record.status == "gone":
+                record.status = "active"

@@ -177,6 +177,16 @@ docker compose exec -T postgres \
 
 Running `init.sql` once is enough to create the tables; you can re-run it or `seed.sql` safely thanks to the defensive `CREATE TABLE IF NOT EXISTS` and `ON CONFLICT` clauses. Execute the commands from the repository root so the relative paths resolve correctly.
 
+### Site inventory
+
+The schema now maintains a `site_pages` inventory keyed by `siteId` + URL. Every sitemap crawl (`/site/map`) upserts rows in this table, marking missing pages as `gone` on full recrawls. Page-level metadata (`has info/atlas/embeddings`, last refreshed timestamps) is tracked alongside the URL, so you can inspect freshness via the new endpoint:
+
+```bash
+curl "http://localhost:8000/site/pages?siteId=demo-site"
+```
+
+Providing `url` to `/site/map`, `/site/info`, or `/site/atlas` still works, but those URLs must live under the registered parent domain; partial crawls update the matching entries without expiring the rest of the inventory.
+
 **Benefits:**
 
 - ✅ **Type Safety** - Pydantic models ensure valid structure

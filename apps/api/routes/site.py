@@ -28,12 +28,25 @@ from helper.common import (
     lookup_site_info,
     get_site_atlas_response,
     refresh_site_atlas,
+    list_site_pages_payload,
 )
 from core.logging import get_api_logger
 
 router = APIRouter(prefix="/site", tags=["site"])
 
 logger = get_api_logger(__name__)
+
+
+@router.get("/pages", response_model=dict)
+def list_site_pages(siteId: str, status: str | None = None) -> dict:
+    pages = list_site_pages_payload(siteId, status=status)
+    logger.info(
+        "Returning %s page(s) for site=%s status=%s",
+        len(pages),
+        siteId,
+        status,
+    )
+    return {"siteId": siteId, "status": status, "pages": pages}
 
 
 def _call_agent_embedding(
@@ -146,7 +159,13 @@ def get_site_map(
         logger.warning("Sitemap not found and no start URL provided site=%s", siteId)
         return SiteMapResponse(siteId=siteId, pages=[])
 
-    generated = generate_site_map(siteId, start_url=start_url, depth=depth)
+    partial = url is not None
+    generated = generate_site_map(
+        siteId,
+        start_url=start_url,
+        depth=depth,
+        mark_missing=not partial,
+    )
     logger.info(
         "Generated sitemap site=%s pages=%s depth=%s force=%s",
         siteId,
@@ -177,7 +196,13 @@ def build_site_map(
         x_request_id,
     )
     depth = payload.depth or 1
-    sm = generate_site_map(payload.siteId, start_url=start_url, depth=depth)
+    partial = payload.url is not None
+    sm = generate_site_map(
+        payload.siteId,
+        start_url=start_url,
+        depth=depth,
+        mark_missing=not partial,
+    )
     return sm
 
 
@@ -189,18 +214,29 @@ def embed_site_map(
 ) -> SiteMapEmbeddingResponse:
     site_map = get_site_map_response(payload.siteId)
     if not site_map.pages:
-        logger.warning(
-            "Embed sitemap requested but sitemap missing site=%s request_id=%s",
-            payload.siteId,
-            x_request_id,
-        )
-        return SiteMapEmbeddingResponse(
-            siteId=payload.siteId,
-            totalUrls=0,
-            embeddedUrls=0,
-            failedUrls=[],
-            message="No sitemap entries available",
-        )
+        start_url = resolve_site_url(payload.siteId, None)
+        if start_url:
+            logger.info("No cached sitemap; generating quick crawl site=%s", payload.siteId)
+            site_map = generate_site_map(
+                payload.siteId,
+                start_url=start_url,
+                depth=1,
+                limit=25,
+                mark_missing=False,
+            )
+        if not site_map.pages:
+            logger.warning(
+                "Embed sitemap requested but sitemap missing site=%s request_id=%s",
+                payload.siteId,
+                x_request_id,
+            )
+            return SiteMapEmbeddingResponse(
+                siteId=payload.siteId,
+                totalUrls=0,
+                embeddedUrls=0,
+                failedUrls=[],
+                message="No sitemap entries available",
+            )
 
     logger.info(
         "Embedding full sitemap site=%s pages=%s request_id=%s",
@@ -230,7 +266,15 @@ def embed_specific_urls(
 
     pages: List[SiteMapPage] = []
     for url in payload.urls:
-        page = pages_by_url.get(url)
+        resolved = resolve_site_url(payload.siteId, url)
+        if not resolved:
+            logger.warning(
+                "Embedding specific URL rejected site=%s url=%s (outside domain)",
+                payload.siteId,
+                url,
+            )
+            continue
+        page = pages_by_url.get(resolved)
         if page:
             pages.append(page)
         else:
@@ -240,9 +284,9 @@ def embed_specific_urls(
                 url,
                 x_request_id,
             )
-            pages.append(SiteMapPage(url=url, meta=None))
+            pages.append(SiteMapPage(url=resolved, meta=None))
 
-    store_site_map_pages(payload.siteId, pages)
+    store_site_map_pages(payload.siteId, pages, mark_missing=False)
 
     logger.info(
         "Embedding specific URLs site=%s count=%s request_id=%s",

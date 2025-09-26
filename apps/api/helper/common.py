@@ -19,15 +19,20 @@ from db.crud import (
     get_site_style as db_get_site_style,
     insert_rule as db_insert_rule,
     list_rules as db_list_rules,
+    list_site_pages as db_list_site_pages,
     list_site_embeddings as db_list_site_embeddings,
-    list_site_map_pages as db_list_site_map_pages,
     list_site_info as db_list_site_info,
+    list_site_map_pages as db_list_site_map_pages,
+    bulk_upsert_site_pages as db_bulk_upsert_site_pages,
+    upsert_site_map_pages as db_upsert_site_map_pages,
     upsert_site as db_upsert_site,
     upsert_site_embedding as db_upsert_site_embedding,
     upsert_site_info_record as db_upsert_site_info_record,
-    upsert_site_map_pages as db_upsert_site_map_pages,
     upsert_site_atlas as db_upsert_site_atlas,
     upsert_site_style as db_upsert_site_style,
+    touch_site_page_info as db_touch_site_page_info,
+    touch_site_page_atlas as db_touch_site_page_atlas,
+    touch_site_page_embedding as db_touch_site_page_embedding,
     update_rule_fields as db_update_rule_fields,
     update_rule_triggers as db_update_rule_triggers,
 )
@@ -36,6 +41,7 @@ from db.models import (
     SiteAtlas as SiteAtlasModel,
     SiteInfo as SiteInfoModel,
     SiteMapPage as SiteMapPageModel,
+    SitePage as SitePageModel,
 )
 from db.utils import init_db
 
@@ -99,6 +105,26 @@ def _site_atlas_model_to_response(model: SiteAtlasModel) -> SiteAtlasResponse:
     )
 
 
+def _site_page_model_to_dict(model: SitePageModel) -> Dict[str, Any]:
+    return {
+        "url": model.url,
+        "status": model.status,
+        "firstSeenAt": model.first_seen_at.isoformat() if model.first_seen_at else None,
+        "lastSeenAt": model.last_seen_at.isoformat() if model.last_seen_at else None,
+        "lastCrawledAt": model.last_crawled_at.isoformat() if model.last_crawled_at else None,
+        "infoLastRefreshedAt": model.info_last_refreshed_at.isoformat()
+        if model.info_last_refreshed_at
+        else None,
+        "atlasLastRefreshedAt": model.atlas_last_refreshed_at.isoformat()
+        if model.atlas_last_refreshed_at
+        else None,
+        "embeddingsLastRefreshedAt": model.embeddings_last_refreshed_at.isoformat()
+        if model.embeddings_last_refreshed_at
+        else None,
+        "meta": model.meta,
+    }
+
+
 _HTTP_HEADERS = {
     "User-Agent": os.getenv("API_FETCH_USER_AGENT", "DomSphereAPI/1.0"),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -141,11 +167,24 @@ def _resolve_target_url(site_id: str, url: Optional[str], path: Optional[str]) -
 
 def resolve_site_url(site_id: str, url: Optional[str], path: Optional[str] = None) -> Optional[str]:
     resolved = _resolve_target_url(site_id, url, path)
-    if resolved:
-        return resolved
     site = _get_site(site_id)
     base = getattr(site, "parent_url", None)
-    return base
+    if resolved:
+        if base:
+            parent_host = urlparse(base).hostname
+            resolved_host = urlparse(resolved).hostname
+            if parent_host and resolved_host and resolved_host != parent_host:
+                logger.warning(
+                    "Resolved URL host mismatch site=%s resolved=%s parent=%s",
+                    site_id,
+                    resolved,
+                    base,
+                )
+                return None
+        return resolved
+    if base:
+        return base
+    return None
 
 
 def _fetch_html(url: str) -> Optional[str]:
@@ -258,11 +297,29 @@ def _build_dom_atlas(site_id: str, url: str, soup: BeautifulSoup, html: str) -> 
     return atlas_payload
 
 
-def store_site_map_pages(site_id: str, pages: List[SiteMapPage]) -> None:
+def store_site_map_pages(
+    site_id: str,
+    pages: List[SiteMapPage],
+    *,
+    mark_missing: bool = True,
+) -> None:
     if not pages:
         return
     payload = [{"url": page.url, "meta": page.meta} for page in pages]
-    db_upsert_site_map_pages(site_id, payload)
+    db_upsert_site_map_pages(site_id, payload, replace=mark_missing)
+    db_bulk_upsert_site_pages(
+        site_id,
+        [
+            {
+                "url": page.url,
+                "meta": page.meta,
+                "content_hash": (page.meta or {}).get("hash") if page.meta else None,
+                "last_crawled_at": datetime.now(timezone.utc),
+            }
+            for page in pages
+        ],
+        mark_missing=mark_missing,
+    )
 
 
 def refresh_site_info(
@@ -292,6 +349,7 @@ def refresh_site_info(
     meta = _extract_meta_from_soup(target_url, soup)
     normalized = _normalize_metadata(meta, target_url)
     record = db_upsert_site_info_record(site_id, target_url, meta=meta, normalized=normalized)
+    db_touch_site_page_info(site_id, target_url)
     return _site_info_model_to_response(record)
 
 
@@ -301,6 +359,7 @@ def generate_site_map(
     start_url: str,
     depth: int = 1,
     limit: int = 25,
+    mark_missing: bool = True,
 ) -> SiteMapResponse:
     depth = max(0, depth)
     limit = max(1, limit)
@@ -329,6 +388,7 @@ def generate_site_map(
         soup = BeautifulSoup(html, "html.parser")
         meta = _extract_meta_from_soup(current, soup)
         page_meta = {k: v for k, v in meta.items() if k != "url"}
+        page_meta["hash"] = hashlib.sha1(html.encode("utf-8", errors="ignore")).hexdigest()
         pages.append(SiteMapPage(url=current, meta=page_meta or None))
 
         if level >= depth:
@@ -353,7 +413,7 @@ def generate_site_map(
                 continue
             queue.append((candidate, level + 1))
 
-    store_site_map_pages(site_id, pages)
+    store_site_map_pages(site_id, pages, mark_missing=mark_missing)
     return SiteMapResponse(siteId=site_id, pages=pages)
 
 
@@ -372,6 +432,7 @@ def refresh_site_atlas(site_id: str, url: str, *, force: bool = False) -> Option
     soup = BeautifulSoup(html, "html.parser")
     atlas_payload = _build_dom_atlas(site_id, url, soup, html)
     record = db_upsert_site_atlas(site_id, url, atlas_payload, queued=False)
+    db_touch_site_page_atlas(site_id, url)
     return _site_atlas_model_to_response(record)
 
 
@@ -391,8 +452,35 @@ def store_site_style(site_id: str, css: str) -> str:
 
 def get_site_map_response(site_id: str) -> SiteMapResponse:
     _ensure_db_ready()
-    pages = [_site_map_page_model_to_contract(page) for page in db_list_site_map_pages(site_id)]
+    page_models = db_list_site_pages(site_id, status="active")
+    if page_models:
+        pages = [SiteMapPage(url=record.url, meta=record.meta) for record in page_models]
+    else:
+        pages = [_site_map_page_model_to_contract(page) for page in db_list_site_map_pages(site_id)]
     return SiteMapResponse(siteId=site_id, pages=pages)
+
+
+def list_site_pages_payload(site_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    _ensure_db_ready()
+    records = db_list_site_pages(site_id, status=status)
+    if records:
+        return [_site_page_model_to_dict(record) for record in records]
+    # Fallback to legacy sitemap entries if inventory not yet populated
+    legacy = db_list_site_map_pages(site_id)
+    return [
+        {
+            "url": item.url,
+            "status": "active",
+            "firstSeenAt": None,
+            "lastSeenAt": None,
+            "lastCrawledAt": None,
+            "infoLastRefreshedAt": None,
+            "atlasLastRefreshedAt": None,
+            "embeddingsLastRefreshedAt": None,
+            "meta": item.meta,
+        }
+        for item in legacy
+    ]
 
 
 def get_site_atlas_response(site_id: str, url: str) -> Optional[SiteAtlasResponse]:
@@ -501,6 +589,7 @@ def store_site_embedding(
         text=text,
         meta=meta or {},
     )
+    db_touch_site_page_embedding(site_id, url)
 
 
 def get_site_embeddings(site_id: str) -> Dict[str, Dict[str, Any]]:
