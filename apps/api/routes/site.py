@@ -22,7 +22,7 @@ from helper.common import (
     get_site_map_response,
     store_site_map_pages,
     generate_site_map,
-    register_site,
+    register_site as register_site_helper,
     resolve_site_url,
     refresh_site_info,
     lookup_site_info,
@@ -30,6 +30,7 @@ from helper.common import (
     refresh_site_atlas,
     list_site_pages_payload,
 )
+from db.crud import get_site as db_get_site
 from core.logging import get_api_logger
 
 router = APIRouter(prefix="/site", tags=["site"])
@@ -120,22 +121,70 @@ def _embed_pages(
     )
 
 # ------------------------------------------------------------------------
-# /site/register  (no side effects; just echo a siteId + parentUrl)
+# /site/register  (create/update/fetch site metadata)
 # ------------------------------------------------------------------------
 @router.post("/register", response_model=SiteRegisterResponse)
 def register_site(payload: SiteRegisterRequest) -> SiteRegisterResponse:
-    site_id = payload.siteId or f"site_{abs(hash(payload.parentUrl)) % 99999}"
-    logger.info(
-        "Site registration request parent=%s assigned=%s",
-        payload.parentUrl,
-        site_id,
-    )
-    register_site(
-        site_id,
+    if not payload.parentUrl:
+        raise HTTPException(status_code=400, detail="PARENT_URL_REQUIRED")
+
+    site_id = register_site_helper(
+        payload.siteId,
         parent_url=payload.parentUrl,
+        display_name=payload.displayName,
         meta=payload.meta,
     )
-    return SiteRegisterResponse(siteId=site_id, parentUrl=payload.parentUrl, meta=payload.meta)
+
+    record = db_get_site(site_id)
+    logger.info("Registered site siteId=%s parent=%s", site_id, payload.parentUrl)
+    return SiteRegisterResponse(
+        siteId=site_id,
+        displayName=getattr(record, "display_name", None),
+        parentUrl=getattr(record, "parent_url", payload.parentUrl),
+        meta=getattr(record, "meta", payload.meta),
+    )
+
+
+@router.put("/register", response_model=SiteRegisterResponse)
+def update_site(payload: SiteRegisterRequest) -> SiteRegisterResponse:
+    if not payload.siteId:
+        raise HTTPException(status_code=400, detail="SITE_ID_REQUIRED")
+    if not payload.parentUrl:
+        existing = db_get_site(payload.siteId)
+        if existing is None or not getattr(existing, "parent_url", None):
+            raise HTTPException(status_code=400, detail="PARENT_URL_REQUIRED")
+        parent_url = existing.parent_url
+    else:
+        parent_url = payload.parentUrl
+
+    site_id = register_site_helper(
+        payload.siteId,
+        parent_url=parent_url,
+        display_name=payload.displayName,
+        meta=payload.meta,
+    )
+
+    record = db_get_site(site_id)
+    logger.info("Updated site siteId=%s", site_id)
+    return SiteRegisterResponse(
+        siteId=site_id,
+        displayName=getattr(record, "display_name", payload.displayName),
+        parentUrl=getattr(record, "parent_url", parent_url),
+        meta=getattr(record, "meta", payload.meta),
+    )
+
+
+@router.get("/register", response_model=SiteRegisterResponse)
+def get_site_registration(siteId: str) -> SiteRegisterResponse:
+    record = db_get_site(siteId)
+    if record is None:
+        raise HTTPException(status_code=404, detail="SITE_NOT_FOUND")
+    return SiteRegisterResponse(
+        siteId=record.site_id,
+        displayName=getattr(record, "display_name", None),
+        parentUrl=getattr(record, "parent_url", None),
+        meta=getattr(record, "meta", None),
+    )
 
 # ------------------------------------------------------------------------
 # /site/map (GET = fetch current; POST = request build)

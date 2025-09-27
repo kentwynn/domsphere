@@ -136,9 +136,24 @@ def _get_site(site_id: str):
     return db_get_site(site_id)
 
 
-def register_site(site_id: str, *, parent_url: Optional[str], meta: Optional[Dict[str, Any]]) -> None:
+def _slugify_site_id_from_url(parent_url: str) -> str:
+    parsed = urlparse(parent_url)
+    host = parsed.netloc or parsed.path or parent_url
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", host.strip().lower()).strip("-")
+    return slug or "site"
+
+
+def register_site(
+    site_id: Optional[str],
+    *,
+    parent_url: str,
+    display_name: Optional[str] = None,
+    meta: Optional[Dict[str, Any]] = None,
+) -> str:
     _ensure_db_ready()
-    db_upsert_site(site_id, parent_url=parent_url, meta=meta)
+    resolved_site_id = site_id or _slugify_site_id_from_url(parent_url)
+    db_upsert_site(resolved_site_id, parent_url=parent_url, display_name=display_name, meta=meta)
+    return resolved_site_id
 
 
 def _normalize_internal_url(url: str) -> Optional[str]:

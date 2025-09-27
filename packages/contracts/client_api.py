@@ -85,12 +85,14 @@ class SuggestNextResponse(BaseModel):
 
 class SiteRegisterRequest(BaseModel):
     siteId: Optional[str] = None   # if not provided, backend generates
+    displayName: Optional[str] = None
     parentUrl: str                 # root URL to crawl from
     meta: Optional[Dict[str, Any]] = None
 
 
 class SiteRegisterResponse(BaseModel):
     siteId: str
+    displayName: Optional[str] = None
     parentUrl: str
     meta: Optional[Dict[str, Any]] = None
 

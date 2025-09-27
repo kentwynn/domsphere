@@ -125,6 +125,23 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/site/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Site Pages */
+        get: operations["list_site_pages_site_pages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/site/register": {
         parameters: {
             query?: never;
@@ -132,8 +149,10 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
+        /** Get Site Registration */
+        get: operations["get_site_registration_site_register_get"];
+        /** Update Site */
+        put: operations["update_site_site_register_put"];
         /** Register Site */
         post: operations["register_site_site_register_post"];
         delete?: never;
@@ -511,6 +530,8 @@ export type components = {
         SiteRegisterRequest: {
             /** Siteid */
             siteId?: string | null;
+            /** Displayname */
+            displayName?: string | null;
             /** Parenturl */
             parentUrl: string;
             /** Meta */
@@ -522,6 +543,8 @@ export type components = {
         SiteRegisterResponse: {
             /** Siteid */
             siteId: string;
+            /** Displayname */
+            displayName?: string | null;
             /** Parenturl */
             parentUrl: string;
             /** Meta */
@@ -935,6 +958,104 @@ export interface operations {
             };
         };
     };
+    list_site_pages_site_pages_get: {
+        parameters: {
+            query: {
+                siteId: string;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_site_registration_site_register_get: {
+        parameters: {
+            query: {
+                siteId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteRegisterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_site_site_register_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteRegisterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     register_site_site_register_post: {
         parameters: {
             query?: never;
@@ -972,6 +1093,9 @@ export interface operations {
         parameters: {
             query: {
                 siteId: string;
+                url?: string | null;
+                depth?: number;
+                force?: boolean;
             };
             header?: never;
             path?: never;
@@ -1145,7 +1269,9 @@ export interface operations {
         parameters: {
             query: {
                 siteId: string;
-                url: string;
+                url?: string | null;
+                path?: string | null;
+                force?: boolean;
             };
             header?: never;
             path?: never;
@@ -1211,6 +1337,7 @@ export interface operations {
             query: {
                 siteId: string;
                 url: string;
+                force?: boolean;
             };
             header?: never;
             path?: never;
