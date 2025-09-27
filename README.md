@@ -187,6 +187,30 @@ curl "http://localhost:8000/site/pages?siteId=demo-site"
 
 Providing `url` to `/site/map`, `/site/info`, or `/site/atlas` still works, but those URLs must live under the registered parent domain; partial crawls update the matching entries without expiring the rest of the inventory.
 
+### Site registration
+
+Use the `/site/register` family of endpoints to manage metadata:
+
+- `POST /site/register` – create a site. Omit `siteId` to auto-generate (`example-com`), and optionally supply `displayName`/`meta`.
+- `PUT /site/register` – update an existing site (requires `siteId`). You can change display name, metadata, or parent URL.
+- `GET /site/register?siteId=...` – retrieve the currently stored record.
+
+## 📦 Demo: WordPress Playground
+
+For a quick end-to-end test with a real site, spin up the bundled WordPress stack:
+
+```bash
+docker compose -f demo-wp.docker.yml up -d
+```
+
+Services:
+
+- WordPress → http://localhost:8080
+- phpMyAdmin → http://localhost:8081 (user `root`, password `rootpass`)
+- WordPress admin → http://localhost:8080/wp-admin (user `demo`, password `12345678@@@!!!`)
+
+When you’re done, tear it down with `docker compose -f demo-wp.docker.yml down`. This stack uses MariaDB 10.11 for native ARM64 support; phpMyAdmin runs under Rosetta (`platform: linux/amd64`) because the upstream image doesn’t ship an arm64 variant.
+
 **Benefits:**
 
 - ✅ **Type Safety** - Pydantic models ensure valid structure

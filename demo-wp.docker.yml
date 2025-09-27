@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  wordpress:
+    image: wordpress:latest
+    container_name: demo-wp-wordpress
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wp_user
+      WORDPRESS_DB_PASSWORD: wp_pass
+      WORDPRESS_DB_NAME: wp_db
+    volumes:
+      - demo_wp_data:/var/www/html
+
+  db:
+    image: mariadb:10.11
+    container_name: demo-wp-db
+    restart: always
+    environment:
+      MARIADB_DATABASE: wp_db
+      MARIADB_USER: wp_user
+      MARIADB_PASSWORD: wp_pass
+      MARIADB_ROOT_PASSWORD: rootpass
+    volumes:
+      - demo_db_data:/var/lib/mysql
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    platform: linux/amd64
+    container_name: demo-wp-phpmyadmin
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: rootpass
+
+volumes:
+  demo_db_data:
+  demo_wp_data:
