@@ -108,7 +108,8 @@ class SiteMapPage(BaseModel):
 class SiteMapRequest(BaseModel):
     siteId: str
     url: Optional[str] = None
-    depth: Optional[int] = 1
+    depth: Optional[int] = None
+    limit: Optional[int] = None
     force: bool = False
 
 class SiteMapResponse(BaseModel):
@@ -122,11 +123,7 @@ class SiteMapResponse(BaseModel):
 
 class SiteMapEmbeddingRequest(BaseModel):
     siteId: str
-
-
-class SiteMapUrlEmbeddingRequest(BaseModel):
-    siteId: str
-    urls: List[str]
+    urls: Optional[List[str]] = None
 
 
 class SiteMapEmbeddingResponse(BaseModel):
@@ -135,6 +132,7 @@ class SiteMapEmbeddingResponse(BaseModel):
     embeddedUrls: int
     failedUrls: List[str] = Field(default_factory=list)
     message: Optional[str] = None
+    pendingUrls: List[str] = Field(default_factory=list)
 
 
 class SiteMapSearchResult(BaseModel):
@@ -155,7 +153,6 @@ class SiteMapSearchResponse(BaseModel):
 
 class SiteInfoRequest(BaseModel):
     siteId: str
-    path: Optional[str] = None
     url: Optional[str] = None
     force: bool = False
 
@@ -167,13 +164,18 @@ class SiteInfoResponse(BaseModel):
     normalized: Optional[Dict[str, Any]] = None
 
 
+class SiteInfoCollectionResponse(BaseModel):
+    siteId: str
+    items: List[SiteInfoResponse] = Field(default_factory=list)
+
+
 # ==============================================================================
 # /site/atlas
 # ==============================================================================
 
 class SiteAtlasRequest(BaseModel):
     siteId: str
-    url: str
+    url: Optional[str] = None
     force: bool = False
 
 
@@ -182,6 +184,11 @@ class SiteAtlasResponse(BaseModel):
     url: str
     atlas: Optional[DomAtlasSnapshot] = None
     queuedPlanRebuild: Optional[bool] = None
+
+
+class SiteAtlasCollectionResponse(BaseModel):
+    siteId: str
+    items: List[SiteAtlasResponse] = Field(default_factory=list)
 
 # ==============================================================================
 # /sdk/style

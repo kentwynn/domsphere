@@ -7,7 +7,12 @@ from typing import Any, Dict
 
 import httpx
 
-from contracts.client_api import SiteAtlasResponse, SiteInfoResponse
+from contracts.client_api import (
+    SiteAtlasCollectionResponse,
+    SiteAtlasResponse,
+    SiteInfoCollectionResponse,
+    SiteInfoResponse,
+)
 
 
 def normalize_url(url: str) -> str:
@@ -26,7 +31,13 @@ def get_site_info(site_id: str, url: str, api_url: str, timeout: float) -> SiteI
         data: Any = response.json() or {}
         if not data:
             return SiteInfoResponse(siteId=site_id, url=normalized_url, meta=None, normalized=None)
-        return SiteInfoResponse(**data)
+        collection = SiteInfoCollectionResponse(**data)
+        for item in collection.items:
+            if item.url == normalized_url:
+                return item
+        if collection.items:
+            return collection.items[0]
+        return SiteInfoResponse(siteId=site_id, url=normalized_url, meta=None, normalized=None)
 
 
 def get_site_atlas(site_id: str, url: str, api_url: str, timeout: float) -> SiteAtlasResponse:
@@ -40,7 +51,13 @@ def get_site_atlas(site_id: str, url: str, api_url: str, timeout: float) -> Site
         data: Any = response.json() or {}
         if not data:
             return SiteAtlasResponse(siteId=site_id, url=normalized_url, atlas=None, queuedPlanRebuild=None)
-        return SiteAtlasResponse(**data)
+        collection = SiteAtlasCollectionResponse(**data)
+        for item in collection.items:
+            if item.url == normalized_url:
+                return item
+        if collection.items:
+            return collection.items[0]
+        return SiteAtlasResponse(siteId=site_id, url=normalized_url, atlas=None, queuedPlanRebuild=None)
 
 
 def parse_json_object(text: str) -> Dict[str, Any]:

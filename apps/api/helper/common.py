@@ -5,7 +5,7 @@ import re
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List, Sequence, Tuple, Set
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlencode, parse_qsl
 
 import httpx
 import numpy as np
@@ -23,6 +23,7 @@ from db.crud import (
     list_site_embeddings as db_list_site_embeddings,
     list_site_info as db_list_site_info,
     list_site_map_pages as db_list_site_map_pages,
+    list_site_atlas as db_list_site_atlas,
     bulk_upsert_site_pages as db_bulk_upsert_site_pages,
     upsert_site_map_pages as db_upsert_site_map_pages,
     upsert_site as db_upsert_site,
@@ -58,6 +59,17 @@ logger = get_api_logger(__name__)
 
 AGENT_URL = os.getenv("AGENT_BASE_URL", "http://localhost:5001").rstrip("/")
 AGENT_TIMEOUT = float(os.getenv("AGENT_TIMEOUT", "300"))
+DEFAULT_SITEMAP_MAX_PAGES = max(1, int(os.getenv("SITEMAP_MAX_PAGES", "5000")))
+SITEMAP_QUEUE_FANOUT = max(2, int(os.getenv("SITEMAP_QUEUE_FANOUT", "4")))
+EMBED_BATCH_LIMIT = max(1, int(os.getenv("EMBED_BATCH_LIMIT", "100")))
+DROP_QUERY_PARAMS = {
+    param.strip().lower()
+    for param in os.getenv(
+        "SITEMAP_DROP_QUERY_PARAMS",
+        "add-to-cart,utm_source,utm_medium,utm_campaign,utm_term,utm_content",
+    ).split(",")
+    if param.strip()
+}
 logger.info("API proxy configured agent_url=%s timeout=%s", AGENT_URL, AGENT_TIMEOUT)
 
 
@@ -164,42 +176,57 @@ def _normalize_internal_url(url: str) -> Optional[str]:
     if not parsed.scheme or not parsed.netloc:
         return None
     normalized_path = parsed.path or "/"
-    normalized = parsed._replace(path=normalized_path, fragment="", params="")
+    query_items = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() not in DROP_QUERY_PARAMS
+    ]
+    normalized_query = urlencode(query_items, doseq=True)
+    normalized = parsed._replace(
+        path=normalized_path,
+        fragment="",
+        params="",
+        query=normalized_query,
+    )
+    if not normalized.query:
+        normalized = normalized._replace(query="")
     return normalized.geturl()
 
 
-def _resolve_target_url(site_id: str, url: Optional[str], path: Optional[str]) -> Optional[str]:
-    if url:
-        return url
-    if not path:
-        return None
+def resolve_site_url(site_id: str, url: Optional[str]) -> Optional[str]:
     site = _get_site(site_id)
     base = getattr(site, "parent_url", None)
-    if not base:
+    candidate = url
+    if candidate:
+        try:
+            parsed = urlparse(candidate)
+        except Exception:
+            logger.warning("Failed to parse url=%s for site=%s", candidate, site_id)
+            return None
+        if base and not parsed.scheme:
+            candidate = urljoin(base.rstrip("/") + "/", candidate.lstrip("/"))
+    else:
+        candidate = base
+
+    if not candidate:
         return None
-    return urljoin(base.rstrip("/") + "/", path.lstrip("/"))
 
+    normalized = _normalize_internal_url(candidate)
+    if not normalized:
+        return None
 
-def resolve_site_url(site_id: str, url: Optional[str], path: Optional[str] = None) -> Optional[str]:
-    resolved = _resolve_target_url(site_id, url, path)
-    site = _get_site(site_id)
-    base = getattr(site, "parent_url", None)
-    if resolved:
-        if base:
-            parent_host = urlparse(base).hostname
-            resolved_host = urlparse(resolved).hostname
-            if parent_host and resolved_host and resolved_host != parent_host:
-                logger.warning(
-                    "Resolved URL host mismatch site=%s resolved=%s parent=%s",
-                    site_id,
-                    resolved,
-                    base,
-                )
-                return None
-        return resolved
     if base:
-        return base
-    return None
+        parent_host = urlparse(base).hostname
+        resolved_host = urlparse(normalized).hostname
+        if parent_host and resolved_host and resolved_host != parent_host:
+            logger.warning(
+                "Resolved URL host mismatch site=%s resolved=%s parent=%s",
+                site_id,
+                normalized,
+                base,
+            )
+            return None
+    return normalized
 
 
 def _fetch_html(url: str) -> Optional[str]:
@@ -341,10 +368,9 @@ def refresh_site_info(
     site_id: str,
     *,
     url: Optional[str] = None,
-    path: Optional[str] = None,
     force: bool = False,
 ) -> Optional[SiteInfoResponse]:
-    target_url = _resolve_target_url(site_id, url, path)
+    target_url = resolve_site_url(site_id, url)
     if not target_url:
         logger.warning("Site info refresh missing target url site=%s", site_id)
         return None
@@ -372,12 +398,13 @@ def generate_site_map(
     site_id: str,
     *,
     start_url: str,
-    depth: int = 1,
-    limit: int = 25,
+    depth: Optional[int] = None,
+    limit: Optional[int] = None,
     mark_missing: bool = True,
 ) -> SiteMapResponse:
-    depth = max(0, depth)
-    limit = max(1, limit)
+    max_depth = depth if depth is not None else math.inf
+    max_pages = max(1, limit) if limit is not None else DEFAULT_SITEMAP_MAX_PAGES
+    queue_budget = max(SITEMAP_QUEUE_FANOUT * 2, max_pages * SITEMAP_QUEUE_FANOUT)
 
     normalized_start = _normalize_internal_url(start_url)
     if not normalized_start:
@@ -390,7 +417,7 @@ def generate_site_map(
 
     pages: List[SiteMapPage] = []
 
-    while queue and len(pages) < limit:
+    while queue and len(pages) < max_pages:
         current, level = queue.popleft()
         if current in seen:
             continue
@@ -406,7 +433,7 @@ def generate_site_map(
         page_meta["hash"] = hashlib.sha1(html.encode("utf-8", errors="ignore")).hexdigest()
         pages.append(SiteMapPage(url=current, meta=page_meta or None))
 
-        if level >= depth:
+        if level >= max_depth:
             continue
 
         for anchor in soup.find_all("a", href=True):
@@ -424,7 +451,7 @@ def generate_site_map(
                 continue
             if candidate in seen:
                 continue
-            if len(queue) >= limit * 2:
+            if len(queue) >= queue_budget:
                 continue
             queue.append((candidate, level + 1))
 
@@ -504,6 +531,11 @@ def get_site_atlas_response(site_id: str, url: str) -> Optional[SiteAtlasRespons
     if record is None:
         return None
     return _site_atlas_model_to_response(record)
+
+
+def list_site_atlas_responses(site_id: str) -> List[SiteAtlasResponse]:
+    _ensure_db_ready()
+    return [_site_atlas_model_to_response(row) for row in db_list_site_atlas(site_id)]
 
 
 def list_site_info_responses(site_id: str) -> List[SiteInfoResponse]:

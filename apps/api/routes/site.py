@@ -1,15 +1,15 @@
 from __future__ import annotations
-from typing import Iterable, List
+from typing import Dict, Iterable, List
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 from contracts.client_api import (
     SiteMapRequest, SiteRegisterRequest, SiteRegisterResponse,
     SiteMapResponse, SiteMapPage,
-    SiteInfoRequest, SiteInfoResponse,
-    SiteAtlasRequest, SiteAtlasResponse,
+    SiteInfoRequest, SiteInfoResponse, SiteInfoCollectionResponse,
+    SiteAtlasRequest, SiteAtlasResponse, SiteAtlasCollectionResponse,
     SiteMapEmbeddingRequest, SiteMapEmbeddingResponse,
-    SiteMapUrlEmbeddingRequest, SiteMapSearchResponse, SiteMapSearchResult,
+    SiteMapSearchResponse, SiteMapSearchResult,
 )
 from helper.common import (
     AGENT_URL,
@@ -28,7 +28,9 @@ from helper.common import (
     lookup_site_info,
     get_site_atlas_response,
     refresh_site_atlas,
+    list_site_atlas_responses,
     list_site_pages_payload,
+    EMBED_BATCH_LIMIT,
 )
 from db.crud import get_site as db_get_site
 from core.logging import get_api_logger
@@ -87,9 +89,11 @@ def _embed_pages(
     *,
     xcv: str | None,
     xrid: str | None,
+    total_expected: int | None = None,
 ) -> SiteMapEmbeddingResponse:
     pages_list = list(pages)
-    total = len(pages_list)
+    attempted = len(pages_list)
+    total = total_expected if total_expected is not None else attempted
     embedded = 0
     failed: List[str] = []
 
@@ -112,6 +116,8 @@ def _embed_pages(
         embedded += 1
 
     message = f"Embedded {embedded} of {total} sitemap URL(s)"
+    if total > attempted:
+        message += f" (processed {attempted} in this batch)"
     return SiteMapEmbeddingResponse(
         siteId=site_id,
         totalUrls=total,
@@ -119,6 +125,75 @@ def _embed_pages(
         failedUrls=failed,
         message=message,
     )
+
+
+def _build_full_sitemap(
+    site_id: str,
+    *,
+    force: bool = False,
+) -> SiteMapResponse:
+    site_map = get_site_map_response(site_id)
+    if not force and site_map.pages:
+        return site_map
+
+    start_url = resolve_site_url(site_id, None)
+    if not start_url:
+        logger.warning("Missing parent URL for site sitemap site=%s", site_id)
+        raise HTTPException(status_code=400, detail="START_URL_REQUIRED")
+
+    full_map = generate_site_map(
+        site_id,
+        start_url=start_url,
+        depth=None,
+        limit=None,
+        mark_missing=True,
+    )
+    logger.info(
+        "Generated full sitemap site=%s page_count=%s force=%s",
+        site_id,
+        len(full_map.pages),
+        force,
+    )
+    return full_map
+
+
+def _load_site_pages(
+    site_id: str,
+    *,
+    force_sitemap: bool = False,
+) -> List[SiteMapPage]:
+    existing = get_site_map_response(site_id).pages
+    if existing:
+        seen: Dict[str, SiteMapPage] = {}
+        for page in existing:
+            if not page.url:
+                continue
+            if page.url not in seen:
+                seen[page.url] = page
+        if seen:
+            return list(seen.values())
+    if not force_sitemap:
+        return []
+    try:
+        generated = _build_full_sitemap(site_id, force=True)
+    except HTTPException:
+        return []
+    seen: Dict[str, SiteMapPage] = {}
+    for page in generated.pages:
+        if not page.url:
+            continue
+        if page.url not in seen:
+            seen[page.url] = page
+    return list(seen.values())
+
+
+def _collect_site_urls(site_id: str, *, force_sitemap: bool = False) -> List[str]:
+    pages = _load_site_pages(site_id, force_sitemap=force_sitemap)
+    urls = [page.url for page in pages if page.url]
+    if urls:
+        return urls
+    start_url = resolve_site_url(site_id, None)
+    return [start_url] if start_url else []
 
 # ------------------------------------------------------------------------
 # /site/register  (create/update/fetch site metadata)
@@ -193,34 +268,43 @@ def get_site_registration(siteId: str) -> SiteRegisterResponse:
 def get_site_map(
     siteId: str,
     url: str | None = None,
-    depth: int = 1,
+    depth: int | None = None,
+    limit: int | None = None,
     force: bool = False,
 ) -> SiteMapResponse:
-    sm = get_site_map_response(siteId)
-    if sm.pages and not force:
-        logger.info("Returning cached sitemap site=%s pages=%s", siteId, len(sm.pages))
-        return sm
+    custom_request = any(value is not None for value in (url, depth, limit))
+    if not custom_request:
+        site_map = _build_full_sitemap(siteId, force=force)
+        logger.info(
+            "Returning full sitemap site=%s pages=%s force=%s",
+            siteId,
+            len(site_map.pages),
+            force,
+        )
+        return site_map
 
     start_url = resolve_site_url(siteId, url)
     if not start_url:
-        if sm.pages:
-            return sm
-        logger.warning("Sitemap not found and no start URL provided site=%s", siteId)
-        return SiteMapResponse(siteId=siteId, pages=[])
+        logger.warning(
+            "Custom sitemap request unresolved site=%s url=%s",
+            siteId,
+            url,
+        )
+        raise HTTPException(status_code=400, detail="START_URL_REQUIRED")
 
-    partial = url is not None
     generated = generate_site_map(
         siteId,
         start_url=start_url,
         depth=depth,
-        mark_missing=not partial,
+        limit=limit,
+        mark_missing=url is None,
     )
     logger.info(
-        "Generated sitemap site=%s pages=%s depth=%s force=%s",
+        "Generated custom sitemap site=%s pages=%s depth=%s limit=%s",
         siteId,
         len(generated.pages),
         depth,
-        force,
+        limit,
     )
     return generated
 
@@ -229,6 +313,18 @@ def build_site_map(
     payload: SiteMapRequest,
     x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
 ) -> SiteMapResponse:
+    custom_request = any(
+        value is not None for value in (payload.url, payload.depth, payload.limit)
+    )
+
+    if not custom_request:
+        logger.info(
+            "Building full sitemap site=%s request_id=%s",
+            payload.siteId,
+            x_request_id,
+        )
+        return _build_full_sitemap(payload.siteId, force=True)
+
     start_url = resolve_site_url(payload.siteId, payload.url)
     if not start_url:
         logger.warning(
@@ -239,18 +335,18 @@ def build_site_map(
         raise HTTPException(status_code=400, detail="START_URL_REQUIRED")
 
     logger.info(
-        "Building sitemap site=%s depth=%s request_id=%s",
+        "Building custom sitemap site=%s depth=%s limit=%s request_id=%s",
         payload.siteId,
         payload.depth,
+        payload.limit,
         x_request_id,
     )
-    depth = payload.depth or 1
-    partial = payload.url is not None
     sm = generate_site_map(
         payload.siteId,
         start_url=start_url,
-        depth=depth,
-        mark_missing=not partial,
+        depth=payload.depth,
+        limit=payload.limit,
+        mark_missing=payload.url is None,
     )
     return sm
 
@@ -261,60 +357,31 @@ def embed_site_map(
     x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
     x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
 ) -> SiteMapEmbeddingResponse:
-    site_map = get_site_map_response(payload.siteId)
-    if not site_map.pages:
-        start_url = resolve_site_url(payload.siteId, None)
-        if start_url:
-            logger.info("No cached sitemap; generating quick crawl site=%s", payload.siteId)
-            site_map = generate_site_map(
-                payload.siteId,
-                start_url=start_url,
-                depth=1,
-                limit=25,
-                mark_missing=False,
-            )
-        if not site_map.pages:
-            logger.warning(
-                "Embed sitemap requested but sitemap missing site=%s request_id=%s",
-                payload.siteId,
-                x_request_id,
-            )
-            return SiteMapEmbeddingResponse(
-                siteId=payload.siteId,
-                totalUrls=0,
-                embeddedUrls=0,
-                failedUrls=[],
-                message="No sitemap entries available",
-            )
+    known_pages = _load_site_pages(payload.siteId, force_sitemap=not bool(payload.urls))
+    pages_by_url = {page.url: page for page in known_pages}
 
-    logger.info(
-        "Embedding full sitemap site=%s pages=%s request_id=%s",
-        payload.siteId,
-        len(site_map.pages),
-        x_request_id,
-    )
-    return _embed_pages(
-        payload.siteId,
-        site_map.pages,
-        xcv=x_contract_version,
-        xrid=x_request_id,
-    )
+    requested_urls = payload.urls or [page.url for page in known_pages]
 
+    if not requested_urls:
+        logger.warning(
+            "Embedding requested but no URLs available site=%s request_id=%s",
+            payload.siteId,
+            x_request_id,
+        )
+        return SiteMapEmbeddingResponse(
+            siteId=payload.siteId,
+            totalUrls=0,
+            embeddedUrls=0,
+            failedUrls=[],
+            message="No URLs available for embedding",
+        )
 
-@router.post("/map/embed/urls", response_model=SiteMapEmbeddingResponse)
-def embed_specific_urls(
-    payload: SiteMapUrlEmbeddingRequest,
-    x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
-) -> SiteMapEmbeddingResponse:
-    if not payload.urls:
-        raise HTTPException(status_code=400, detail="At least one URL is required")
+    unique_pages: List[SiteMapPage] = []
+    pending_records: List[SiteMapPage] = []
+    new_pages: List[SiteMapPage] = []
+    seen_urls: Dict[str, SiteMapPage] = {}
 
-    site_map = get_site_map_response(payload.siteId)
-    pages_by_url = {page.url: page for page in site_map.pages}
-
-    pages: List[SiteMapPage] = []
-    for url in payload.urls:
+    for url in requested_urls:
         resolved = resolve_site_url(payload.siteId, url)
         if not resolved:
             logger.warning(
@@ -323,32 +390,81 @@ def embed_specific_urls(
                 url,
             )
             continue
+        if resolved in seen_urls:
+            continue
         page = pages_by_url.get(resolved)
-        if page:
-            pages.append(page)
-        else:
+        if page is None:
             logger.debug(
                 "Embedding specific URL not in sitemap site=%s url=%s request_id=%s",
                 payload.siteId,
-                url,
+                resolved,
                 x_request_id,
             )
-            pages.append(SiteMapPage(url=resolved, meta=None))
+            page = SiteMapPage(url=resolved, meta=None)
+            new_pages.append(page)
+        seen_urls[resolved] = page
+        unique_pages.append(page)
 
-    store_site_map_pages(payload.siteId, pages, mark_missing=False)
+    if new_pages:
+        store_site_map_pages(payload.siteId, new_pages, mark_missing=False)
+
+    if not unique_pages:
+        logger.warning(
+            "Embedding requested but no URLs resolved site=%s request_id=%s",
+            payload.siteId,
+            x_request_id,
+        )
+        return SiteMapEmbeddingResponse(
+            siteId=payload.siteId,
+            totalUrls=0,
+            embeddedUrls=0,
+            failedUrls=[],
+            message="No resolvable URLs available for embedding",
+        )
+
+    batch_limit = EMBED_BATCH_LIMIT if EMBED_BATCH_LIMIT > 0 else len(unique_pages)
+    batch_pages = unique_pages[:batch_limit]
+    pending_records = unique_pages[batch_limit:]
+
+    if not batch_pages:
+        message = (
+            "No URLs embedded in this batch; remaining URLs deferred for asynchronous processing"
+        )
+        return SiteMapEmbeddingResponse(
+            siteId=payload.siteId,
+            totalUrls=len(unique_pages),
+            embeddedUrls=0,
+            failedUrls=[],
+            message=message,
+            pendingUrls=[page.url for page in pending_records],
+        )
 
     logger.info(
-        "Embedding specific URLs site=%s count=%s request_id=%s",
+        "Embedding sitemap URLs site=%s requested=%s batch=%s pending=%s request_id=%s",
         payload.siteId,
-        len(pages),
+        len(unique_pages),
+        len(batch_pages),
+        len(pending_records),
         x_request_id,
     )
-    return _embed_pages(
+
+    response = _embed_pages(
         payload.siteId,
-        pages,
+        batch_pages,
         xcv=x_contract_version,
         xrid=x_request_id,
+        total_expected=len(unique_pages),
     )
+
+    if pending_records:
+        response = response.copy(
+            update={
+                "pendingUrls": [page.url for page in pending_records],
+                "message": f"{response.message} (remaining {len(pending_records)} URL(s) deferred)",
+            }
+        )
+
+    return response
 
 
 @router.get("/map/search", response_model=SiteMapSearchResponse)
@@ -402,94 +518,133 @@ def search_site_map(
 # ------------------------------------------------------------------------
 # /site/info (GET = fetch; POST = drag)
 # ------------------------------------------------------------------------
-@router.get("/info", response_model=SiteInfoResponse)
+@router.get("/info", response_model=SiteInfoCollectionResponse)
 def get_site_info(
     siteId: str,
     url: str | None = None,
-    path: str | None = None,
     force: bool = False,
-) -> SiteInfoResponse:
-    if not url and not path:
-        raise HTTPException(status_code=400, detail="URL_OR_PATH_REQUIRED")
+) -> SiteInfoCollectionResponse:
+    target_url = resolve_site_url(siteId, url)
+    if target_url:
+        info = None if force else lookup_site_info(siteId, target_url)
+        if info is None or force:
+            info = refresh_site_info(siteId, url=target_url, force=True)
+        items = [info] if info else []
+        if info:
+            logger.info("Returning site info site=%s url=%s", siteId, target_url)
+        else:
+            logger.warning("Site info not available site=%s url=%s", siteId, target_url)
+        return SiteInfoCollectionResponse(siteId=siteId, items=items)
 
-    target_url = resolve_site_url(siteId, url, path)
-    if not target_url:
-        raise HTTPException(status_code=400, detail="UNRESOLVED_URL")
+    urls = _collect_site_urls(siteId, force_sitemap=force)
+    collected: Dict[str, SiteInfoResponse] = {}
+    for candidate in urls:
+        info = None if force else lookup_site_info(siteId, candidate)
+        if info is None or force:
+            info = refresh_site_info(siteId, url=candidate, force=True)
+        if info:
+            collected[candidate] = info
+    logger.info(
+        "Returning aggregate site info site=%s count=%s force=%s",
+        siteId,
+        len(collected),
+        force,
+    )
+    return SiteInfoCollectionResponse(siteId=siteId, items=list(collected.values()))
 
-    info = None if force else lookup_site_info(siteId, target_url)
-    if info is None:
-        info = refresh_site_info(siteId, url=target_url, force=True)
 
-    if info:
-        logger.info("Returning site info site=%s url=%s", siteId, target_url)
-        return info
+@router.post("/info", response_model=SiteInfoCollectionResponse)
+def drag_site_info(payload: SiteInfoRequest) -> SiteInfoCollectionResponse:
+    target_url = resolve_site_url(payload.siteId, payload.url)
+    collected: Dict[str, SiteInfoResponse] = {}
 
-    logger.warning("Site info not available site=%s url=%s", siteId, target_url)
-    return SiteInfoResponse(siteId=siteId, url=target_url, meta=None, normalized=None)
+    if target_url:
+        logger.info("Refreshing site info site=%s url=%s", payload.siteId, target_url)
+        info = refresh_site_info(payload.siteId, url=target_url, force=True)
+        if info:
+            collected[target_url] = info
+        return SiteInfoCollectionResponse(siteId=payload.siteId, items=list(collected.values()))
 
-@router.post("/info", response_model=SiteInfoResponse)
-def drag_site_info(payload: SiteInfoRequest) -> SiteInfoResponse:
-    target_url = resolve_site_url(payload.siteId, payload.url, payload.path)
-    if not target_url:
-        raise HTTPException(status_code=400, detail="URL_OR_PATH_REQUIRED")
-
-    logger.info("Refreshing site info site=%s url=%s", payload.siteId, target_url)
-    info = refresh_site_info(payload.siteId, url=target_url, force=True)
-    if info:
-        return info
-    return SiteInfoResponse(siteId=payload.siteId, url=target_url, meta=None, normalized=None)
+    urls = _collect_site_urls(payload.siteId, force_sitemap=True)
+    logger.info(
+        "Refreshing aggregate site info site=%s count=%s",
+        payload.siteId,
+        len(urls),
+    )
+    for candidate in urls:
+        info = refresh_site_info(payload.siteId, url=candidate, force=True)
+        if info:
+            collected[candidate] = info
+    return SiteInfoCollectionResponse(siteId=payload.siteId, items=list(collected.values()))
 
 # ------------------------------------------------------------------------
 # /site/atlas (GET = fetch; POST = drag)
 # ------------------------------------------------------------------------
-@router.get("/atlas", response_model=SiteAtlasResponse)
-def get_site_atlas(siteId: str, url: str, force: bool = False) -> SiteAtlasResponse:
-    if not url:
-        raise HTTPException(status_code=400, detail="URL_REQUIRED")
+@router.get("/atlas", response_model=SiteAtlasCollectionResponse)
+def get_site_atlas(
+    siteId: str,
+    url: str | None = None,
+    force: bool = False,
+) -> SiteAtlasCollectionResponse:
+    target_url = resolve_site_url(siteId, url)
+    collected: Dict[str, SiteAtlasResponse] = {}
 
-    if not force:
-        atlas = get_site_atlas_response(siteId, url)
+    if target_url:
+        atlas = None if force else get_site_atlas_response(siteId, target_url)
+        if atlas is None or force:
+            atlas = refresh_site_atlas(siteId, target_url, force=True)
         if atlas:
-            atlas_payload = atlas.atlas
-            element_count = None
-            if isinstance(atlas_payload, dict):
-                element_count = atlas_payload.get("elementCount")
-            else:
-                element_count = getattr(atlas_payload, "elementCount", None)
+            collected[target_url] = atlas
             logger.info(
-                "Returning cached site atlas site=%s url=%s elements=%s",
+                "Returning site atlas site=%s url=%s force=%s",
                 siteId,
-                url,
-                element_count if element_count is not None else 0,
+                target_url,
+                force,
             )
-            return atlas
-
-    refreshed = refresh_site_atlas(siteId, url, force=True)
-    if refreshed:
-        atlas_payload = refreshed.atlas
-        element_count = None
-        if isinstance(atlas_payload, dict):
-            element_count = atlas_payload.get("elementCount")
         else:
-            element_count = getattr(atlas_payload, "elementCount", None)
-        logger.info(
-            "Refreshed site atlas site=%s url=%s elements=%s",
-            siteId,
-            url,
-            element_count if element_count is not None else 0,
-        )
-        return refreshed
+            logger.warning("Site atlas not available site=%s url=%s", siteId, target_url)
+        return SiteAtlasCollectionResponse(siteId=siteId, items=list(collected.values()))
 
-    logger.warning("Site atlas not available site=%s url=%s", siteId, url)
-    return SiteAtlasResponse(siteId=siteId, url=url, atlas=None, queuedPlanRebuild=None)
+    urls = _collect_site_urls(siteId, force_sitemap=force)
+    existing = {
+        atlas.url: atlas for atlas in list_site_atlas_responses(siteId)
+    }
+    for candidate in urls:
+        atlas = None if force else existing.get(candidate)
+        if atlas is None or force:
+            atlas = refresh_site_atlas(siteId, candidate, force=True)
+        if atlas:
+            collected[candidate] = atlas
 
-@router.post("/atlas", response_model=SiteAtlasResponse)
-def drag_site_atlas(payload: SiteAtlasRequest) -> SiteAtlasResponse:
-    if not payload.url:
-        raise HTTPException(status_code=400, detail="URL_REQUIRED")
+    logger.info(
+        "Returning aggregate site atlas site=%s count=%s force=%s",
+        siteId,
+        len(collected),
+        force,
+    )
+    return SiteAtlasCollectionResponse(siteId=siteId, items=list(collected.values()))
 
-    logger.info("Refreshing site atlas site=%s url=%s", payload.siteId, payload.url)
-    atlas = refresh_site_atlas(payload.siteId, payload.url, force=True)
-    if atlas:
-        return atlas
-    return SiteAtlasResponse(siteId=payload.siteId, url=payload.url, atlas=None, queuedPlanRebuild=None)
+
+@router.post("/atlas", response_model=SiteAtlasCollectionResponse)
+def drag_site_atlas(payload: SiteAtlasRequest) -> SiteAtlasCollectionResponse:
+    target_url = resolve_site_url(payload.siteId, payload.url)
+    collected: Dict[str, SiteAtlasResponse] = {}
+
+    if target_url:
+        logger.info("Refreshing site atlas site=%s url=%s", payload.siteId, target_url)
+        atlas = refresh_site_atlas(payload.siteId, target_url, force=True)
+        if atlas:
+            collected[target_url] = atlas
+        return SiteAtlasCollectionResponse(siteId=payload.siteId, items=list(collected.values()))
+
+    urls = _collect_site_urls(payload.siteId, force_sitemap=True)
+    logger.info(
+        "Refreshing aggregate site atlas site=%s count=%s",
+        payload.siteId,
+        len(urls),
+    )
+    for candidate in urls:
+        atlas = refresh_site_atlas(payload.siteId, candidate, force=True)
+        if atlas:
+            collected[candidate] = atlas
+    return SiteAtlasCollectionResponse(siteId=payload.siteId, items=list(collected.values()))

@@ -196,23 +196,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/site/map/embed/urls": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Embed Specific Urls */
-        post: operations["embed_specific_urls_site_map_embed_urls_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/site/map/search": {
         parameters: {
             query?: never;
@@ -397,12 +380,19 @@ export type components = {
             /** Outputinstruction */
             outputInstruction?: string | null;
         };
+        /** SiteAtlasCollectionResponse */
+        SiteAtlasCollectionResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Items */
+            items?: components["schemas"]["SiteAtlasResponse"][];
+        };
         /** SiteAtlasRequest */
         SiteAtlasRequest: {
             /** Siteid */
             siteId: string;
             /** Url */
-            url: string;
+            url?: string | null;
             /**
              * Force
              * @default false
@@ -419,12 +409,17 @@ export type components = {
             /** Queuedplanrebuild */
             queuedPlanRebuild?: boolean | null;
         };
+        /** SiteInfoCollectionResponse */
+        SiteInfoCollectionResponse: {
+            /** Siteid */
+            siteId: string;
+            /** Items */
+            items?: components["schemas"]["SiteInfoResponse"][];
+        };
         /** SiteInfoRequest */
         SiteInfoRequest: {
             /** Siteid */
             siteId: string;
-            /** Path */
-            path?: string | null;
             /** Url */
             url?: string | null;
             /**
@@ -452,6 +447,8 @@ export type components = {
         SiteMapEmbeddingRequest: {
             /** Siteid */
             siteId: string;
+            /** Urls */
+            urls?: string[] | null;
         };
         /** SiteMapEmbeddingResponse */
         SiteMapEmbeddingResponse: {
@@ -465,6 +462,8 @@ export type components = {
             failedUrls?: string[];
             /** Message */
             message?: string | null;
+            /** Pendingurls */
+            pendingUrls?: string[];
         };
         /** SiteMapPage */
         SiteMapPage: {
@@ -481,11 +480,10 @@ export type components = {
             siteId: string;
             /** Url */
             url?: string | null;
-            /**
-             * Depth
-             * @default 1
-             */
-            depth: number | null;
+            /** Depth */
+            depth?: number | null;
+            /** Limit */
+            limit?: number | null;
             /**
              * Force
              * @default false
@@ -518,13 +516,6 @@ export type components = {
             meta?: {
                 [key: string]: unknown;
             } | null;
-        };
-        /** SiteMapUrlEmbeddingRequest */
-        SiteMapUrlEmbeddingRequest: {
-            /** Siteid */
-            siteId: string;
-            /** Urls */
-            urls: string[];
         };
         /** SiteRegisterRequest */
         SiteRegisterRequest: {
@@ -1094,7 +1085,8 @@ export interface operations {
             query: {
                 siteId: string;
                 url?: string | null;
-                depth?: number;
+                depth?: number | null;
+                limit?: number | null;
                 force?: boolean;
             };
             header?: never;
@@ -1194,42 +1186,6 @@ export interface operations {
             };
         };
     };
-    embed_specific_urls_site_map_embed_urls_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Contract-Version"?: string | null;
-                "X-Request-Id"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SiteMapUrlEmbeddingRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SiteMapEmbeddingResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     search_site_map_site_map_search_get: {
         parameters: {
             query: {
@@ -1270,7 +1226,6 @@ export interface operations {
             query: {
                 siteId: string;
                 url?: string | null;
-                path?: string | null;
                 force?: boolean;
             };
             header?: never;
@@ -1285,7 +1240,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SiteInfoResponse"];
+                    "application/json": components["schemas"]["SiteInfoCollectionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1318,7 +1273,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SiteInfoResponse"];
+                    "application/json": components["schemas"]["SiteInfoCollectionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1336,7 +1291,7 @@ export interface operations {
         parameters: {
             query: {
                 siteId: string;
-                url: string;
+                url?: string | null;
                 force?: boolean;
             };
             header?: never;
@@ -1351,7 +1306,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SiteAtlasResponse"];
+                    "application/json": components["schemas"]["SiteAtlasCollectionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1384,7 +1339,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SiteAtlasResponse"];
+                    "application/json": components["schemas"]["SiteAtlasCollectionResponse"];
                 };
             };
             /** @description Validation Error */

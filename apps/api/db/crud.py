@@ -352,6 +352,12 @@ def list_site_map_pages(site_id: str) -> List[SiteMapPage]:
         return list(session.execute(stmt).scalars())
 
 
+def list_site_atlas(site_id: str) -> List[SiteAtlas]:
+    with session_scope() as session:
+        stmt: Select[SiteAtlas] = select(SiteAtlas).where(SiteAtlas.site_id == site_id)
+        return list(session.execute(stmt).scalars())
+
+
 def upsert_site_map_pages(site_id: str, pages: Sequence[dict], *, replace: bool = True) -> None:
     with session_scope() as session:
         _ensure_site(session, site_id)
