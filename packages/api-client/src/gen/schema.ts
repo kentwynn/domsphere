@@ -467,8 +467,8 @@ export type components = {
         SiteMapEmbeddingRequest: {
             /** Siteid */
             siteId: string;
-            /** Urls */
-            urls?: string[] | null;
+            /** Url */
+            url?: string | null;
         };
         /** SiteMapEmbeddingResponse */
         SiteMapEmbeddingResponse: {

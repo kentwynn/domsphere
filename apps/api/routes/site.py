@@ -399,10 +399,11 @@ def embed_site_map(
     x_contract_version: str | None = Header(default=None, alias="X-Contract-Version"),
     x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
 ) -> SiteMapEmbeddingResponse:
-    known_pages = _load_site_pages(payload.siteId, force_sitemap=not bool(payload.urls))
+    has_explicit_url = bool(payload.url)
+    known_pages = _load_site_pages(payload.siteId, force_sitemap=not has_explicit_url)
     pages_by_url = {page.url: page for page in known_pages}
 
-    requested_urls = payload.urls or [page.url for page in known_pages]
+    requested_urls = [payload.url] if payload.url else [page.url for page in known_pages]
 
     if not requested_urls:
         logger.warning(

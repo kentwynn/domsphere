@@ -126,7 +126,7 @@ class SiteMapResponse(BaseModel):
 
 class SiteMapEmbeddingRequest(BaseModel):
     siteId: str
-    urls: Optional[List[str]] = None
+    url: Optional[str] = None
 
 
 class SiteMapEmbeddingResponse(BaseModel):
