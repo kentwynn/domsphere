@@ -129,6 +129,31 @@ def _site_page_model_to_dict(model: SitePageModel) -> Dict[str, Any]:
     }
 
 
+_NULL_BYTE = "\x00"
+
+
+def _strip_null_bytes(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace(_NULL_BYTE, "")
+    if isinstance(value, list):
+        return [_strip_null_bytes(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _strip_null_bytes(val) for key, val in value.items()}
+    return value
+
+
+def _paginate_items(items: Sequence[Any], page: int, page_size: int) -> Tuple[List[Any], int]:
+    page = max(page, 1)
+    page_size = max(page_size, 1)
+    total = len(items)
+    start = (page - 1) * page_size
+    if start >= total:
+        return [], total
+    end = start + page_size
+    sliced = list(items[start:end])
+    return sliced, total
+
+
 _HTTP_HEADERS = {
     "User-Agent": os.getenv("API_FETCH_USER_AGENT", "DomSphereAPI/1.0"),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -301,7 +326,7 @@ def _build_dom_atlas(site_id: str, url: str, soup: BeautifulSoup, html: str) -> 
             if parent_idx is not None:
                 break
             parent = parent.parent
-        element = {
+        element = _strip_null_bytes({
             "idx": idx,
             "tag": node.name,
             "id": attrs.get("id"),
@@ -311,11 +336,11 @@ def _build_dom_atlas(site_id: str, url: str, soup: BeautifulSoup, html: str) -> 
             "textSample": (text_sample[:160] if text_sample else None),
             "cssPath": _css_path(node),
             "parentIdx": parent_idx,
-        }
+        })
         elements.append(element)
         node_index[id(node)] = idx
 
-    atlas_payload = {
+    atlas_payload = _strip_null_bytes({
         "atlasId": f"atlas-{hashlib.sha1(f'{site_id}:{url}'.encode('utf-8')).hexdigest()[:16]}",
         "siteId": site_id,
         "url": url,
@@ -323,7 +348,7 @@ def _build_dom_atlas(site_id: str, url: str, soup: BeautifulSoup, html: str) -> 
         "capturedAt": datetime.now(timezone.utc).isoformat(),
         "elementCount": len(elements),
         "elements": elements,
-    }
+    })
     return atlas_payload
 
 

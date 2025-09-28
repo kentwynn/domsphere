@@ -31,6 +31,7 @@ from helper.common import (
     list_site_atlas_responses,
     list_site_pages_payload,
     EMBED_BATCH_LIMIT,
+    _paginate_items,
 )
 from db.crud import get_site as db_get_site
 from core.logging import get_api_logger
@@ -41,15 +42,28 @@ logger = get_api_logger(__name__)
 
 
 @router.get("/pages", response_model=dict)
-def list_site_pages(siteId: str, status: str | None = None) -> dict:
+def list_site_pages(
+    siteId: str,
+    status: str | None = None,
+    page: int = 1,
+    pageSize: int = 10,
+) -> dict:
     pages = list_site_pages_payload(siteId, status=status)
+    paged_pages, total = _paginate_items(pages, page, pageSize)
     logger.info(
         "Returning %s page(s) for site=%s status=%s",
-        len(pages),
+        len(paged_pages),
         siteId,
         status,
     )
-    return {"siteId": siteId, "status": status, "pages": pages}
+    return {
+        "siteId": siteId,
+        "status": status,
+        "pages": paged_pages,
+        "total": total,
+        "page": max(page, 1),
+        "pageSize": max(pageSize, 1),
+    }
 
 
 def _call_agent_embedding(
@@ -289,17 +303,27 @@ def get_site_map(
     depth: int | None = None,
     limit: int | None = None,
     force: bool = False,
+    page: int = 1,
+    pageSize: int = 10,
 ) -> SiteMapResponse:
     custom_request = any(value is not None for value in (url, depth, limit))
     if not custom_request:
         site_map = _build_full_sitemap(siteId, force=force)
+        paged_pages, total = _paginate_items(site_map.pages, page, pageSize)
         logger.info(
             "Returning full sitemap site=%s pages=%s force=%s",
             siteId,
             len(site_map.pages),
             force,
         )
-        return site_map
+        return site_map.copy(
+            update={
+                "pages": paged_pages,
+                "total": total,
+                "page": max(page, 1),
+                "pageSize": max(pageSize, 1),
+            }
+        )
 
     start_url = resolve_site_url(siteId, url)
     if not start_url:
@@ -541,6 +565,8 @@ def get_site_info(
     siteId: str,
     url: str | None = None,
     force: bool = False,
+    page: int = 1,
+    pageSize: int = 10,
 ) -> SiteInfoCollectionResponse:
     target_url = _resolve_optional_url(siteId, url)
     if target_url:
@@ -552,23 +578,45 @@ def get_site_info(
             logger.info("Returning site info site=%s url=%s", siteId, target_url)
         else:
             logger.warning("Site info not available site=%s url=%s", siteId, target_url)
-        return SiteInfoCollectionResponse(siteId=siteId, items=items)
+        success_count = 1 if info else 0
+        failure_count = 0 if info else 1
+        return SiteInfoCollectionResponse(
+            siteId=siteId,
+            items=items,
+            total=1,
+            page=1,
+            pageSize=1,
+            successCount=success_count,
+            failureCount=failure_count,
+        )
 
     urls = _collect_site_urls(siteId, force_sitemap=force)
+    paged_urls, total = _paginate_items(urls, page, pageSize)
     collected: Dict[str, SiteInfoResponse] = {}
-    for candidate in urls:
+    failure_count = 0
+    for candidate in paged_urls:
         info = None if force else lookup_site_info(siteId, candidate)
         if info is None or force:
             info = refresh_site_info(siteId, url=candidate, force=True)
         if info:
             collected[candidate] = info
+        else:
+            failure_count += 1
     logger.info(
         "Returning aggregate site info site=%s count=%s force=%s",
         siteId,
         len(collected),
         force,
     )
-    return SiteInfoCollectionResponse(siteId=siteId, items=list(collected.values()))
+    return SiteInfoCollectionResponse(
+        siteId=siteId,
+        items=list(collected.values()),
+        total=total,
+        page=max(page, 1),
+        pageSize=max(pageSize, 1),
+        successCount=len(collected),
+        failureCount=failure_count,
+    )
 
 
 @router.post("/info", response_model=SiteInfoCollectionResponse)
@@ -581,7 +629,17 @@ def drag_site_info(payload: SiteInfoRequest) -> SiteInfoCollectionResponse:
         info = refresh_site_info(payload.siteId, url=target_url, force=True)
         if info:
             collected[target_url] = info
-        return SiteInfoCollectionResponse(siteId=payload.siteId, items=list(collected.values()))
+        success_count = 1 if info else 0
+        failure_count = 0 if info else 1
+        return SiteInfoCollectionResponse(
+            siteId=payload.siteId,
+            items=list(collected.values()),
+            total=1,
+            page=1,
+            pageSize=1,
+            successCount=success_count,
+            failureCount=failure_count,
+        )
 
     urls = _collect_site_urls(payload.siteId, force_sitemap=True)
     logger.info(
@@ -589,11 +647,24 @@ def drag_site_info(payload: SiteInfoRequest) -> SiteInfoCollectionResponse:
         payload.siteId,
         len(urls),
     )
+    success_count = 0
+    failure_count = 0
     for candidate in urls:
         info = refresh_site_info(payload.siteId, url=candidate, force=True)
         if info:
             collected[candidate] = info
-    return SiteInfoCollectionResponse(siteId=payload.siteId, items=list(collected.values()))
+            success_count += 1
+        else:
+            failure_count += 1
+    return SiteInfoCollectionResponse(
+        siteId=payload.siteId,
+        items=[],
+        total=len(urls),
+        page=1,
+        pageSize=max(len(urls), 1),
+        successCount=success_count,
+        failureCount=failure_count,
+    )
 
 # ------------------------------------------------------------------------
 # /site/atlas (GET = fetch; POST = drag)
@@ -603,6 +674,8 @@ def get_site_atlas(
     siteId: str,
     url: str | None = None,
     force: bool = False,
+    page: int = 1,
+    pageSize: int = 10,
 ) -> SiteAtlasCollectionResponse:
     target_url = _resolve_optional_url(siteId, url)
     collected: Dict[str, SiteAtlasResponse] = {}
@@ -621,18 +694,32 @@ def get_site_atlas(
             )
         else:
             logger.warning("Site atlas not available site=%s url=%s", siteId, target_url)
-        return SiteAtlasCollectionResponse(siteId=siteId, items=list(collected.values()))
+        success_count = 1 if target_url in collected else 0
+        failure_count = 0 if success_count else 1
+        return SiteAtlasCollectionResponse(
+            siteId=siteId,
+            items=list(collected.values()),
+            total=1,
+            page=1,
+            pageSize=1,
+            successCount=success_count,
+            failureCount=failure_count,
+        )
 
     urls = _collect_site_urls(siteId, force_sitemap=force)
     existing = {
         atlas.url: atlas for atlas in list_site_atlas_responses(siteId)
     }
-    for candidate in urls:
+    paged_urls, total = _paginate_items(urls, page, pageSize)
+    failure_count = 0
+    for candidate in paged_urls:
         atlas = None if force else existing.get(candidate)
         if atlas is None or force:
             atlas = refresh_site_atlas(siteId, candidate, force=True)
         if atlas:
             collected[candidate] = atlas
+        else:
+            failure_count += 1
 
     logger.info(
         "Returning aggregate site atlas site=%s count=%s force=%s",
@@ -640,7 +727,15 @@ def get_site_atlas(
         len(collected),
         force,
     )
-    return SiteAtlasCollectionResponse(siteId=siteId, items=list(collected.values()))
+    return SiteAtlasCollectionResponse(
+        siteId=siteId,
+        items=list(collected.values()),
+        total=total,
+        page=max(page, 1),
+        pageSize=max(pageSize, 1),
+        successCount=len(collected),
+        failureCount=failure_count,
+    )
 
 
 @router.post("/atlas", response_model=SiteAtlasCollectionResponse)
@@ -653,7 +748,17 @@ def drag_site_atlas(payload: SiteAtlasRequest) -> SiteAtlasCollectionResponse:
         atlas = refresh_site_atlas(payload.siteId, target_url, force=True)
         if atlas:
             collected[target_url] = atlas
-        return SiteAtlasCollectionResponse(siteId=payload.siteId, items=list(collected.values()))
+        success_count = 1 if atlas else 0
+        failure_count = 0 if atlas else 1
+        return SiteAtlasCollectionResponse(
+            siteId=payload.siteId,
+            items=list(collected.values()),
+            total=1,
+            page=1,
+            pageSize=1,
+            successCount=success_count,
+            failureCount=failure_count,
+        )
 
     urls = _collect_site_urls(payload.siteId, force_sitemap=True)
     logger.info(
@@ -661,8 +766,21 @@ def drag_site_atlas(payload: SiteAtlasRequest) -> SiteAtlasCollectionResponse:
         payload.siteId,
         len(urls),
     )
+    success_count = 0
+    failure_count = 0
     for candidate in urls:
         atlas = refresh_site_atlas(payload.siteId, candidate, force=True)
         if atlas:
             collected[candidate] = atlas
-    return SiteAtlasCollectionResponse(siteId=payload.siteId, items=list(collected.values()))
+            success_count += 1
+        else:
+            failure_count += 1
+    return SiteAtlasCollectionResponse(
+        siteId=payload.siteId,
+        items=[],
+        total=len(urls),
+        page=1,
+        pageSize=max(len(urls), 1),
+        successCount=success_count,
+        failureCount=failure_count,
+    )

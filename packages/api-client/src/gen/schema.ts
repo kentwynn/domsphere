@@ -386,6 +386,16 @@ export type components = {
             siteId: string;
             /** Items */
             items?: components["schemas"]["SiteAtlasResponse"][];
+            /** Total */
+            total?: number | null;
+            /** Page */
+            page?: number | null;
+            /** Pagesize */
+            pageSize?: number | null;
+            /** Successcount */
+            successCount?: number | null;
+            /** Failurecount */
+            failureCount?: number | null;
         };
         /** SiteAtlasRequest */
         SiteAtlasRequest: {
@@ -415,6 +425,16 @@ export type components = {
             siteId: string;
             /** Items */
             items?: components["schemas"]["SiteInfoResponse"][];
+            /** Total */
+            total?: number | null;
+            /** Page */
+            page?: number | null;
+            /** Pagesize */
+            pageSize?: number | null;
+            /** Successcount */
+            successCount?: number | null;
+            /** Failurecount */
+            failureCount?: number | null;
         };
         /** SiteInfoRequest */
         SiteInfoRequest: {
@@ -496,6 +516,12 @@ export type components = {
             siteId: string;
             /** Pages */
             pages: components["schemas"]["SiteMapPage"][];
+            /** Total */
+            total?: number | null;
+            /** Page */
+            page?: number | null;
+            /** Pagesize */
+            pageSize?: number | null;
         };
         /** SiteMapSearchResponse */
         SiteMapSearchResponse: {
@@ -954,6 +980,8 @@ export interface operations {
             query: {
                 siteId: string;
                 status?: string | null;
+                page?: number;
+                pageSize?: number;
             };
             header?: never;
             path?: never;
@@ -1088,6 +1116,8 @@ export interface operations {
                 depth?: number | null;
                 limit?: number | null;
                 force?: boolean;
+                page?: number;
+                pageSize?: number;
             };
             header?: never;
             path?: never;
@@ -1227,6 +1257,8 @@ export interface operations {
                 siteId: string;
                 url?: string | null;
                 force?: boolean;
+                page?: number;
+                pageSize?: number;
             };
             header?: never;
             path?: never;
@@ -1293,6 +1325,8 @@ export interface operations {
                 siteId: string;
                 url?: string | null;
                 force?: boolean;
+                page?: number;
+                pageSize?: number;
             };
             header?: never;
             path?: never;

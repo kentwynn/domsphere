@@ -115,6 +115,9 @@ class SiteMapRequest(BaseModel):
 class SiteMapResponse(BaseModel):
     siteId: str
     pages: List[SiteMapPage]
+    total: Optional[int] = None
+    page: Optional[int] = None
+    pageSize: Optional[int] = None
 
 
 # ==============================================================================
@@ -167,6 +170,11 @@ class SiteInfoResponse(BaseModel):
 class SiteInfoCollectionResponse(BaseModel):
     siteId: str
     items: List[SiteInfoResponse] = Field(default_factory=list)
+    total: Optional[int] = None
+    page: Optional[int] = None
+    pageSize: Optional[int] = None
+    successCount: Optional[int] = None
+    failureCount: Optional[int] = None
 
 
 # ==============================================================================
@@ -189,6 +197,11 @@ class SiteAtlasResponse(BaseModel):
 class SiteAtlasCollectionResponse(BaseModel):
     siteId: str
     items: List[SiteAtlasResponse] = Field(default_factory=list)
+    total: Optional[int] = None
+    page: Optional[int] = None
+    pageSize: Optional[int] = None
+    successCount: Optional[int] = None
+    failureCount: Optional[int] = None
 
 # ==============================================================================
 # /sdk/style
