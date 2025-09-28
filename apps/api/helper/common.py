@@ -62,14 +62,6 @@ AGENT_TIMEOUT = float(os.getenv("AGENT_TIMEOUT", "300"))
 DEFAULT_SITEMAP_MAX_PAGES = max(1, int(os.getenv("SITEMAP_MAX_PAGES", "5000")))
 SITEMAP_QUEUE_FANOUT = max(2, int(os.getenv("SITEMAP_QUEUE_FANOUT", "4")))
 EMBED_BATCH_LIMIT = max(1, int(os.getenv("EMBED_BATCH_LIMIT", "100")))
-DROP_QUERY_PARAMS = {
-    param.strip().lower()
-    for param in os.getenv(
-        "SITEMAP_DROP_QUERY_PARAMS",
-        "add-to-cart,utm_source,utm_medium,utm_campaign,utm_term,utm_content",
-    ).split(",")
-    if param.strip()
-}
 logger.info("API proxy configured agent_url=%s timeout=%s", AGENT_URL, AGENT_TIMEOUT)
 
 
@@ -176,11 +168,7 @@ def _normalize_internal_url(url: str) -> Optional[str]:
     if not parsed.scheme or not parsed.netloc:
         return None
     normalized_path = parsed.path or "/"
-    query_items = [
-        (key, value)
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if key.lower() not in DROP_QUERY_PARAMS
-    ]
+    query_items = parse_qsl(parsed.query, keep_blank_values=True)
     normalized_query = urlencode(query_items, doseq=True)
     normalized = parsed._replace(
         path=normalized_path,

@@ -127,6 +127,15 @@ def _embed_pages(
     )
 
 
+def _resolve_optional_url(site_id: str, url: str | None) -> str | None:
+    if url is None:
+        return None
+    candidate = url.strip()
+    if not candidate:
+        return None
+    return resolve_site_url(site_id, candidate)
+
+
 def _build_full_sitemap(
     site_id: str,
     *,
@@ -189,9 +198,18 @@ def _load_site_pages(
 
 def _collect_site_urls(site_id: str, *, force_sitemap: bool = False) -> List[str]:
     pages = _load_site_pages(site_id, force_sitemap=force_sitemap)
-    urls = [page.url for page in pages if page.url]
-    if urls:
-        return urls
+    canonical_urls: List[str] = []
+    seen: set[str] = set()
+    for page in pages:
+        if not page.url:
+            continue
+        normalized = resolve_site_url(site_id, page.url)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        canonical_urls.append(normalized)
+    if canonical_urls:
+        return canonical_urls
     start_url = resolve_site_url(site_id, None)
     return [start_url] if start_url else []
 
@@ -524,7 +542,7 @@ def get_site_info(
     url: str | None = None,
     force: bool = False,
 ) -> SiteInfoCollectionResponse:
-    target_url = resolve_site_url(siteId, url)
+    target_url = _resolve_optional_url(siteId, url)
     if target_url:
         info = None if force else lookup_site_info(siteId, target_url)
         if info is None or force:
@@ -555,7 +573,7 @@ def get_site_info(
 
 @router.post("/info", response_model=SiteInfoCollectionResponse)
 def drag_site_info(payload: SiteInfoRequest) -> SiteInfoCollectionResponse:
-    target_url = resolve_site_url(payload.siteId, payload.url)
+    target_url = _resolve_optional_url(payload.siteId, payload.url)
     collected: Dict[str, SiteInfoResponse] = {}
 
     if target_url:
@@ -586,7 +604,7 @@ def get_site_atlas(
     url: str | None = None,
     force: bool = False,
 ) -> SiteAtlasCollectionResponse:
-    target_url = resolve_site_url(siteId, url)
+    target_url = _resolve_optional_url(siteId, url)
     collected: Dict[str, SiteAtlasResponse] = {}
 
     if target_url:
@@ -627,7 +645,7 @@ def get_site_atlas(
 
 @router.post("/atlas", response_model=SiteAtlasCollectionResponse)
 def drag_site_atlas(payload: SiteAtlasRequest) -> SiteAtlasCollectionResponse:
-    target_url = resolve_site_url(payload.siteId, payload.url)
+    target_url = _resolve_optional_url(payload.siteId, payload.url)
     collected: Dict[str, SiteAtlasResponse] = {}
 
     if target_url:
