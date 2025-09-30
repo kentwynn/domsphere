@@ -192,6 +192,7 @@ def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
             "- NO primaryActions needed "
             "- secondaryCta: kind='noop', label='Cancel', nextClose=True (optional) "
             "- meta: step=1 "
+            "If you cannot identify a reliable DOM selector, do NOT fabricate one. Instead set primaryCta.kind='open' and provide the navigation URL via 'url' or payload.url so the SDK can navigate directly. "
             "For CHOICE templates, follow this pattern: "
             "- actions: array of choice options (any number needed) with kind='choose' "
             "- each action has payload: {'name': '<field_name>', 'value': '<option_value>'} "

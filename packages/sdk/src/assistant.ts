@@ -572,13 +572,39 @@ export class AutoAssistant {
         this.opts.ctaExecutor(cta);
         return;
       }
+      const pickString = (
+        payload: Record<string, unknown>,
+        keys: string[],
+        fallback = ''
+      ): string => {
+        for (const key of keys) {
+          const candidate = payload[key];
+          if (typeof candidate === 'string' && candidate.trim().length > 0) {
+            return candidate;
+          }
+        }
+        return fallback;
+      };
+
+      const navigateTo = (href: string) => {
+        const target = href.trim();
+        if (!target) return;
+        if (/^https?:\/\//i.test(target)) {
+          window.location.href = target;
+          return;
+        }
+        const origin = window.location.origin || '';
+        const normalized = target.startsWith('/') ? target : `/${target}`;
+        window.location.href = `${origin}${normalized}`;
+      };
+
       const handlers: Record<string, (c: CtaSpec) => void | Promise<void>> = {
         dom_fill: (c) => {
           const payload = (this.ctaRecord(c)['payload'] ?? {}) as Record<
             string,
             unknown
           >;
-          const sel = String((payload['selector'] || '') as string);
+          const sel = pickString(payload, ['selector', 'target']);
           const val = String(payload['value'] ?? '');
           const el = sel
             ? (document.querySelector(sel) as
@@ -600,15 +626,56 @@ export class AutoAssistant {
             string,
             unknown
           >;
-          const sel = String((payload['selector'] || '') as string);
+          const sel = pickString(payload, ['selector', 'target']);
           const el = sel
             ? (document.querySelector(sel) as HTMLElement | null)
             : null;
-          el?.click();
+          if (el) {
+            el.click();
+            return;
+          }
+
+          const rawValue = pickString(payload, ['value']);
+          if (rawValue) {
+            try {
+              const candidate = rawValue.trim();
+              if (candidate) {
+                const maybeEl = document.querySelector(candidate) as
+                  | HTMLElement
+                  | null;
+                if (maybeEl) {
+                  maybeEl.click();
+                  return;
+                }
+              }
+            } catch {
+              /* ignore invalid selectors */
+            }
+          }
+
+          const rawHref = pickString(payload, ['href', 'url', 'value']);
+          const resolvedHref = (() => {
+            if (!rawHref) return '';
+            const trimmed = rawHref.trim();
+            if (/^https?:\/\//i.test(trimmed)) return trimmed;
+            if (trimmed.startsWith('/')) return trimmed;
+            const match = trimmed.match(/href\s*=\s*['"]([^'"]+)['"]/i);
+            return match ? match[1] : '';
+          })();
+          if (resolvedHref) navigateTo(resolvedHref);
         },
         open: (c) => {
-          const url = this.ctaString(c, 'url');
-          if (url) window.location.href = url as string;
+          const direct = this.ctaString(c, 'url');
+          if (direct) {
+            navigateTo(direct);
+            return;
+          }
+          const payload = (this.ctaRecord(c)['payload'] ?? {}) as Record<
+            string,
+            unknown
+          >;
+          const fallback = pickString(payload, ['url', 'href', 'value']);
+          if (fallback) navigateTo(fallback);
         },
         choose: async (c) => {
           const payload = (this.ctaRecord(c)['payload'] ?? {}) as Record<
