@@ -29,38 +29,53 @@
     <h1>Demo Shop • Home</h1>
     <p>Welcome to Demo Shop at localhost:3000.</p>
     <p><a id="shop-now" href="/products/">Shop now</a></p>
-    <div id="assistant-panel"></div>
-
     <!-- SDK: expected to auto-init and observe DOM; no manual wiring here -->
     <!-- Update the path if you serve this file differently -->
-    <script src="./sdk.umd.min.js"></script>
+    <script
+      src="http://127.0.0.1:8000/sdk.umd.min.js"
+      id="domsphere-sdk"
+    ></script>
     <script>
-      window.addEventListener('DOMContentLoaded', () => {
-        const AutoAssistant =
-          (window.AgentSDK && window.AgentSDK.AutoAssistant) ||
-          window.AutoAssistant;
-        if (!AutoAssistant) {
-          console.error(
-            '[demo] AutoAssistant not found. Check sdk.umd.js path and UMD export.'
+      (function initDomSphere() {
+        const start = () => {
+          const AutoAssistant =
+            (window.DomSphereSDK && window.DomSphereSDK.AutoAssistant) ||
+            (window.AgentSDK && window.AgentSDK.AutoAssistant);
+
+          if (!AutoAssistant) {
+            console.error(
+              '[DomSphere] AutoAssistant missing—check sdk.umd.js path.'
+            );
+            return;
+          }
+
+          const sdk = new AutoAssistant({
+            baseUrl: 'http://localhost:4000',
+            siteId: 'demo-site',
+            sessionId: 'dev-session',
+            panelSelector: '#assistant-panel',
+            debounceMs: 150,
+            finalCooldownMs: 30000,
+          });
+
+          window.domSphereSdk = sdk;
+          sdk.on('rule:ready', () => console.debug('[rule:ready]'));
+          sdk.on('rule:checked', (payload) =>
+            console.debug('[rule:checked]', payload)
           );
-          return;
+          sdk.on('suggest:ready', (suggestions) =>
+            console.debug('[suggest:ready]', suggestions)
+          );
+          sdk.on('error', (err) => console.error('[sdk:error]', err));
+          sdk.start();
+        };
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', start);
+        } else {
+          start();
         }
-        const sdk = new AutoAssistant({
-          baseUrl: 'http://localhost:4000',
-          siteId: 'demo-site',
-          sessionId: 'dev-session',
-          panelSelector: '#assistant-panel',
-          debounceMs: 150,
-          finalCooldownMs: 30000,
-        });
-        sdk.on('rule:ready', () => console.debug('[rule:ready]'));
-        sdk.on('rule:checked', (r) => console.debug('[rule:check]', r));
-        sdk.on('suggest:ready', (sugs) =>
-          console.debug('[suggest:ready]', sugs)
-        );
-        sdk.on('error', (e) => console.error('[sdk:error]', e));
-        sdk.start();
-      });
+      })();
     </script>
   </body>
 </html>

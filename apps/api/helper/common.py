@@ -774,9 +774,28 @@ def _rule_matches(rule: Dict[str, Any], payload: RuleCheckRequest) -> bool:
             left = _get_path(scope, field)
         else:
             left = _get_path(scope, field) or _get_path(payload, field) or _get_path(payload.event, field)
-        if isinstance(left, str) and left.isdigit():
-            left = int(left)
-        if _op_eval(left, op, val) is False:
+
+        candidates = [left]
+        if field == "telemetry.attributes.path":
+            candidates.extend(
+                [
+                    _get_path(scope, "telemetry.attributes.pathWithQuery"),
+                    _get_path(scope, "telemetry.attributes.pathNoQuery"),
+                ]
+            )
+
+        matched = False
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            comp = candidate
+            if isinstance(comp, str) and comp.isdigit():
+                comp = int(comp)
+            if _op_eval(comp, op, val):
+                matched = True
+                break
+
+        if not matched:
             logger.debug(
                 "Rule condition failed rule=%s field=%s op=%s left=%s right=%s",
                 rule.get("id"),

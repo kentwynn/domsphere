@@ -13,6 +13,7 @@ export type EventKind =
 
 export type FocusFilters = {
   paths: Set<string>;
+  pathsNoQuery: Set<string>;
   elementIds: Set<string>;
   cssPaths: Set<string>;
   cssPatterns: RegExp[];
@@ -26,6 +27,7 @@ function ensureBucket(focus: FocusMap, kind: EventKind): FocusFilters {
   if (!focus.has(kind))
     focus.set(kind, {
       paths: new Set<string>(),
+      pathsNoQuery: new Set<string>(),
       elementIds: new Set<string>(),
       cssPaths: new Set<string>(),
       cssPatterns: [],
@@ -73,12 +75,21 @@ export function collectFocusFromRules(rules: RuleListItem[]): {
         const val = cond.value;
 
         // Path conditions (equals only)
-        if (
-          field === 'telemetry.attributes.path' &&
-          op === 'equals' &&
-          typeof val === 'string'
-        ) {
-          bucket.paths.add(normalizePath(val));
+        const isPathField =
+          field === 'telemetry.attributes.path' ||
+          field === 'telemetry.attributes.pathWithQuery';
+        if (isPathField && op === 'equals' && typeof val === 'string') {
+          const normalized = normalizePath(val);
+          const basePart = val.split('?')[0] ?? '';
+          bucket.paths.add(normalized);
+          bucket.pathsNoQuery.add(normalizePath(basePart));
+        }
+
+        const isPathNoQueryField =
+          field === 'telemetry.attributes.pathNoQuery' ||
+          field === 'telemetry.attributes.pathname';
+        if (isPathNoQueryField && op === 'equals' && typeof val === 'string') {
+          bucket.pathsNoQuery.add(normalizePath(val));
         }
 
         // Element ID conditions (equals only)

@@ -70,6 +70,7 @@ export class AutoAssistant {
   private styleCss: string | null | undefined = undefined;
   private styleFetchPromise: Promise<string | null> | null = null;
   private styleTag?: HTMLStyleElement;
+  private panelContainer: HTMLElement | null = null;
 
   // Time-based rule tracking
   private lastTimeBasedTrigger = 0;
@@ -368,10 +369,24 @@ export class AutoAssistant {
   private pathMatches(kind: EventKind): boolean {
     const f = this.focus.get(kind);
     if (!f) return true;
-    if (f.paths.size === 0) return true;
+    if (f.paths.size === 0 && f.pathsNoQuery.size === 0) return true;
     try {
-      const cur = normalizePath(window.location.pathname || '/');
-      return f.paths.has(cur);
+      const loc = window.location;
+      const pathname = loc && typeof loc.pathname === 'string' ? loc.pathname : '/';
+      const search = loc && typeof loc.search === 'string' ? loc.search : '';
+      const normalizedPath = normalizePath(pathname || '/');
+      const normalizedWithQuery = normalizePath(`${pathname || '/'}${search || ''}`);
+
+      if (
+        f.paths.size > 0 &&
+        (f.paths.has(normalizedPath) || f.paths.has(normalizedWithQuery))
+      ) {
+        return true;
+      }
+      if (f.pathsNoQuery.size > 0 && f.pathsNoQuery.has(normalizedPath)) {
+        return true;
+      }
+      return false;
     } catch {
       return true;
     }
@@ -467,8 +482,40 @@ export class AutoAssistant {
   }
 
   private panelEl(): HTMLElement | null {
+    if (this.panelContainer && document.contains(this.panelContainer)) {
+      return this.panelContainer;
+    }
+    this.panelContainer = this.ensurePanelElement();
+    return this.panelContainer;
+  }
+  private ensurePanelElement(): HTMLElement | null {
+    if (typeof document === 'undefined') return null;
     const sel = this.opts.panelSelector;
-    return sel ? (document.querySelector(sel) as HTMLElement | null) : null;
+    if (!sel) return null;
+
+    const existing = document.querySelector<HTMLElement>(sel);
+    if (existing) {
+      return existing;
+    }
+
+    const simpleSelector = /^([#.][A-Za-z0-9_-]+)$/.test(sel);
+    if (!simpleSelector) {
+      return null;
+    }
+
+    const el = document.createElement('div');
+    if (sel.startsWith('#')) {
+      el.id = sel.slice(1) || 'assistant-panel';
+    } else {
+      el.className = sel.slice(1);
+    }
+    el.dataset['autoCreated'] = 'true';
+
+    const host = document.body || document.documentElement;
+    if (host) {
+      host.insertAdjacentElement('afterbegin', el);
+    }
+    return el;
   }
   private closePanel() {
     const panel = this.panelEl();
@@ -734,8 +781,17 @@ export class AutoAssistant {
     const attributes: Record<string, string | null> = el ? attrMap(el) : {};
     // Always include current path so rules can filter on it
     try {
-      const p = window.location ? window.location.pathname : '/';
-      attributes['path'] = normalizePath(p);
+      const loc = window.location;
+      const pathname = loc && typeof loc.pathname === 'string' ? loc.pathname : '/';
+      const search = loc && typeof loc.search === 'string' ? loc.search : '';
+      const path = normalizePath(pathname || '/');
+      const pathWithQuery = normalizePath(`${pathname || '/'}${search || ''}`);
+      attributes['path'] = path;
+      attributes['pathWithQuery'] = pathWithQuery;
+      attributes['pathNoQuery'] = path;
+      if (search) {
+        attributes['query'] = search.startsWith('?') ? search.slice(1) : search;
+      }
     } catch {
       /* ignore */
     }
