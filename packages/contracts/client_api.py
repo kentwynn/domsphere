@@ -165,6 +165,7 @@ class SiteInfoResponse(BaseModel):
     url: str
     meta: Optional[Dict[str, Any]] = None
     normalized: Optional[Dict[str, Any]] = None
+    bodyText: Optional[str] = None
 
 
 class SiteInfoCollectionResponse(BaseModel):

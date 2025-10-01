@@ -62,6 +62,17 @@ AGENT_TIMEOUT = float(os.getenv("AGENT_TIMEOUT", "300"))
 DEFAULT_SITEMAP_MAX_PAGES = max(1, int(os.getenv("SITEMAP_MAX_PAGES", "5000")))
 SITEMAP_QUEUE_FANOUT = max(2, int(os.getenv("SITEMAP_QUEUE_FANOUT", "4")))
 EMBED_BATCH_LIMIT = max(1, int(os.getenv("EMBED_BATCH_LIMIT", "100")))
+SITE_INFO_BODY_MAX_CHARS = max(0, int(os.getenv("SITE_INFO_BODY_MAX_CHARS", "8000")))
+_BODY_TEXT_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+_BODY_TEXT_WHITESPACE = re.compile(r"\s+")
+_PATH_FIELDS = {
+    "telemetry.attributes.path",
+    "telemetry.attributes.pathWithQuery",
+    "telemetry.attributes.pathNoQuery",
+    "path",
+    "pathWithQuery",
+    "pathNoQuery",
+}
 logger.info("API proxy configured agent_url=%s timeout=%s", AGENT_URL, AGENT_TIMEOUT)
 
 
@@ -88,11 +99,21 @@ def _rule_model_to_dict(rule: RuleModel) -> Dict[str, Any]:
 
 
 def _site_info_model_to_response(model: SiteInfoModel) -> SiteInfoResponse:
+    body_text: Optional[str] = None
+    if isinstance(model.normalized, dict):
+        value = model.normalized.get("bodyText")
+        if isinstance(value, str):
+            body_text = value
+    if body_text is None and isinstance(model.meta, dict):
+        value = model.meta.get("bodyText")
+        if isinstance(value, str):
+            body_text = value
     return SiteInfoResponse(
         siteId=model.site_id,
         url=model.url,
         meta=model.meta,
         normalized=model.normalized,
+        bodyText=body_text,
     )
 
 
@@ -279,7 +300,30 @@ def _extract_meta_from_soup(url: str, soup: BeautifulSoup) -> Dict[str, Any]:
     return meta
 
 
-def _normalize_metadata(meta: Dict[str, Any], url: str) -> Dict[str, Any]:
+def _extract_body_text(soup: BeautifulSoup, *, max_chars: int) -> Optional[str]:
+    body = soup.body or soup
+    if body is None:
+        return None
+
+    for node in body.find_all(["script", "style", "noscript", "template"]):
+        node.decompose()
+
+    text = body.get_text(separator=" ", strip=True)
+    if not text:
+        return None
+
+    text = _BODY_TEXT_WHITESPACE.sub(" ", text)
+    text = _BODY_TEXT_CONTROL_CHARS.sub("", text)
+    text = text.strip()
+    if not text:
+        return None
+
+    if max_chars and len(text) > max_chars:
+        text = text[:max_chars].rstrip()
+    return text
+
+
+def _normalize_metadata(meta: Dict[str, Any], url: str, *, body_text: Optional[str] = None) -> Dict[str, Any]:
     parsed = urlparse(url)
     normalized: Dict[str, Any] = {
         "path": parsed.path or "/",
@@ -289,6 +333,8 @@ def _normalize_metadata(meta: Dict[str, Any], url: str) -> Dict[str, Any]:
         normalized["title"] = meta["title"]
     if "description" in meta:
         normalized["description"] = meta["description"]
+    if body_text:
+        normalized["bodyText"] = body_text
     return normalized
 
 
@@ -401,8 +447,14 @@ def refresh_site_info(
 
     soup = BeautifulSoup(html, "html.parser")
     meta = _extract_meta_from_soup(target_url, soup)
-    normalized = _normalize_metadata(meta, target_url)
-    record = db_upsert_site_info_record(site_id, target_url, meta=meta, normalized=normalized)
+    body_text = _extract_body_text(soup, max_chars=SITE_INFO_BODY_MAX_CHARS)
+    normalized = _normalize_metadata(meta, target_url, body_text=body_text)
+    record = db_upsert_site_info_record(
+        site_id,
+        target_url,
+        meta=meta,
+        normalized=normalized,
+    )
     db_touch_site_page_info(site_id, target_url)
     return _site_info_model_to_response(record)
 
@@ -577,6 +629,8 @@ def build_page_embedding_text(
         for key, value in info.meta.items():
             if value is not None:
                 merged_meta.setdefault(key, value)
+    if info and info.bodyText:
+        merged_meta.setdefault("bodyText", info.bodyText)
 
     text_parts: List[str] = [page.url]
     for value in merged_meta.values():
@@ -731,6 +785,16 @@ def _get_path(obj: Any, path: str) -> Any:
         return None
     return cur
 
+def _normalize_path_value(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return text
+    if text == "/":
+        return "/"
+    normalized = text.rstrip("/")
+    return normalized or "/"
+
+
 def _op_eval(left: Any, op: str, right: Any) -> bool:
     try:
         if op == "equals": return left == right
@@ -776,22 +840,47 @@ def _rule_matches(rule: Dict[str, Any], payload: RuleCheckRequest) -> bool:
             left = _get_path(scope, field) or _get_path(payload, field) or _get_path(payload.event, field)
 
         candidates = [left]
-        if field == "telemetry.attributes.path":
-            candidates.extend(
-                [
-                    _get_path(scope, "telemetry.attributes.pathWithQuery"),
-                    _get_path(scope, "telemetry.attributes.pathNoQuery"),
+        if field in {
+            "telemetry.attributes.path",
+            "telemetry.attributes.pathWithQuery",
+            "telemetry.attributes.pathNoQuery",
+        }:
+            for alt_field in (
+                "telemetry.attributes.path",
+                "telemetry.attributes.pathWithQuery",
+                "telemetry.attributes.pathNoQuery",
+            ):
+                candidate_value = _get_path(scope, alt_field)
+                if candidate_value is not None:
+                    candidates.append(candidate_value)
+
+        normalize_path = field in _PATH_FIELDS and op in {"equals", "eq", "in"}
+        right_value = val
+        if normalize_path:
+            if isinstance(val, str):
+                right_value = _normalize_path_value(val)
+            elif isinstance(val, (list, tuple, set)):
+                normalized_iter = [
+                    _normalize_path_value(item) if isinstance(item, str) else item
+                    for item in val
                 ]
-            )
+                if isinstance(val, tuple):
+                    right_value = tuple(normalized_iter)
+                elif isinstance(val, set):
+                    right_value = set(normalized_iter)
+                else:
+                    right_value = normalized_iter
 
         matched = False
         for candidate in candidates:
             if candidate is None:
                 continue
             comp = candidate
-            if isinstance(comp, str) and comp.isdigit():
+            if normalize_path and isinstance(comp, str):
+                comp = _normalize_path_value(comp)
+            if not normalize_path and isinstance(comp, str) and comp.isdigit():
                 comp = int(comp)
-            if _op_eval(comp, op, val):
+            if _op_eval(comp, op, right_value):
                 matched = True
                 break
 

@@ -767,21 +767,14 @@ window.DOMSPHERE_API_URL = 'http://localhost:4000';
 Include the minified bundle and boot the AutoAssistant once the DOM is ready:
 
 ```html
-<script
-  src="http://127.0.0.1:8000/sdk.umd.min.js"
-  id="domsphere-sdk"
-></script>
+<script src="http://127.0.0.1:8000/sdk.umd.min.js" id="domsphere-sdk"></script>
 <script>
   (function initDomSphere() {
     const start = () => {
-      const AutoAssistant =
-        (window.DomSphereSDK && window.DomSphereSDK.AutoAssistant) ||
-        (window.AgentSDK && window.AgentSDK.AutoAssistant);
+      const AutoAssistant = (window.DomSphereSDK && window.DomSphereSDK.AutoAssistant) || (window.AgentSDK && window.AgentSDK.AutoAssistant);
 
       if (!AutoAssistant) {
-        console.error(
-          '[DomSphere] AutoAssistant missing—check sdk.umd.js path.'
-        );
+        console.error('[DomSphere] AutoAssistant missing—check sdk.umd.js path.');
         return;
       }
 
@@ -796,12 +789,8 @@ Include the minified bundle and boot the AutoAssistant once the DOM is ready:
 
       window.domSphereSdk = sdk;
       sdk.on('rule:ready', () => console.debug('[rule:ready]'));
-      sdk.on('rule:checked', (payload) =>
-        console.debug('[rule:checked]', payload)
-      );
-      sdk.on('suggest:ready', (suggestions) =>
-        console.debug('[suggest:ready]', suggestions)
-      );
+      sdk.on('rule:checked', (payload) => console.debug('[rule:checked]', payload));
+      sdk.on('suggest:ready', (suggestions) => console.debug('[suggest:ready]', suggestions));
       sdk.on('error', (err) => console.error('[sdk:error]', err));
       sdk.start();
     };
@@ -823,12 +812,11 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
 
 ```css
 #assistant-panel {
-  position: relative;
-  display: grid;
-  gap: 1.25rem;
-  max-width: 480px;
-  font-family: 'Raleway', system-ui, sans-serif;
-  color: #f8fafc;
+  position: fixed;
+  max-width: 300px;
+  z-index: 9999;
+  bottom: 20px;
+  left: 20px;
 }
 
 #assistant-panel::before {
@@ -838,7 +826,7 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
   color: rgba(148, 163, 184, 0.75);
 }
 
-#assistant-panel [data-role="assistant-card"] {
+#assistant-panel [data-role='assistant-card'] {
   --assistant-border-width: 3px;
   position: relative;
   padding: 1.5rem;
@@ -848,62 +836,48 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
   overflow: hidden;
 }
 
-#assistant-panel [data-role="assistant-card"]::after {
+#assistant-panel [data-role='assistant-card']::after {
   content: '';
   position: absolute;
   inset: calc(-1 * var(--assistant-border-width));
   border-radius: calc(18px + var(--assistant-border-width));
-  background: linear-gradient(
-    60deg,
-    #f79533,
-    #f37055,
-    #ef4e7b,
-    #a166ab,
-    #5073b8,
-    #1098ad,
-    #07b39b,
-    #6fba82
-  );
+  background: linear-gradient(60deg, #f79533, #f37055, #ef4e7b, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82);
   z-index: -2;
   background-size: 300% 300%;
   animation: assistant-gradient 3.5s ease alternate infinite;
   filter: blur(0.5px);
 }
 
-#assistant-panel [data-role="assistant-card"]::before {
+#assistant-panel [data-role='assistant-card']::before {
   content: '';
   position: absolute;
   inset: 0.6rem;
   border-radius: 14px;
-  background: radial-gradient(
-    circle at 20% 20%,
-    rgba(255, 255, 255, 0.18),
-    rgba(15, 23, 42, 0.95)
-  );
+  background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.18), rgba(15, 23, 42, 0.95));
   z-index: -1;
 }
 
-#assistant-panel [data-role="assistant-title"] {
+#assistant-panel [data-role='assistant-title'] {
   margin: 0;
   font-size: 1.15rem;
   font-weight: 600;
   color: #f8fafc;
 }
 
-#assistant-panel [data-role="assistant-description"] {
+#assistant-panel [data-role='assistant-description'] {
   margin: 0.35rem 0 0.75rem 0;
   font-size: 0.95rem;
   line-height: 1.6;
   color: rgba(203, 213, 225, 0.85);
 }
 
-#assistant-panel [data-role="assistant-actions"] {
+#assistant-panel [data-role='assistant-actions'] {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
 }
 
-#assistant-panel [data-role="assistant-actions"] button {
+#assistant-panel [data-role='assistant-actions'] button {
   position: relative;
   border: none;
   border-radius: 999px;
@@ -916,23 +890,23 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
   transition: transform 150ms ease, box-shadow 150ms ease;
 }
 
-#assistant-panel [data-role="assistant-actions"] button[data-assistant-variant="primary"] {
+#assistant-panel [data-role='assistant-actions'] button[data-assistant-variant='primary'] {
   background: linear-gradient(135deg, #60a5fa, #6366f1);
   color: #050816;
   box-shadow: 0 12px 25px rgba(99, 102, 241, 0.35);
 }
 
-#assistant-panel [data-role="assistant-actions"] button[data-assistant-variant="secondary"] {
+#assistant-panel [data-role='assistant-actions'] button[data-assistant-variant='secondary'] {
   border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
-#assistant-panel [data-role="assistant-actions"] button:hover,
-#assistant-panel [data-role="assistant-actions"] button:focus-visible {
+#assistant-panel [data-role='assistant-actions'] button:hover,
+#assistant-panel [data-role='assistant-actions'] button:focus-visible {
   transform: translateY(-1px);
   box-shadow: 0 16px 35px rgba(99, 102, 241, 0.28);
 }
 
-#assistant-panel [data-role="assistant-card"][data-assistant-origin*="recommendation"]::after {
+#assistant-panel [data-role='assistant-card'][data-assistant-origin*='recommendation']::after {
   animation-duration: 2.6s;
 }
 

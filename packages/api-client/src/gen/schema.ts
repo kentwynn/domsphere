@@ -462,6 +462,8 @@ export type components = {
             normalized?: {
                 [key: string]: unknown;
             } | null;
+            /** Bodytext */
+            bodyText?: string | null;
         };
         /** SiteMapEmbeddingRequest */
         SiteMapEmbeddingRequest: {
