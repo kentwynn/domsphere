@@ -169,20 +169,16 @@ docker compose exec -T postgres \
   psql -U domsphere -d domsphere -v ON_ERROR_STOP=1 \
   -f /dev/stdin < apps/api/db/init.sql
 
-# Populate the demo dataset (rules, sitemap, embeddings, atlas, styles)
-docker compose exec -T postgres \
-  psql -U domsphere -d domsphere -v ON_ERROR_STOP=1 \
-  -f /dev/stdin < apps/api/db/seed.sql
 ```
 
-Running `init.sql` once is enough to create the tables; you can re-run it or `seed.sql` safely thanks to the defensive `CREATE TABLE IF NOT EXISTS` and `ON CONFLICT` clauses. Execute the commands from the repository root so the relative paths resolve correctly.
+Running `init.sql` once is enough to create the tables. Execute the command from the repository root so the relative path resolves correctly.
 
 ### Site inventory
 
 The schema now maintains a `site_pages` inventory keyed by `siteId` + URL. Every sitemap crawl (`/site/map`) upserts rows in this table, marking missing pages as `gone` on full recrawls. Page-level metadata (`has info/atlas/embeddings`, last refreshed timestamps) is tracked alongside the URL, so you can inspect freshness via the new endpoint:
 
 ```bash
-curl "http://localhost:8000/site/pages?siteId=demo-site"
+curl "http://localhost:8000/site/pages?siteId=<your-site-id>"
 ```
 
 Providing `url` to `/site/map`, `/site/info`, or `/site/atlas` still works, but those URLs must live under the registered parent domain; partial crawls update the matching entries without expiring the rest of the inventory.
@@ -657,32 +653,40 @@ nx run api-client:codegen
 
 #### Build the SDK
 
-**ESM + CJS (Production)**:
+Use the workspace package manager (`pnpm`) so the Nx CLI resolves from `node_modules/`.
+
+**ESM + CJS (library builds)**:
 
 ```bash
-nx build sdk
+pnpm nx build sdk
 ```
 
-**UMD Bundle (Browser)**:
+**UMD Bundle (browser sandbox)**:
 
 ```bash
-nx run sdk:bundle-umd
+pnpm nx run sdk:bundle-umd
 ```
 
-**All Formats**:
+**Minified UMD (production embeds)**:
 
 ```bash
-nx run sdk:build-all
+pnpm nx run sdk:bundle-umd-min
+```
+
+**All formats (runs build + both UMD bundles)**:
+
+```bash
+pnpm nx run sdk:build-all
 ```
 
 - **Output**: `dist/packages/sdk/`
-- **Includes**: `index.esm.js`, `index.cjs.js`, `umd/sdk.umd.js`
+- **Includes**: `index.esm.js`, `index.cjs.js`, `umd/sdk.umd.js`, `umd/sdk.umd.min.js`
 
 #### Demo the SDK
 
 ```bash
 # Build and serve UMD demo
-nx run sdk:build-all
+pnpm nx run sdk:build-all
 npx http-server dist/packages/sdk/umd -p 8080 -c-1
 
 # Open http://localhost:8080
@@ -758,6 +762,61 @@ Set `window.DOMSPHERE_API_URL` in demo HTML to point SDK at specific API URL:
 window.DOMSPHERE_API_URL = 'http://localhost:4000';
 ```
 
+#### Embed in a host page
+
+Include the minified bundle and boot the AutoAssistant once the DOM is ready:
+
+```html
+<script
+  src="http://127.0.0.1:8000/sdk.umd.min.js"
+  id="domsphere-sdk"
+></script>
+<script>
+  (function initDomSphere() {
+    const start = () => {
+      const AutoAssistant =
+        (window.DomSphereSDK && window.DomSphereSDK.AutoAssistant) ||
+        (window.AgentSDK && window.AgentSDK.AutoAssistant);
+
+      if (!AutoAssistant) {
+        console.error(
+          '[DomSphere] AutoAssistant missing—check sdk.umd.js path.'
+        );
+        return;
+      }
+
+      const sdk = new AutoAssistant({
+        baseUrl: 'http://localhost:4000',
+        siteId: 'your-site-id',
+        sessionId: 'dev-session',
+        panelSelector: '#assistant-panel',
+        debounceMs: 150,
+        finalCooldownMs: 30000,
+      });
+
+      window.domSphereSdk = sdk;
+      sdk.on('rule:ready', () => console.debug('[rule:ready]'));
+      sdk.on('rule:checked', (payload) =>
+        console.debug('[rule:checked]', payload)
+      );
+      sdk.on('suggest:ready', (suggestions) =>
+        console.debug('[suggest:ready]', suggestions)
+      );
+      sdk.on('error', (err) => console.error('[sdk:error]', err));
+      sdk.start();
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', start);
+    } else {
+      start();
+    }
+  })();
+</script>
+```
+
+Update `baseUrl`, `siteId`, and `panelSelector` to match your environment before deploying.
+
 ---
 
 ## 🔄 Common Development Workflows
@@ -775,7 +834,7 @@ nx serve agent
 nx serve web
 
 # Terminal 4: Watch SDK changes
-nx build sdk --watch
+pnpm nx build sdk --watch
 ```
 
 ### Update API Types
@@ -789,7 +848,7 @@ nx run api-client:codegen && nx build web
 
 ```bash
 # Build SDK and test in browser
-nx run sdk:build-all && npx http-server dist/packages/sdk/umd -p 8080 -c-1
+pnpm nx run sdk:build-all && npx http-server dist/packages/sdk/umd -p 8080 -c-1
 ```
 
 ### Fresh Build (Clean Slate)
@@ -817,7 +876,7 @@ export default DomSphereSDK;
 (globalThis as any).DomSphereSDK = DomSphereSDK;
 
 # Rebuild UMD bundle
-nx run sdk:bundle-umd
+pnpm nx run sdk:bundle-umd
 
 # Hard reload browser page
 ```
