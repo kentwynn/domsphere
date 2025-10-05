@@ -14,6 +14,16 @@ from .suggestion_llm import SuggestionLLMToolkit
 logger = get_agent_logger(__name__)
 
 
+def _truncate_for_log(value: Any, limit: int = 500) -> str:
+    """Return a compact, single-line representation for log output."""
+
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else repr(value)
+    text = text.replace("\n", " ").replace("\r", " ")
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
 def _coerce_step(raw: Any) -> int:
     try:
         step = int(raw)
@@ -268,8 +278,19 @@ def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
         context.get("url"),
     )
 
-    for _ in range(4):
+    max_attempts = 6
+    failure_reasons: List[str] = []
+    last_ai_content: Optional[str] = None
+
+    for attempt in range(max_attempts):
+        logger.debug(
+            "Template agent attempt %s/%s site=%s",
+            attempt + 1,
+            max_attempts,
+            context.get("siteId"),
+        )
         ai = llm.invoke(messages)
+        last_ai_content = getattr(ai, "content", None)
         tool_calls = getattr(ai, "tool_calls", None) or []
 
         if not tool_calls:
@@ -282,15 +303,22 @@ def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
                         context.get("siteId"),
                     )
                     return data
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "Template agent parse failed site=%s",
+                    "Template agent parse failed site=%s attempt=%s error=%s response=%s",
                     context.get("siteId"),
+                    attempt + 1,
+                    exc,
+                    _truncate_for_log(ai.content),
                 )
+                failure_reasons.append(f"attempt {attempt + 1} parse_error: {exc}")
             logger.warning(
-                "Template agent returned empty response site=%s",
+                "Template agent returned empty response site=%s attempt=%s response=%s",
                 context.get("siteId"),
+                attempt + 1,
+                _truncate_for_log(ai.content),
             )
+            failure_reasons.append(f"attempt {attempt + 1} empty_response")
             return {}
 
         messages.append(ai)
@@ -304,6 +332,13 @@ def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
                         args = parsed
                 except Exception:
                     logger.debug("Tool args parse failed name=%s", name)
+            if isinstance(args, (dict, list)):
+                try:
+                    args_for_log = json.dumps(args)
+                except Exception:
+                    args_for_log = repr(args)
+            else:
+                args_for_log = args if isinstance(args, str) else repr(args)
             try:
                 if name == "plan_sitemap_query":
                     result = tool_plan_sitemap_query.invoke(args)
@@ -326,6 +361,27 @@ def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
                     context.get("siteId"),
                 )
                 result = {"error": str(exc)}
+                failure_reasons.append(
+                    f"attempt {attempt + 1} tool_exception {name}: {exc}"
+                )
+            if isinstance(result, dict) and result.get("error"):
+                error_text = _truncate_for_log(result.get("error"))
+                logger.warning(
+                    "Template agent tool call returned error name=%s site=%s error=%s",
+                    name,
+                    context.get("siteId"),
+                    error_text,
+                )
+                failure_reasons.append(
+                    f"attempt {attempt + 1} tool_error {name}: {error_text}"
+                )
+            logger.debug(
+                "Template agent tool result name=%s site=%s args=%s result=%s",
+                name,
+                context.get("siteId"),
+                _truncate_for_log(args_for_log),
+                _truncate_for_log(result),
+            )
             messages.append(
                 ToolMessage(
                     content=json.dumps(result)[:4000],
@@ -335,7 +391,13 @@ def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
                 )
             )
 
-    logger.warning("Template agent exhausted attempts site=%s", context.get("siteId"))
+    failure_reasons.append("max_attempts_exhausted")
+    logger.warning(
+        "Template agent exhausted attempts site=%s reasons=%s last_response=%s",
+        context.get("siteId"),
+        "; ".join(failure_reasons),
+        _truncate_for_log(last_ai_content) if last_ai_content is not None else "",
+    )
     return {}
 
 
