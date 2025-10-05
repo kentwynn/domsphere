@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 pydantic>=2
+python-dotenv>=1.0
 numpy>=1.26
 SQLAlchemy>=2.0
 psycopg[binary]>=3.1
