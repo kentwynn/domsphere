@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any, Callable, Dict, Optional
+from core.logging import get_agent_logger
 
-from fastapi import logger
+logger = get_agent_logger(__name__)
+
 
 
 def _extract_step(suggestion: Optional[Dict[str, Any]]) -> int:
