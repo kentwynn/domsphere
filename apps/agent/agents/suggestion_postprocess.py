@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Callable, Dict, Optional
 
+from fastapi import logger
+
 
 def _extract_step(suggestion: Optional[Dict[str, Any]]) -> int:
     if not isinstance(suggestion, dict):
@@ -79,67 +81,6 @@ def normalize_suggestion(suggestion: Dict[str, Any]) -> Dict[str, Any]:
     return suggestion
 
 
-def fallback_info_suggestion(
-    request_meta: Dict[str, Any],
-    context: Dict[str, Any],
-    get_templates: Callable[[], Dict[str, Dict[str, Any]]],
-    *,
-    title: Optional[str] = None,
-    description: Optional[str] = None,
-    source: str = "fallback",
-    step: int | str = 1,
-    suggestion_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    templates = get_templates()
-    info_template = deepcopy(templates.get("info", {}))
-    if not info_template:
-        info_template = {
-            "type": "info",
-            "id": "fallback-info",
-            "title": "Suggestion Unavailable",
-            "description": "We couldn't generate a suggestion right now.",
-            "meta": {},
-        }
-
-    instruction = context.get("outputInstruction") or "Suggestion Unavailable"
-    rule_id = request_meta.get("ruleId", "unknown")
-    info_template["id"] = suggestion_id or f"fallback-info-{rule_id}"
-    info_template["title"] = title or instruction[:120] or "Suggestion Unavailable"
-    info_template["description"] = description or instruction
-
-    meta = info_template.get("meta") or {}
-    meta["source"] = source
-    meta["step"] = str(step)
-    info_template["meta"] = meta
-
-    return info_template
-
-
-def choice_acknowledgement(
-    request_meta: Dict[str, Any],
-    context: Dict[str, Any],
-    get_templates: Callable[[], Dict[str, Dict[str, Any]]],
-) -> Dict[str, Any]:
-    user_choices = context.get("userChoices") or {}
-    summary = ", ".join(f"{key} = {value}" for key, value in user_choices.items())
-    if not summary:
-        summary = "your selection"
-
-    instruction = context.get("outputInstruction") or "Selection received"
-    description = f"We'll tailor the next steps using {summary}."
-
-    return fallback_info_suggestion(
-        request_meta,
-        context,
-        get_templates,
-        title=instruction[:120] or "Selection received",
-        description=description,
-        source="choice_ack",
-        step=2,
-        suggestion_id=f"choice-ack-{request_meta.get('ruleId', 'unknown')}",
-    )
-
-
 def finalize_suggestion_state(
     state: Dict[str, Any],
     request_meta: Dict[str, Any],
@@ -162,9 +103,20 @@ def finalize_suggestion_state(
             "suggestions": [normalized],
         }
 
+    def _empty() -> Dict[str, Any]:
+        return {
+            **state,
+            "suggestion_data": {},
+            "template_type": template_type,
+            "suggestions": [],
+        }
+
     if not isinstance(suggestion_data, dict):
-        fallback = fallback_info_suggestion(request_meta, context, get_templates)
-        return _wrap(fallback, "info")
+        logger.warning(
+            "Suggestion graph produced non-dict suggestion_data site=%s",
+            request_meta.get("siteId"),
+        )
+        return _empty()
 
     if choice_result:
         final_template_type = choice_result.get("template_type") or template_type
@@ -172,16 +124,22 @@ def finalize_suggestion_state(
         final_choice = final_raw if isinstance(final_raw, dict) else None
 
         if not final_choice:
-            ack = choice_acknowledgement(request_meta, context, get_templates)
-            return _wrap(ack, "info")
+            logger.warning(
+                "Choice manager produced empty follow-up site=%s",
+                request_meta.get("siteId"),
+            )
+            return _empty()
 
         if (
             final_template_type == "choice"
             and context.get("userChoices")
             and choice_result.get("exhausted")
         ):
-            ack = choice_acknowledgement(request_meta, context, get_templates)
-            return _wrap(ack, "info")
+            logger.warning(
+                "Choice flow exhausted without resolution site=%s",
+                request_meta.get("siteId"),
+            )
+            return _empty()
 
         if (
             final_template_type == "choice"

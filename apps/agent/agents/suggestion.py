@@ -14,7 +14,6 @@ from helper.suggestion import get_site_atlas, get_site_info, normalize_url
 from helper.site_search import generate_sitemap_query, search_sitemap
 from agents.suggestion_graph import build_suggestion_graph
 from agents.suggestion_llm import SuggestionLLMToolkit
-from agents.suggestion_postprocess import fallback_info_suggestion
 from templates.suggestion import get_templates
 from core.logging import get_agent_logger
 
@@ -26,12 +25,34 @@ class SuggestionAgent:
 
     def __init__(self, api_url: Optional[str] = None) -> None:
         self.api_url = (api_url or os.getenv("API_BASE_URL", "http://localhost:4000")).rstrip("/")
-        self.openai_token = os.getenv("OPENAI_TOKEN")
+
+        raw_model = os.getenv("LLM_MODEL")
+        self.llm_model = (raw_model.strip() if isinstance(raw_model, str) else None) or "gpt-4.1-mini"
+
+        raw_embedding_model = os.getenv("LLM_EMBEDDING_MODEL")
+        self.llm_embedding_model = (
+            raw_embedding_model.strip()
+            if isinstance(raw_embedding_model, str) and raw_embedding_model.strip()
+            else None
+        )
+
+        raw_key = os.getenv("LLM_API_KEY")
+        self.llm_api_key = (
+            raw_key.strip() if isinstance(raw_key, str) and raw_key.strip() else None
+        )
+
+        raw_base_url = os.getenv("LLM_BASE_URL")
+        if isinstance(raw_base_url, str):
+            raw_base_url = raw_base_url.strip()
+        self.llm_base_url = raw_base_url.rstrip("/") if raw_base_url else None
+
         self.http_timeout = float(os.getenv("HTTP_TIMEOUT", "300"))
         self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "300"))
         logger.debug(
-            "SuggestionAgent initialized api_url=%s http_timeout=%s llm_timeout=%s",
+            "SuggestionAgent initialized api_url=%s llm_model=%s llm_base_url=%s http_timeout=%s llm_timeout=%s",
             self.api_url,
+            self.llm_model,
+            self.llm_base_url,
             self.http_timeout,
             self.llm_timeout,
         )
@@ -82,17 +103,7 @@ class SuggestionAgent:
                 request.siteId,
                 request.ruleId,
             )
-            fallback = fallback_info_suggestion(
-                {
-                    "ruleId": request.ruleId,
-                    "siteId": request.siteId,
-                    "url": request.url,
-                    "input": request.input or {},
-                },
-                context,
-                get_templates,
-            )
-            return [fallback]
+            return []
 
         suggestions = graph_result.get("suggestions") if isinstance(graph_result, dict) else None
         if not isinstance(suggestions, list) or not suggestions:
@@ -101,17 +112,7 @@ class SuggestionAgent:
                 request.siteId,
                 request.ruleId,
             )
-            fallback = fallback_info_suggestion(
-                graph_result.get("request", {
-                    "ruleId": request.ruleId,
-                    "siteId": request.siteId,
-                    "url": request.url,
-                    "input": request.input or {},
-                }),
-                context,
-                get_templates,
-            )
-            return [fallback]
+            return []
 
         logger.info(
             "Suggestion graph generated %s suggestion(s) site=%s rule=%s",
@@ -152,23 +153,24 @@ class SuggestionAgent:
             raise
 
     def _create_toolkit(self) -> SuggestionLLMToolkit:
-        model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
         return SuggestionLLMToolkit(
             plan_sitemap_query=self.tool_plan_sitemap_query,
             search_sitemap=self.tool_search_sitemap,
             get_site_info=self.tool_get_site_info,
             get_site_atlas=self.tool_get_site_atlas,
             get_templates=self.tool_get_templates,
-            api_key=self.openai_token,
-            model_name=model_name,
+            api_key=self.llm_api_key,
+            model_name=self.llm_model,
+            base_url=self.llm_base_url,
             timeout=self.http_timeout,
         )
 
     def tool_plan_sitemap_query(self, payload: str) -> str:
         return generate_sitemap_query(
             payload,
-            api_key=self.openai_token,
-            model=os.getenv("OPENAI_MODEL"),
+            api_key=self.llm_api_key,
+            base_url=self.llm_base_url,
+            model=self.llm_model,
         )
 
     def tool_search_sitemap(self, site_id: str, query: str) -> List[Dict[str, Any]]:

@@ -17,4 +17,5 @@ class SuggestionLLMToolkit:
     get_templates: Callable[[], Dict[str, Dict[str, Any]]]
     api_key: Optional[str]
     model_name: str
+    base_url: Optional[str]
     timeout: float

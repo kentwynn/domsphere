@@ -17,6 +17,7 @@ def generate_sitemap_query(
     instruction: str,
     *,
     api_key: Optional[str],
+    base_url: Optional[str] = None,
     model: Optional[str] = None,
 ) -> str:
     """Use an LLM to derive a single sitemap search query."""
@@ -26,8 +27,22 @@ def generate_sitemap_query(
         logger.info("Sitemap query planner received empty instruction; returning blank query")
         return ""
 
-    if not api_key:
-        logger.warning("Sitemap query planner missing OpenAI API key; returning blank query")
+    raw_base_url = base_url or os.getenv("LLM_BASE_URL")
+    if isinstance(raw_base_url, str):
+        raw_base_url = raw_base_url.strip()
+    resolved_base_url = raw_base_url.rstrip("/") if raw_base_url else None
+
+    effective_key = api_key
+    if not effective_key:
+        env_key = os.getenv("LLM_API_KEY")
+        if isinstance(env_key, str):
+            env_key = env_key.strip()
+        effective_key = env_key or None
+
+    if not resolved_base_url and not effective_key:
+        logger.warning(
+            "Sitemap query planner missing LLM credentials; returning blank query",
+        )
         return ""
 
     try:  # Lazy import to keep optional dependency optional
@@ -37,9 +52,21 @@ def generate_sitemap_query(
         logger.exception("Sitemap query planner cannot import LangChain dependencies")
         return ""
 
-    model_name = model or os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model_name = (
+        model
+        or (os.getenv("LLM_MODEL") or "gpt-4.1-mini")
+    )
 
-    llm = ChatOpenAI(api_key=api_key, model=model_name, temperature=0)
+    llm_kwargs = {
+        "model": model_name,
+        "temperature": 0,
+    }
+    if effective_key:
+        llm_kwargs["api_key"] = effective_key
+    if resolved_base_url:
+        llm_kwargs["base_url"] = resolved_base_url
+
+    llm = ChatOpenAI(**llm_kwargs)
     messages = [
         SystemMessage(
             content=(

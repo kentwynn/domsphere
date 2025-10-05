@@ -81,7 +81,7 @@ The Agent Service implements a sophisticated multi-agent system for generating c
 - **Multi-Step Flows**: Handles complex decision trees and user choice collection
 - **DOM Integration**: Validates selectors against actual page elements
 - **Template-Driven**: Flexible suggestion types (info, actions, choices)
-- **LangChain Powered**: Uses OpenAI models with structured tool calling
+- **LangChain Powered**: Uses OpenAI-compatible LLMs with structured tool calling
 
 ### Rule Trigger System
 
@@ -522,7 +522,7 @@ Your system now rivals enterprise personalization platforms while maintaining si
 
 ### Environment Setup
 
-- **OpenAI API Key** (for AI agent functionality)
+- **LLM API Key** (if your chosen backend requires authentication)
 - **IDE/Editor** with TypeScript and Python support (VS Code recommended)
 
 ---
@@ -576,7 +576,10 @@ source .venv/bin/activate
 pip install fastapi uvicorn[standard] langchain langchain-openai langgraph httpx pydantic
 
 # Set up environment variables
-echo "OPENAI_TOKEN=your_openai_api_key_here" > .env
+echo "LLM_BASE_URL=http://localhost:1234/v1" > .env           # Optional: omit for OpenAI
+echo "LLM_API_KEY=your_llm_api_key_here" >> .env             # Optional: omit if your backend skips auth
+echo "LLM_MODEL=gpt-4.1-mini" >> .env
+echo "LLM_EMBEDDING_MODEL=text-embedding-3-small" >> .env
 
 # Return to project root
 cd ../..
@@ -747,8 +750,10 @@ app.add_middleware(
 #### Agent Service (`.env` in `apps/agent/`)
 
 ```bash
-OPENAI_TOKEN=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o                    # Optional, defaults to gpt-4o
+LLM_BASE_URL=http://localhost:1234/v1       # Optional: set to your LLM endpoint
+LLM_API_KEY=your_llm_api_key_here          # Optional: use 'not-needed' if auth disabled
+LLM_MODEL=gpt-4.1-mini                     # Required for chat/completions
+LLM_EMBEDDING_MODEL=text-embedding-3-small # Optional: embedding model, defaults to LLM_MODEL
 API_BASE_URL=http://localhost:4000     # Optional, points to public API
 HTTP_TIMEOUT=300                       # Optional, request timeout
 LLM_TIMEOUT=300                        # Optional, LLM response timeout
@@ -1012,8 +1017,8 @@ curl http://localhost:4000/health
 #### **Agent service connection errors**
 
 ```bash
-# 1. Verify OpenAI API key is set
-echo $OPENAI_TOKEN
+# 1. Verify LLM API key is set (if required)
+echo $LLM_API_KEY
 
 # 2. Check agent service is running
 curl http://localhost:5001/health

@@ -25,13 +25,28 @@ class RuleAgent:
 
     def __init__(self, api_url: Optional[str] = None, debug: bool = False) -> None:
         self.api_url = (api_url or os.getenv("API_BASE_URL", "http://localhost:4000")).rstrip("/")
-        self.openai_token = os.getenv("OPENAI_TOKEN")
+
+        raw_model = os.getenv("LLM_MODEL")
+        self.llm_model = (raw_model.strip() if isinstance(raw_model, str) else None) or "gpt-4.1-mini"
+
+        raw_key = os.getenv("LLM_API_KEY")
+        self.llm_api_key = (
+            raw_key.strip() if isinstance(raw_key, str) and raw_key.strip() else None
+        )
+
+        raw_base_url = os.getenv("LLM_BASE_URL")
+        if isinstance(raw_base_url, str):
+            raw_base_url = raw_base_url.strip()
+        self.llm_base_url = raw_base_url.rstrip("/") if raw_base_url else None
+
         self.debug = debug
         self.http_timeout = float(os.getenv("HTTP_TIMEOUT", "300"))
         self.llm_timeout = float(os.getenv("LLM_TIMEOUT", "300"))
         logger.debug(
-            "RuleAgent initialized api_url=%s debug=%s http_timeout=%s llm_timeout=%s",
+            "RuleAgent initialized api_url=%s llm_model=%s llm_base_url=%s debug=%s http_timeout=%s llm_timeout=%s",
             self.api_url,
+            self.llm_model,
+            self.llm_base_url,
             self.debug,
             self.http_timeout,
             self.llm_timeout,
@@ -46,8 +61,9 @@ class RuleAgent:
     def tool_plan_sitemap_query(self, instruction: str) -> str:
         return generate_sitemap_query(
             instruction,
-            api_key=self.openai_token,
-            model=os.getenv("OPENAI_MODEL"),
+            api_key=self.llm_api_key,
+            base_url=self.llm_base_url,
+            model=self.llm_model,
         )
 
     def tool_get_site_atlas(self, site_id: str, url: str) -> Dict[str, Any]:
@@ -60,14 +76,14 @@ class RuleAgent:
     # LLM integration
     # ------------------------------------------------------------------
     def _create_toolkit(self) -> RuleLLMToolkit:
-        model_name = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
         return RuleLLMToolkit(
             get_output_schema=self.tool_get_output_schema,
             plan_sitemap_query=self.tool_plan_sitemap_query,
             search_sitemap=self.tool_search_sitemap,
             get_site_atlas=self.tool_get_site_atlas,
-            api_key=self.openai_token,
-            model_name=model_name,
+            api_key=self.llm_api_key,
+            model_name=self.llm_model,
+            base_url=self.llm_base_url,
         )
 
     def _llm_generate(self, site_id: str, rule_instruction: str) -> Optional[List[Dict[str, Any]]]:

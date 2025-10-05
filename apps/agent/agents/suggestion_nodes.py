@@ -27,9 +27,29 @@ def planner_agent_node(context: dict) -> dict:
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_openai import ChatOpenAI
 
-    openai_token = os.getenv("OPENAI_TOKEN")
-    model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
-    llm = ChatOpenAI(api_key=openai_token, model=model_name, temperature=0)
+    raw_model = os.getenv("LLM_MODEL")
+    model_name = (raw_model.strip() if isinstance(raw_model, str) and raw_model.strip() else None) or "gpt-4o"
+
+    raw_key = os.getenv("LLM_API_KEY")
+    api_key = raw_key.strip() if isinstance(raw_key, str) and raw_key.strip() else None
+
+    raw_base_url = os.getenv("LLM_BASE_URL")
+    base_url = None
+    if isinstance(raw_base_url, str):
+        raw_base_url = raw_base_url.strip()
+        if raw_base_url:
+            base_url = raw_base_url.rstrip("/")
+
+    llm_kwargs = {
+        "model": model_name,
+        "temperature": 0,
+    }
+    if api_key:
+        llm_kwargs["api_key"] = api_key
+    if base_url:
+        llm_kwargs["base_url"] = base_url
+
+    llm = ChatOpenAI(**llm_kwargs)
 
     sys = SystemMessage(
         content=(
@@ -158,9 +178,29 @@ def template_agent_node(context: dict, toolkit: SuggestionLLMToolkit) -> dict:
         """Return the available suggestion templates keyed by type."""
         return toolkit.get_templates()
 
-    openai_token = toolkit.api_key or os.getenv("OPENAI_TOKEN")
-    model_name = toolkit.model_name or os.getenv("OPENAI_MODEL", "gpt-4o")
-    llm = ChatOpenAI(api_key=openai_token, model=model_name, temperature=0)
+    raw_model = toolkit.model_name or os.getenv("LLM_MODEL")
+    model_name = (raw_model.strip() if isinstance(raw_model, str) and raw_model.strip() else None) or "gpt-4o"
+
+    raw_key = toolkit.api_key or os.getenv("LLM_API_KEY")
+    api_key = raw_key.strip() if isinstance(raw_key, str) and raw_key.strip() else None
+
+    raw_base_url = toolkit.base_url or os.getenv("LLM_BASE_URL")
+    base_url = None
+    if isinstance(raw_base_url, str):
+        raw_base_url = raw_base_url.strip()
+        if raw_base_url:
+            base_url = raw_base_url.rstrip("/")
+
+    llm_kwargs = {
+        "model": model_name,
+        "temperature": 0,
+    }
+    if api_key:
+        llm_kwargs["api_key"] = api_key
+    if base_url:
+        llm_kwargs["base_url"] = base_url
+
+    llm = ChatOpenAI(**llm_kwargs)
     llm = llm.bind_tools(
         [
             tool_plan_sitemap_query,

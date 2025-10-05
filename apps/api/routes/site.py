@@ -147,6 +147,8 @@ def _resolve_optional_url(site_id: str, url: str | None) -> str | None:
     candidate = url.strip()
     if not candidate:
         return None
+    if not candidate.endswith("/"):
+        candidate = f"{candidate}/"
     return resolve_site_url(site_id, candidate)
 
 

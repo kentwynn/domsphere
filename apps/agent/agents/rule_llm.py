@@ -23,6 +23,8 @@ class RuleLLMToolkit:
     get_site_atlas: Callable[[str, str], Dict[str, Any]]
     api_key: Optional[str]
     model_name: str
+    base_url: Optional[str]
+    base_url: Optional[str]
 
 
 def run_llm_generation(
@@ -39,8 +41,8 @@ def run_llm_generation(
         logger.warning("LangChain not available for rule generation site=%s", site_id)
         return None
 
-    if not toolkit.api_key:
-        logger.warning("Missing OpenAI API key for rule generation site=%s", site_id)
+    if not toolkit.api_key and not toolkit.base_url:
+        logger.warning("Missing LLM credentials for rule generation site=%s", site_id)
         return None
 
     @tool("get_output_schema", return_direct=False)
@@ -63,7 +65,16 @@ def run_llm_generation(
         """Fetch DOM atlas selectors for the given site URL."""
         return toolkit.get_site_atlas(siteId, url)
 
-    llm = ChatOpenAI(api_key=toolkit.api_key, model=toolkit.model_name, temperature=0)
+    llm_kwargs = {
+        "model": toolkit.model_name,
+        "temperature": 0,
+    }
+    if toolkit.api_key:
+        llm_kwargs["api_key"] = toolkit.api_key
+    if toolkit.base_url:
+        llm_kwargs["base_url"] = toolkit.base_url
+
+    llm = ChatOpenAI(**llm_kwargs)
     llm = llm.bind_tools(
         [
             tool_get_output_schema,

@@ -6,6 +6,7 @@ import json
 from typing import Any, Dict
 
 import httpx
+from urllib.parse import urlsplit, urlunsplit
 
 from contracts.client_api import (
     SiteAtlasCollectionResponse,
@@ -16,8 +17,23 @@ from contracts.client_api import (
 
 
 def normalize_url(url: str) -> str:
-    """Normalize URLs by stripping trailing slashes when provided as strings."""
-    return url.rstrip("/") if isinstance(url, str) else url
+    """Normalize URLs by ensuring a trailing slash while preserving query/fragment."""
+    if not isinstance(url, str):
+        return url
+
+    stripped = url.strip()
+    if not stripped:
+        return stripped
+
+    parts = urlsplit(stripped)
+    if not parts.scheme and not parts.netloc:
+        return stripped if stripped.endswith("/") else f"{stripped}/"
+
+    path = parts.path or "/"
+    if not path.endswith("/"):
+        path = f"{path}/"
+
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
 
 def get_site_info(site_id: str, url: str, api_url: str, timeout: float) -> SiteInfoResponse:

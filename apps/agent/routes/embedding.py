@@ -23,25 +23,40 @@ def create_embedding(
     payload: AgentEmbeddingRequest,
     x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> AgentEmbeddingResponse:
-    """Generate an embedding vector for the provided text input using OpenAI."""
+    """Generate an embedding vector for the provided text input using the configured LLM."""
 
-    api_key = os.getenv("OPENAI_TOKEN")
-    if not api_key:
+    raw_model = os.getenv("LLM_EMBEDDING_MODEL") or os.getenv("LLM_MODEL")
+    model_name = (raw_model.strip() if isinstance(raw_model, str) and raw_model.strip() else None) or DEFAULT_EMBEDDING_MODEL
+
+    raw_key = os.getenv("LLM_API_KEY")
+    api_key = raw_key.strip() if isinstance(raw_key, str) and raw_key.strip() else None
+
+    raw_base_url = os.getenv("LLM_BASE_URL")
+    base_url = None
+    if isinstance(raw_base_url, str):
+        raw_base_url = raw_base_url.strip()
+        if raw_base_url:
+            base_url = raw_base_url.rstrip("/")
+
+    if not base_url and not api_key:
         logger.error(
-            "OPENAI_TOKEN missing while handling embedding request request_id=%s",
+            "LLM credentials missing while handling embedding request request_id=%s",
             x_request_id,
         )
-        raise HTTPException(status_code=500, detail="OpenAI configuration missing")
-
-    configured_model = os.getenv("OPENAI_EMBEDDING_MODEL")
-    model_name = configured_model or DEFAULT_EMBEDDING_MODEL
+        raise HTTPException(status_code=500, detail="LLM configuration missing")
 
     try:
         # Delay import so service can start without optional dependency
         from langchain_openai import OpenAIEmbeddings
 
         def _embed(target_model: str) -> List[float]:
-            embeddings = OpenAIEmbeddings(api_key=api_key, model=target_model)
+            kwargs = {"model": target_model}
+            if api_key:
+                kwargs["api_key"] = api_key
+            if base_url:
+                kwargs["base_url"] = base_url
+
+            embeddings = OpenAIEmbeddings(**kwargs)
             logger.debug(
                 "Generating embedding with model=%s request_id=%s text_length=%s",
                 target_model,
@@ -50,20 +65,7 @@ def create_embedding(
             )
             return embeddings.embed_query(payload.text)
 
-        try:
-            vector = _embed(model_name)
-        except Exception as exc:  # pragma: no cover - retry path
-            model_not_found = exc.__class__.__name__ == "NotFoundError"
-            if not model_not_found or not configured_model:
-                raise
-            logger.warning(
-                "Configured embedding model unavailable model=%s request_id=%s; falling back to %s",
-                configured_model,
-                x_request_id,
-                DEFAULT_EMBEDDING_MODEL,
-            )
-            model_name = DEFAULT_EMBEDDING_MODEL
-            vector = _embed(model_name)
+        vector = _embed(model_name)
     except HTTPException:
         raise
     except ImportError as exc:
