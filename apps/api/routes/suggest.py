@@ -3,7 +3,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 
-from helper.common import AGENT_URL, AGENT_TIMEOUT, _fwd_headers
+from helper.common import AGENT_URL, AGENT_TIMEOUT, _fwd_headers, get_site_settings_payload
 from contracts.client_api import (
     SuggestGetRequest,
     SuggestGetResponse,
@@ -22,6 +22,15 @@ def suggest(
     x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
     x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> SuggestGetResponse:
+    settings = get_site_settings_payload(payload.siteId)
+    if not settings.get("enableSuggestion", True):
+        logger.info(
+            "Suggestion disabled for site=%s request_id=%s",
+            payload.siteId,
+            x_request_id,
+        )
+        return SuggestGetResponse(suggestions=[])
+
     body = payload.model_dump()
     try:
         logger.info(
@@ -70,6 +79,15 @@ def suggest_next(
     x_contract_version: Optional[str] = Header(default=None, alias="X-Contract-Version"),
     x_request_id: Optional[str] = Header(default=None, alias="X-Request-Id"),
 ) -> SuggestNextResponse:
+    settings = get_site_settings_payload(payload.siteId)
+    if not settings.get("enableSuggestion", True):
+        logger.info(
+            "Suggestion disabled for site=%s request_id=%s (next)",
+            payload.siteId,
+            x_request_id,
+        )
+        return SuggestNextResponse(suggestions=[])
+
     body = payload.model_dump()
     try:
         logger.info(

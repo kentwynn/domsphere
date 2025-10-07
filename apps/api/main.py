@@ -8,6 +8,7 @@ from routes.rule import router as rule_router
 from routes.suggest import router as suggest_router
 from routes.site import router as site_router
 from routes.sdk import router as sdk_router
+from routes.embedding import router as embedding_router
 
 logger = get_api_logger(__name__)
 
@@ -21,4 +22,5 @@ app.include_router(rule_router)
 app.include_router(suggest_router)
 app.include_router(site_router)
 app.include_router(sdk_router)
-logger.info("Registered API routers: health, rule, suggest, site, sdk")
+app.include_router(embedding_router)
+logger.info("Registered API routers: health, rule, suggest, site, sdk, embedding")

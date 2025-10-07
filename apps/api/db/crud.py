@@ -17,6 +17,7 @@ from .models import (
     SiteMapPage,
     SitePage,
     SiteStyle,
+    SiteSettings,
 )
 from .session import session_scope
 
@@ -317,6 +318,41 @@ def upsert_site_style(site_id: str, css: str) -> SiteStyle:
         session.flush()
         logger.info("Upserted site style site_id=%s", site_id)
         return style
+
+
+def get_site_settings(site_id: str) -> Optional[SiteSettings]:
+    with session_scope() as session:
+        return session.get(SiteSettings, site_id)
+
+
+def upsert_site_settings(
+    site_id: str,
+    *,
+    enable_suggestion: Optional[bool] = None,
+    enable_search: Optional[bool] = None,
+    top_search_results: Optional[int] = None,
+) -> SiteSettings:
+    with session_scope() as session:
+        _ensure_site(session, site_id)
+        settings = session.get(SiteSettings, site_id)
+        if settings is None:
+            settings = SiteSettings(site_id=site_id)
+            session.add(settings)
+        if enable_suggestion is not None:
+            settings.enable_suggestion = bool(enable_suggestion)
+        if enable_search is not None:
+            settings.enable_search = bool(enable_search)
+        if top_search_results is not None:
+            try:
+                value = int(top_search_results)
+            except (TypeError, ValueError):
+                value = settings.top_search_results
+            else:
+                value = max(1, min(20, value))
+            settings.top_search_results = value
+        session.flush()
+        logger.info("Upserted site settings site_id=%s", site_id)
+        return settings
 
 
 def list_site_info(site_id: str) -> List[SiteInfo]:

@@ -17,6 +17,7 @@ from db.crud import (
     get_site_atlas as db_get_site_atlas,
     get_site_info as db_get_site_info,
     get_site_style as db_get_site_style,
+    get_site_settings as db_get_site_settings,
     insert_rule as db_insert_rule,
     list_rules as db_list_rules,
     list_site_pages as db_list_site_pages,
@@ -31,6 +32,7 @@ from db.crud import (
     upsert_site_info_record as db_upsert_site_info_record,
     upsert_site_atlas as db_upsert_site_atlas,
     upsert_site_style as db_upsert_site_style,
+    upsert_site_settings as db_upsert_site_settings,
     touch_site_page_info as db_touch_site_page_info,
     touch_site_page_atlas as db_touch_site_page_atlas,
     touch_site_page_embedding as db_touch_site_page_embedding,
@@ -557,6 +559,52 @@ def store_site_style(site_id: str, css: str) -> str:
     return style.updated_at.isoformat()
 
 
+def _site_settings_payload(record: Any) -> Dict[str, Any]:
+    try:
+        top_value = int(getattr(record, "top_search_results", 5) or 5)
+    except (TypeError, ValueError):
+        top_value = 5
+    top_value = max(1, min(20, top_value))
+    return {
+        "siteId": record.site_id,
+        "enableSuggestion": bool(getattr(record, "enable_suggestion", True)),
+        "enableSearch": bool(getattr(record, "enable_search", True)),
+        "topSearchResults": top_value,
+        "updatedAt": record.updated_at.isoformat() if getattr(record, "updated_at", None) else None,
+    }
+
+
+def get_site_settings_payload(site_id: str) -> Dict[str, Any]:
+    _ensure_db_ready()
+    record = db_get_site_settings(site_id)
+    if record is None:
+        return {
+            "siteId": site_id,
+            "enableSuggestion": True,
+            "enableSearch": True,
+            "topSearchResults": 5,
+            "updatedAt": None,
+        }
+    return _site_settings_payload(record)
+
+
+def store_site_settings_payload(
+    site_id: str,
+    *,
+    enable_suggestion: bool | None = None,
+    enable_search: bool | None = None,
+    top_search_results: int | None = None,
+) -> Dict[str, Any]:
+    _ensure_db_ready()
+    record = db_upsert_site_settings(
+        site_id,
+        enable_suggestion=enable_suggestion,
+        enable_search=enable_search,
+        top_search_results=top_search_results,
+    )
+    return _site_settings_payload(record)
+
+
 def get_site_map_response(site_id: str) -> SiteMapResponse:
     _ensure_db_ready()
     page_models = db_list_site_pages(site_id, status="active")
@@ -724,6 +772,7 @@ def search_site_embeddings(
     query_embedding: Sequence[float],
     *,
     top_k: int = 3,
+    records: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Tuple[str, float, Dict[str, Any]]]:
     if top_k <= 0:
         return []
@@ -732,8 +781,8 @@ def search_site_embeddings(
     if query_vector.size == 0:
         return []
 
-    records = get_site_embeddings(site_id)
-    if not records:
+    record_map = records if records is not None else get_site_embeddings(site_id)
+    if not record_map:
         return []
 
     urls: List[str] = []
@@ -741,7 +790,7 @@ def search_site_embeddings(
     vectors: List[np.ndarray] = []
     expected_dim = query_vector.shape[0]
 
-    for url, payload in records.items():
+    for url, payload in record_map.items():
         embedding = payload.get("embedding")
         normalized = _normalize_numpy(embedding)
         if normalized.size == 0 or normalized.shape[0] != expected_dim:

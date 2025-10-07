@@ -9,6 +9,9 @@ import {
   SuggestNextResponse,
   SiteStyleResponse,
   SiteStylePayload,
+  SiteSettingsResponse,
+  SiteSettingsPayload,
+  EmbeddingSearchResponse,
 } from './types';
 
 type HeadersLoose = Record<string, string | undefined>;
@@ -21,6 +24,24 @@ async function postJson<TReq, TRes>(
 ): Promise<TRes> {
   const res = await fetch(new URL(path, baseUrl).toString(), {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} ${res.statusText} @ ${path}: ${text}`);
+  }
+  return (await res.json()) as TRes;
+}
+
+async function putJson<TReq, TRes>(
+  baseUrl: string,
+  path: string,
+  body: TReq,
+  headers: HeadersLoose = {}
+): Promise<TRes> {
+  const res = await fetch(new URL(path, baseUrl).toString(), {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
@@ -94,6 +115,26 @@ export function createApi(opts: ClientOptions) {
       postJson<SiteStylePayload, SiteStyleResponse>(
         baseUrl,
         '/sdk/style',
+        body,
+        headers()
+      ),
+    settingsGet: (siteId: string) =>
+      getJson<SiteSettingsResponse>(
+        baseUrl,
+        `/sdk/settings?siteId=${encodeURIComponent(siteId)}`,
+        headers()
+      ),
+    settingsUpdate: (body: SiteSettingsPayload) =>
+      putJson<SiteSettingsPayload, SiteSettingsResponse>(
+        baseUrl,
+        '/sdk/settings',
+        body,
+        headers()
+      ),
+    embeddingSearch: (body: { siteId: string; query: string; limit?: number }) =>
+      postJson<{ siteId: string; query: string; limit?: number }, EmbeddingSearchResponse>(
+        baseUrl,
+        '/embedding/search',
         body,
         headers()
       ),

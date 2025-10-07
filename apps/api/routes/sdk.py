@@ -2,8 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from contracts.client_api import SiteStylePayload, SiteStyleResponse
-from helper.common import get_site_style, store_site_style
+from contracts.client_api import (
+    SiteSettingsPayload,
+    SiteSettingsResponse,
+    SiteStylePayload,
+    SiteStyleResponse,
+)
+from helper.common import (
+    get_site_style,
+    store_site_style,
+    get_site_settings_payload,
+    store_site_settings_payload,
+)
 from core.logging import get_api_logger
 
 router = APIRouter(prefix="/sdk", tags=["sdk"])
@@ -33,3 +43,34 @@ def upsert_style(payload: SiteStylePayload) -> SiteStyleResponse:
         updatedAt=updated,
         source="mock",
     )
+
+
+@router.get("/settings", response_model=SiteSettingsResponse)
+def fetch_settings(siteId: str) -> SiteSettingsResponse:
+    payload = get_site_settings_payload(siteId)
+    logger.info(
+        "Returning SDK settings site=%s enableSuggestion=%s enableSearch=%s topSearch=%s",
+        payload["siteId"],
+        payload["enableSuggestion"],
+        payload["enableSearch"],
+        payload.get("topSearchResults"),
+    )
+    return SiteSettingsResponse(**payload)
+
+
+@router.put("/settings", response_model=SiteSettingsResponse)
+def upsert_settings(payload: SiteSettingsPayload) -> SiteSettingsResponse:
+    updated = store_site_settings_payload(
+        payload.siteId,
+        enable_suggestion=payload.enableSuggestion,
+        enable_search=payload.enableSearch,
+        top_search_results=payload.topSearchResults,
+    )
+    logger.info(
+        "Stored SDK settings site=%s enableSuggestion=%s enableSearch=%s topSearch=%s",
+        updated["siteId"],
+        updated["enableSuggestion"],
+        updated["enableSearch"],
+        updated.get("topSearchResults"),
+    )
+    return SiteSettingsResponse(**updated)

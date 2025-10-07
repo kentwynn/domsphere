@@ -68,6 +68,26 @@ class AgentEmbeddingResponse(BaseModel):
     model: str
     embedding: List[float]
 
+
+class AgentEmbeddingSearchRequest(BaseModel):
+    siteId: str
+    query: str
+    limit: Optional[int] = None
+
+
+class AgentEmbeddingSearchResult(BaseModel):
+    url: str
+    similarity: float
+    title: Optional[str] = None
+    description: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
+
+
+class AgentEmbeddingSearchResponse(BaseModel):
+    siteId: str
+    query: str
+    results: List[AgentEmbeddingSearchResult]
+
 # ==============================================================================
 # /agent/health
 # ==============================================================================
@@ -90,6 +110,9 @@ __all__ = [
     # embedding
     "AgentEmbeddingRequest",
     "AgentEmbeddingResponse",
+    "AgentEmbeddingSearchRequest",
+    "AgentEmbeddingSearchResult",
+    "AgentEmbeddingSearchResponse",
     # health
     "AgentHealthResponse",
 ]

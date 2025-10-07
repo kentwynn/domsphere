@@ -54,6 +54,7 @@ class Site(TimestampMixin, Base):
     embeddings = relationship("SiteEmbedding", back_populates="site", cascade="all, delete-orphan")
     atlas_entries = relationship("SiteAtlas", back_populates="site", cascade="all, delete-orphan")
     pages = relationship("SitePage", back_populates="site", cascade="all, delete-orphan")
+    settings = relationship("SiteSettings", back_populates="site", uselist=False, cascade="all, delete-orphan")
 
 
 class SiteStyle(TimestampMixin, Base):
@@ -66,6 +67,32 @@ class SiteStyle(TimestampMixin, Base):
     css: Mapped[str] = mapped_column(Text, nullable=False)
 
     site = relationship("Site", back_populates="style")
+
+
+class SiteSettings(TimestampMixin, Base):
+    __tablename__ = "site_settings"
+
+    site_id: Mapped[str] = mapped_column(
+        ForeignKey("sites.site_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enable_suggestion: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+    enable_search: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+    top_search_results: Mapped[int] = mapped_column(
+        Integer,
+        default=5,
+        nullable=False,
+    )
+
+    site = relationship("Site", back_populates="settings")
 
 
 class Rule(TimestampMixin, Base):

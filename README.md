@@ -787,7 +787,10 @@ Include the minified bundle and boot the AutoAssistant once the DOM is ready:
         baseUrl: 'http://localhost:4000',
         siteId: 'your-site-id',
         sessionId: 'dev-session',
-        panelSelector: '#assistant-panel',
+        suggestionSelector: '#assistant-panel',
+        searchSelector: '#assistant-search',
+        searchInputSelector: '#assistant-search-input',
+        searchDebounceMs: 300,
         debounceMs: 150,
         finalCooldownMs: 30000,
       });
@@ -809,7 +812,15 @@ Include the minified bundle and boot the AutoAssistant once the DOM is ready:
 </script>
 ```
 
-Update `baseUrl`, `siteId`, and `panelSelector` to match your environment before deploying.
+Add matching containers to your markup so the assistant and search results have a home:
+
+```html
+<div id="assistant-panel"></div>
+<div id="assistant-search"></div>
+<input id="assistant-search-input" type="search" placeholder="Search your site" />
+```
+
+Update `baseUrl`, `siteId`, `suggestionSelector`, `searchSelector`, and `searchInputSelector` to match your environment before deploying. When search (or suggestions) is enabled in `site_settings`, the SDK will auto-create simple `#id`/`.class` targets if they are missing; define the HTML yourself when you want precise placement or custom wrappers. Queries shorter than three characters are ignored, you can tune input throttling with `searchDebounceMs`, and the `topSearchResults` setting (default 5) controls how many results are returned/rendered (no “show more” button required).
 
 #### Example styling
 
@@ -818,20 +829,19 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
 ```css
 #assistant-panel {
   position: fixed;
-  max-width: 300px;
+  max-width: 90%;
   z-index: 9999;
   bottom: 20px;
   left: 20px;
+  font-size: 0.8em;
 }
 
 #assistant-panel::before {
   content: 'AI SUGGESTIONS';
-  font-size: 0.65rem;
-  letter-spacing: 0.6ch;
-  color: rgba(148, 163, 184, 0.75);
+  letter-spacing: 1ch;
 }
 
-#assistant-panel [data-role='assistant-card'] {
+#assistant-panel [data-role="assistant-card"] {
   --assistant-border-width: 3px;
   position: relative;
   padding: 1.5rem;
@@ -841,19 +851,27 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
   overflow: hidden;
 }
 
-#assistant-panel [data-role='assistant-card']::after {
+#assistant-panel [data-role="assistant-card"]::after {
   content: '';
   position: absolute;
   inset: calc(-1 * var(--assistant-border-width));
   border-radius: calc(18px + var(--assistant-border-width));
-  background: linear-gradient(60deg, #f79533, #f37055, #ef4e7b, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82);
+  background: linear-gradient(60deg,
+      #f79533,
+      #f37055,
+      #ef4e7b,
+      #a166ab,
+      #5073b8,
+      #1098ad,
+      #07b39b,
+      #6fba82);
   z-index: -2;
   background-size: 300% 300%;
   animation: assistant-gradient 3.5s ease alternate infinite;
   filter: blur(0.5px);
 }
 
-#assistant-panel [data-role='assistant-card']::before {
+#assistant-panel [data-role="assistant-card"]::before {
   content: '';
   position: absolute;
   inset: 0.6rem;
@@ -862,32 +880,29 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
   z-index: -1;
 }
 
-#assistant-panel [data-role='assistant-title'] {
+#assistant-panel [data-role="assistant-title"] {
   margin: 0;
-  font-size: 1.15rem;
   font-weight: 600;
   color: #f8fafc;
 }
 
-#assistant-panel [data-role='assistant-description'] {
+#assistant-panel [data-role="assistant-description"] {
   margin: 0.35rem 0 0.75rem 0;
-  font-size: 0.95rem;
   line-height: 1.6;
   color: rgba(203, 213, 225, 0.85);
 }
 
-#assistant-panel [data-role='assistant-actions'] {
+#assistant-panel [data-role="assistant-actions"] {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
 }
 
-#assistant-panel [data-role='assistant-actions'] button {
+#assistant-panel [data-role="assistant-actions"] button {
   position: relative;
   border: none;
   border-radius: 999px;
   padding: 0.55rem 1.2rem;
-  font-size: 0.9rem;
   font-weight: 500;
   letter-spacing: 0.02em;
   background: rgba(15, 23, 42, 0.75);
@@ -895,37 +910,66 @@ Drop this into your host app’s stylesheet to give the assistant panel a polish
   transition: transform 150ms ease, box-shadow 150ms ease;
 }
 
-#assistant-panel [data-role='assistant-actions'] button[data-assistant-variant='primary'] {
+#assistant-panel [data-role="assistant-actions"] button[data-assistant-variant="primary"] {
   background: linear-gradient(135deg, #60a5fa, #6366f1);
   color: #050816;
   box-shadow: 0 12px 25px rgba(99, 102, 241, 0.35);
 }
 
-#assistant-panel [data-role='assistant-actions'] button[data-assistant-variant='secondary'] {
+#assistant-panel [data-role="assistant-actions"] button[data-assistant-variant="secondary"] {
   border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
-#assistant-panel [data-role='assistant-actions'] button:hover,
-#assistant-panel [data-role='assistant-actions'] button:focus-visible {
+#assistant-panel [data-role="assistant-actions"] button:hover,
+#assistant-panel [data-role="assistant-actions"] button:focus-visible {
   transform: translateY(-1px);
   box-shadow: 0 16px 35px rgba(99, 102, 241, 0.28);
 }
 
-#assistant-panel [data-role='assistant-card'][data-assistant-origin*='recommendation']::after {
+#assistant-panel [data-role="assistant-card"][data-assistant-origin*="recommendation"]::after {
   animation-duration: 2.6s;
 }
 
 @keyframes assistant-gradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
+
+#assistant-search::before {
+  position: absolute;
+  content: 'AI SEARCH';
+  letter-spacing: 0.8ch;
+  right: 14px;
+  bottom: calc(100% + 14px);
+  font-size: 0.8em;
+}
+
+#assistant-search {
+  position: absolute;
+  top: 44px;
+  width: 100%;
+}
+
+#assistant-search [data-role='assistant-search-list'] {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#assistant-search [data-role='assistant-search-item'] {
+  padding: 0.75rem 1rem;
+  border-radius: 5px;
+  background: #414042;
+  text-align: left;
+  transition: all ease-in-out 0.3s;
+}
+
+#assistant-search [data-role='assistant-search-item']:hover {
+  background: black;
+  transition: all ease-in-out 0.3s;
+}
+
 ```
 
 ---
@@ -959,7 +1003,7 @@ nx run api-client:codegen && nx build web
 
 ```bash
 # Build SDK and test in browser
-pnpm nx run sdk:build-all && npx http-server dist/packages/sdk/umd -p 8080 -c-1
+nx run sdk:build-all && npx http-server dist/packages/sdk/umd -p 8080 -c-1
 ```
 
 ### Fresh Build (Clean Slate)

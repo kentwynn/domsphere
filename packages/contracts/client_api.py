@@ -150,6 +150,26 @@ class SiteMapSearchResponse(BaseModel):
     results: List[SiteMapSearchResult] = Field(default_factory=list)
 
 
+class EmbeddingSearchRequest(BaseModel):
+    siteId: str
+    query: str
+    limit: Optional[int] = Field(default=20, ge=1, le=100)
+
+
+class EmbeddingSearchResult(BaseModel):
+    url: str
+    similarity: float
+    title: Optional[str] = None
+    description: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
+
+
+class EmbeddingSearchResponse(BaseModel):
+    siteId: str
+    query: str
+    results: List[EmbeddingSearchResult] = Field(default_factory=list)
+
+
 # ==============================================================================
 # /site/info
 # ==============================================================================
@@ -219,6 +239,25 @@ class SiteStyleResponse(BaseModel):
     css: Optional[str] = None
     updatedAt: Optional[str] = None
     source: Optional[str] = None
+
+
+# ==============================================================================
+# /sdk/settings
+# ==============================================================================
+
+class SiteSettingsPayload(BaseModel):
+    siteId: str
+    enableSuggestion: Optional[bool] = None
+    enableSearch: Optional[bool] = None
+    topSearchResults: Optional[int] = Field(default=None, ge=1, le=20)
+
+
+class SiteSettingsResponse(BaseModel):
+    siteId: str
+    enableSuggestion: bool = True
+    enableSearch: bool = True
+    topSearchResults: int = Field(default=5, ge=1, le=20)
+    updatedAt: Optional[str] = None
 
 
 # ==============================================================================

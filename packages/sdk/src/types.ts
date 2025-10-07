@@ -59,3 +59,32 @@ export type SiteStylePayload = {
   siteId: string;
   css: string;
 };
+
+export type SiteSettingsResponse = {
+  siteId: string;
+  enableSuggestion: boolean;
+  enableSearch: boolean;
+  topSearchResults: number;
+  updatedAt?: string | null;
+};
+
+export type SiteSettingsPayload = {
+  siteId: string;
+  enableSuggestion?: boolean;
+  enableSearch?: boolean;
+  topSearchResults?: number;
+};
+
+export type EmbeddingSearchResult = {
+  url: string;
+  similarity: number;
+  title?: string | null;
+  description?: string | null;
+  meta?: Record<string, unknown> | null;
+};
+
+export type EmbeddingSearchResponse = {
+  siteId: string;
+  query: string;
+  results: EmbeddingSearchResult[];
+};

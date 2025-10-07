@@ -9,6 +9,7 @@ import {
   type FocusMap,
 } from './focus';
 import { renderFinalSuggestions } from './render';
+import { renderSearchResults as renderSearchList } from './search';
 import {
   ancestorBrief,
   attrMap,
@@ -30,13 +31,19 @@ import {
   type Suggestion,
   type SuggestNextRequest,
   type SuggestNextResponse,
+  type SiteSettingsResponse,
+  type EmbeddingSearchResult,
+  type EmbeddingSearchResponse,
 } from './types';
 import { normalizePath, toCamel } from './utils';
 
 export type AutoAssistantOptions = ClientOptions & {
   siteId: string;
   sessionId: string;
-  panelSelector?: string;
+  suggestionSelector: string;
+  searchSelector?: string;
+  searchInputSelector?: string;
+  searchDebounceMs?: number;
   debounceMs?: number; // default 150
   finalCooldownMs?: number; // default 30000
   baseContext?: Record<string, unknown>;
@@ -70,7 +77,19 @@ export class AutoAssistant {
   private styleCss: string | null | undefined = undefined;
   private styleFetchPromise: Promise<string | null> | null = null;
   private styleTag?: HTMLStyleElement;
-  private panelContainer: HTMLElement | null = null;
+  private suggestionContainer: HTMLElement | null = null;
+  private searchContainer: HTMLElement | null = null;
+  private siteSettings: SiteSettingsResponse;
+  private siteSettingsLoaded = false;
+  private siteSettingsPromise: Promise<SiteSettingsResponse> | null = null;
+  private lastSearchResults: EmbeddingSearchResult[] = [];
+  private searchInflight = false;
+  private searchRequestId = 0;
+  private searchInput?: HTMLInputElement | null;
+  private searchInputListener?: (event: Event) => void;
+  private searchInputCleanup?: () => void;
+  private searchInputRetryTimer?: number;
+  private searchDebounceTimer?: number;
 
   // Time-based rule tracking
   private lastTimeBasedTrigger = 0;
@@ -119,6 +138,67 @@ export class AutoAssistant {
     return `${kind}|${label}|${JSON.stringify(payload) || ''}|${url}`;
   }
 
+  private async ensureSiteSettings(): Promise<SiteSettingsResponse> {
+    if (this.siteSettingsLoaded && !this.siteSettingsPromise) {
+      return this.siteSettings;
+    }
+    if (this.siteSettingsPromise) {
+      try {
+        return await this.siteSettingsPromise;
+      } catch {
+        // fall through to refetch
+      }
+    }
+
+    const defaults: SiteSettingsResponse = {
+      siteId: this.opts.siteId,
+      enableSuggestion: true,
+      enableSearch: true,
+      topSearchResults: 5,
+      updatedAt: null,
+    };
+
+    const fetchPromise = this.api
+      .settingsGet(this.opts.siteId)
+      .then((res: SiteSettingsResponse) => {
+        const settings: SiteSettingsResponse = {
+          siteId:
+            typeof res?.siteId === 'string' && res.siteId
+              ? (res.siteId as string)
+              : this.opts.siteId,
+          enableSuggestion:
+            typeof res?.enableSuggestion === 'boolean'
+              ? (res.enableSuggestion as boolean)
+              : true,
+          enableSearch:
+            typeof res?.enableSearch === 'boolean'
+              ? (res.enableSearch as boolean)
+              : true,
+          topSearchResults:
+            typeof res?.topSearchResults === 'number'
+              ? (res.topSearchResults as number)
+              : defaults.topSearchResults,
+          updatedAt:
+            typeof res?.updatedAt === 'string' ? (res.updatedAt as string) : null,
+        };
+        this.siteSettings = settings;
+        this.siteSettingsLoaded = true;
+        return settings;
+      })
+      .catch((err: unknown) => {
+        console.warn('[AutoAssistant] settings fetch failed', err);
+        this.siteSettings = defaults;
+        this.siteSettingsLoaded = true;
+        return defaults;
+      })
+      .finally(() => {
+        this.siteSettingsPromise = null;
+      });
+
+    this.siteSettingsPromise = fetchPromise;
+    return fetchPromise;
+  }
+
   constructor(options: AutoAssistantOptions) {
     this.opts = {
       debounceMs: options.debounceMs ?? 150,
@@ -126,6 +206,13 @@ export class AutoAssistant {
       ...options,
     };
     this.api = createApi(options);
+    this.siteSettings = {
+      siteId: this.opts.siteId,
+      enableSuggestion: true,
+      enableSearch: true,
+      topSearchResults: 5,
+      updatedAt: null,
+    };
   }
 
   on(
@@ -136,6 +223,9 @@ export class AutoAssistant {
   }
 
   async start() {
+    this.ensureSearchElement();
+    this.ensureSearchInputElement();
+    await this.ensureSiteSettings();
     void this.ensureSiteStyle();
     // 1) Load rules to choose focus vs rich tracking
     try {
@@ -180,6 +270,9 @@ export class AutoAssistant {
       // When enabled, this branch should register broad listeners (page_load, clicks, inputs)
       // and derive telemetry heuristics safely.
     }
+    this.initSearchInputBinding();
+    this.ensureSearchContainer();
+    this.ensureSearchInputElement();
   }
 
   // Focused tracking: only emit allowed events and only for allowed selectors
@@ -420,6 +513,158 @@ export class AutoAssistant {
     if (this.debTimer) window.clearTimeout(this.debTimer);
   }
 
+  private initSearchInputBinding(): void {
+    if (!this.opts.searchInputSelector || typeof document === 'undefined') {
+      return;
+    }
+    const selector = this.opts.searchInputSelector;
+
+    const attempt = () => {
+      if (this.bindSearchInputOnce(selector)) {
+        this.searchInputRetryTimer = undefined;
+        return;
+      }
+      this.searchInputRetryTimer = window.setTimeout(attempt, 250);
+    };
+
+    attempt();
+
+    this.detachFns.push(() => {
+      if (this.searchInputRetryTimer !== undefined) {
+        window.clearTimeout(this.searchInputRetryTimer);
+        this.searchInputRetryTimer = undefined;
+      }
+      if (this.searchInputCleanup) {
+        this.searchInputCleanup();
+        this.searchInputCleanup = undefined;
+      }
+      this.searchInput = null;
+      this.searchInputListener = undefined;
+    });
+  }
+
+  private bindSearchInputOnce(selector: string): boolean {
+    if (typeof document === 'undefined') {
+      return true;
+    }
+
+    let el = document.querySelector<HTMLInputElement>(selector);
+    if (!el) {
+      el = this.ensureSearchInputElement();
+      if (!el) {
+        return false;
+      }
+    }
+
+    if (!el) {
+      return false;
+    }
+
+    if (this.searchInput === el && this.searchInputListener) {
+      return true;
+    }
+
+    if (this.searchInputCleanup) {
+      this.searchInputCleanup();
+      this.searchInputCleanup = undefined;
+      this.searchInput = null;
+      this.searchInputListener = undefined;
+    }
+
+    const handler = (event: Event) => {
+      const target = event.target as HTMLInputElement | null;
+      const value = target?.value ?? '';
+      this.scheduleSearch(value);
+    };
+
+    el.addEventListener('input', handler);
+    this.searchInput = el;
+    this.searchInputListener = handler;
+    this.searchInputCleanup = () => {
+      el.removeEventListener('input', handler);
+      if (this.searchDebounceTimer !== undefined) {
+        window.clearTimeout(this.searchDebounceTimer);
+        this.searchDebounceTimer = undefined;
+      }
+    };
+
+    if (el.value) {
+      this.scheduleSearch(el.value, true);
+    }
+
+    return true;
+  }
+
+  private scheduleSearch(value: string, immediate = false): void {
+    if (this.searchDebounceTimer !== undefined) {
+      window.clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = undefined;
+    }
+
+    const delay = immediate ? 0 : Math.max(0, this.opts.searchDebounceMs ?? 300);
+    if (delay === 0) {
+      void this.search(value);
+      return;
+    }
+
+    this.searchDebounceTimer = window.setTimeout(() => {
+      this.searchDebounceTimer = undefined;
+      void this.search(value);
+    }, delay);
+  }
+
+  async search(query: string, limit = 20): Promise<void> {
+    await this.ensureSiteSettings();
+    if (!this.siteSettings.enableSearch) {
+      this.clearSearchResults();
+      return;
+    }
+    const trimmed = typeof query === 'string' ? query.trim() : '';
+    if (!trimmed || trimmed.length < 3) {
+      this.clearSearchResults();
+      return;
+    }
+    const configuredLimit = Math.max(
+      1,
+      Math.min(20, Number(this.siteSettings.topSearchResults) || 5)
+    );
+
+    let finalLimit = configuredLimit;
+    if (limit != null) {
+      const numericLimit = Number(limit);
+      if (Number.isFinite(numericLimit) && numericLimit > 0) {
+        finalLimit = Math.max(1, Math.min(20, numericLimit));
+      }
+    }
+    finalLimit = Math.min(finalLimit, configuredLimit);
+    const requestId = ++this.searchRequestId;
+    this.searchInflight = true;
+    try {
+      const res = (await this.api.embeddingSearch({
+        siteId: this.opts.siteId,
+        query: trimmed,
+        limit: finalLimit,
+      })) as EmbeddingSearchResponse;
+      if (requestId !== this.searchRequestId) {
+        return;
+      }
+      const results = Array.isArray(res?.results)
+        ? (res.results as EmbeddingSearchResult[])
+        : [];
+      this.renderSearchResultsView(results.slice(0, configuredLimit));
+    } catch (err) {
+      console.warn('[AutoAssistant] search fetch failed', err);
+      if (requestId === this.searchRequestId) {
+        this.clearSearchResults();
+      }
+      this.bus.emit('error', err);
+    } finally {
+      if (requestId === this.searchRequestId) {
+        this.searchInflight = false;
+      }
+    }
+  }
+
   // No ask/form flows in stateless mode
 
   private schedule(fn: () => void) {
@@ -477,20 +722,20 @@ export class AutoAssistant {
     return promise;
   }
 
-  private canOpenPanel(): boolean {
+  private canOpenSuggestions(): boolean {
     return Date.now() >= this.cooldownUntil;
   }
 
-  private panelEl(): HTMLElement | null {
-    if (this.panelContainer && document.contains(this.panelContainer)) {
-      return this.panelContainer;
+  private suggestionEl(): HTMLElement | null {
+    if (this.suggestionContainer && document.contains(this.suggestionContainer)) {
+      return this.suggestionContainer;
     }
-    this.panelContainer = this.ensurePanelElement();
-    return this.panelContainer;
+    this.suggestionContainer = this.ensureSuggestionElement();
+    return this.suggestionContainer;
   }
-  private ensurePanelElement(): HTMLElement | null {
+  private ensureSuggestionElement(): HTMLElement | null {
     if (typeof document === 'undefined') return null;
-    const sel = this.opts.panelSelector;
+    const sel = this.opts.suggestionSelector;
     if (!sel) return null;
 
     const existing = document.querySelector<HTMLElement>(sel);
@@ -505,7 +750,7 @@ export class AutoAssistant {
 
     const el = document.createElement('div');
     if (sel.startsWith('#')) {
-      el.id = sel.slice(1) || 'assistant-panel';
+      el.id = sel.slice(1) || 'assistant-suggestions';
     } else {
       el.className = sel.slice(1);
     }
@@ -517,12 +762,12 @@ export class AutoAssistant {
     }
     return el;
   }
-  private closePanel() {
-    const panel = this.panelEl();
-    if (panel) panel.innerHTML = '';
+  private clearSuggestions() {
+    const el = this.suggestionEl();
+    if (el) el.innerHTML = '';
   }
   private renderSuggestions(suggestions: Suggestion[]) {
-    const panel = this.panelEl();
+    const panel = this.suggestionEl();
     if (!panel) return;
     this.lastSuggestions = suggestions;
     void this.ensureSiteStyle();
@@ -543,7 +788,7 @@ export class AutoAssistant {
   }
 
   private renderStep() {
-    const panel = this.panelEl();
+    const panel = this.suggestionEl();
     if (!panel) return;
     const toShow = this.lastSuggestions.filter((s) => {
       const metaObj =
@@ -559,6 +804,113 @@ export class AutoAssistant {
     renderFinalSuggestions(panel, toShow, (cta) => this.executeCta(cta));
     this.bus.emit('suggest:ready', toShow);
     this.cooldownUntil = Date.now() + this.opts.finalCooldownMs;
+  }
+
+  private searchEl(): HTMLElement | null {
+    if (!this.opts.searchSelector) return null;
+    if (this.searchContainer && document.contains(this.searchContainer)) {
+      return this.searchContainer;
+    }
+    this.searchContainer = this.ensureSearchElement();
+    return this.searchContainer;
+  }
+
+  private ensureSearchElement(): HTMLElement | null {
+    if (typeof document === 'undefined') return null;
+    const sel = this.opts.searchSelector;
+    if (!sel) return null;
+
+    const existing = document.querySelector<HTMLElement>(sel);
+    if (existing) {
+      return existing;
+    }
+
+    const simpleSelector = /^([#.][A-Za-z0-9_-]+)$/.test(sel);
+    if (!simpleSelector) {
+      return null;
+    }
+
+    const el = document.createElement('div');
+    if (sel.startsWith('#')) {
+      el.id = sel.slice(1) || 'assistant-search';
+    } else {
+      el.className = sel.slice(1);
+    }
+    el.dataset['autoCreated'] = 'true';
+
+    const host = document.body || document.documentElement;
+    if (host) {
+      host.insertAdjacentElement('afterbegin', el);
+    }
+    return el;
+  }
+
+  private ensureSearchContainer(): void {
+    if (!this.opts.searchSelector) return;
+    const el = this.searchEl();
+    if (!el) return;
+    if (!el.dataset['assistantInitialized']) {
+      el.dataset['assistantInitialized'] = 'true';
+      renderSearchList(el, []);
+    }
+  }
+
+  private ensureSearchInputElement(): HTMLInputElement | null {
+    if (typeof document === 'undefined') return null;
+    const sel = this.opts.searchInputSelector;
+    if (!sel) return null;
+
+    const existing = document.querySelector<HTMLInputElement>(sel);
+    if (existing) {
+      return existing;
+    }
+
+    const simpleSelector = /^([#.][A-Za-z0-9_-]+)$/.test(sel);
+    if (!simpleSelector) {
+      return null;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'search';
+    input.dataset['autoCreated'] = 'true';
+    if (sel.startsWith('#')) {
+      input.id = sel.slice(1) || 'assistant-search-input';
+    } else {
+      input.className = sel.slice(1);
+    }
+    if (!input.placeholder) {
+      input.placeholder = 'Search';
+    }
+
+    const container = this.searchEl();
+    const host =
+      container?.parentElement ||
+      document.body ||
+      document.documentElement;
+    if (container && container.parentElement) {
+      container.before(input);
+    } else if (host) {
+      host.insertAdjacentElement('afterbegin', input);
+    } else {
+      return null;
+    }
+    return input;
+  }
+
+  private renderSearchResultsView(results: EmbeddingSearchResult[]): void {
+    const el = this.searchEl();
+    if (!el) return;
+    this.lastSearchResults = results;
+    void this.ensureSiteStyle();
+    renderSearchList(el, results);
+  }
+
+  private clearSearchResults(): void {
+    this.lastSearchResults = [];
+    const el = this.searchEl();
+    if (!el) return;
+    void this.ensureSiteStyle();
+    renderSearchList(el, []);
   }
 
   private async executeCta(cta: CtaSpec) {
@@ -678,6 +1030,8 @@ export class AutoAssistant {
           if (fallback) navigateTo(fallback);
         },
         choose: async (c) => {
+          await this.ensureSiteSettings();
+          if (!this.siteSettings.enableSuggestion) return;
           const payload = (this.ctaRecord(c)['payload'] ?? {}) as Record<
             string,
             unknown
@@ -799,7 +1153,7 @@ export class AutoAssistant {
       // After executing a CTA, advance based on explicit next* navigation or fallbacks.
       const nav = this.ctaRecord(cta);
       if (nav['nextClose']) {
-        this.closePanel();
+        this.clearSuggestions();
         return;
       }
       if (nav['nextId']) {
@@ -956,6 +1310,11 @@ export class AutoAssistant {
     this.inflight = true;
 
     try {
+      await this.ensureSiteSettings();
+      if (!this.siteSettings.enableSuggestion) {
+        return;
+      }
+
       const rcReq: RuleCheckRequest = {
         siteId: this.opts.siteId,
         sessionId: this.opts.sessionId,
@@ -981,7 +1340,7 @@ export class AutoAssistant {
       if (topRuleId && this.triggeredRules.has(topRuleId)) {
         return;
       }
-      if (!rcRes.shouldProceed || (!this.canOpenPanel() && !isNewMatch)) {
+      if (!rcRes.shouldProceed || (!this.canOpenSuggestions() && !isNewMatch)) {
         return;
       }
 
